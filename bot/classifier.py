@@ -10,17 +10,15 @@ Architecture:
 import warnings
 warnings.simplefilter("ignore", FutureWarning)
 
-import google.generativeai as genai
 import json
-import os
 import logging
 import time
 from datetime import datetime
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+from models import call_tier, get_model
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+logger = logging.getLogger(__name__)
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 CLASSIFY_PROMPT = (PROMPTS_DIR / "classify.md").read_text(encoding="utf-8")
@@ -54,43 +52,6 @@ NGUYÊN TẮC ROUTING:
 TODAY = {datetime.now().strftime("%Y-%m-%d (%A)")}
 """.strip()
 
-JSON_CONFIG = genai.GenerationConfig(
-    response_mime_type="application/json",
-    temperature=0.15,
-    max_output_tokens=1200,
-)
-
-SAFETY = [
-    {"category": c, "threshold": "BLOCK_NONE"}
-    for c in [
-        "HARM_CATEGORY_HARASSMENT",
-        "HARM_CATEGORY_HATE_SPEECH",
-        "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-        "HARM_CATEGORY_DANGEROUS_CONTENT",
-    ]
-]
-
-# Lightweight model — no system context, used for classify + deadline only
-_classify_model = genai.GenerativeModel(
-    model_name="gemini-2.0-flash",
-    generation_config=JSON_CONFIG,
-    safety_settings=SAFETY,
-)
-
-# Router model — system context loaded once and cached by Gemini API
-_router_model = genai.GenerativeModel(
-    model_name="gemini-2.0-flash",
-    generation_config=JSON_CONFIG,
-    safety_settings=SAFETY,
-    system_instruction=_ROUTER_SYSTEM,
-)
-
-_vision_model = genai.GenerativeModel(
-    model_name="gemini-2.0-flash",
-    generation_config=JSON_CONFIG,
-    safety_settings=SAFETY,
-)
-
 ROUTER_PROMPT = """
 Phân tích task text sau và trả về JSON với đúng cấu trúc này:
 
@@ -116,24 +77,10 @@ TASK TEXT:
 """
 
 
-def _safe_call(model, prompt: str, retries: int = 2) -> dict:
-    for attempt in range(retries + 1):
-        try:
-            resp = model.generate_content(prompt)
-            return json.loads(resp.text)
-        except Exception as e:
-            if attempt < retries:
-                time.sleep(1.5 ** attempt)
-            else:
-                logger.error(f"Gemini call failed after {retries} retries: {e}")
-                return {}
-    return {}
-
-
 def classify_text(text: str) -> dict:
-    """Lightweight classify — no team context. Returns basic task fields."""
+    """Lightweight classify — fast tier (no team context)."""
     prompt = CLASSIFY_PROMPT + "\n\n" + text
-    result = _safe_call(_classify_model, prompt)
+    result = call_tier("fast", prompt, label="classify_text", retries=2) or {}
     return {
         "is_task":           result.get("is_task", False),
         "summary":           result.get("summary", text[:100]),
@@ -146,10 +93,10 @@ def classify_text(text: str) -> dict:
 
 
 def extract_deadline(text: str) -> dict:
-    """Extract deadline ISO from raw text."""
+    """Extract deadline ISO — fast tier."""
     today = datetime.now().strftime("%Y-%m-%d %H:%M (%A)")
     prompt = EXTRACT_PROMPT.replace("{today}", today) + "\n\n" + text
-    result = _safe_call(_classify_model, prompt)
+    result = call_tier("fast", prompt, label="extract_deadline", retries=2) or {}
     return {
         "deadline_iso":   result.get("deadline_iso"),
         "confidence":     result.get("confidence", "low"),
@@ -160,14 +107,20 @@ def extract_deadline(text: str) -> dict:
 def route_task(text: str) -> dict:
     """
     Full routing pipeline with team context (cached system instruction).
-    Single Gemini call → returns assignee, OKR ref, scope, breakdown.
+    Fast tier — high frequency, classification + extraction.
 
     Returns dict with keys:
       is_task, summary, assignee_name, assignee_email, assignee_confidence,
       deadline_iso, priority, category, okr_ref, okr_action_id,
       in_scope, scope_note, breakdown, confidence
     """
-    result = _safe_call(_router_model, ROUTER_PROMPT + text)
+    result = call_tier(
+        "fast",
+        ROUTER_PROMPT + text,
+        system=_ROUTER_SYSTEM,
+        label="route_task",
+        retries=2,
+    )
 
     if not result:
         # Fallback to basic classify
@@ -257,7 +210,13 @@ Trả về JSON với cấu trúc:
 
 Yêu cầu: steps phải cụ thể, actionable, phù hợp với nghiệp vụ logistics/truck ops. Tối đa 5 steps.
 """
-    result = _safe_call(_router_model, prompt)
+    result = call_tier(
+        "balanced",
+        prompt,
+        system=_ROUTER_SYSTEM,
+        label="coach_task",
+        retries=1,
+    )
     if not result:
         return {
             "why_matters": "Task quan trọng cho OKR team.",
@@ -291,7 +250,8 @@ def weekly_summary(done_tasks: list, pending_tasks: list, overdue_tasks: list,
         for t in overdue_tasks[:10]
     ) or "(không có)"
 
-    prompt = f"""Bạn là AI analyst cho team Truck Ops Ahamove. Phân tích performance tuần và trả về JSON báo cáo.
+    prompt = f"""Bạn là AI analyst cho team Truck Ops Ahamove (Manager: anh Lê Quang Huy).
+Phân tích performance tuần và trả về JSON báo cáo strategic, đi sâu vào ý nghĩa thay vì list số.
 
 TUẦN: {period_label}
 DONE ({len(done_tasks)} tasks):
@@ -304,13 +264,24 @@ OVERDUE ({len(overdue_tasks)} tasks):
 
 Trả về JSON:
 {{
-  "headline": "Tóm tắt 1 câu về tuần này (tone: factual, không hype)",
-  "highlights": ["Điểm nổi bật 1", "Điểm nổi bật 2", "Điểm nổi bật 3"],
-  "risks": ["Rủi ro/cần chú ý 1", "Rủi ro 2"],
-  "next_week_focus": "Khuyến nghị ưu tiên tuần sau (1-2 câu)"
+  "headline": "Tóm tắt 1 câu về tuần này (tone: factual, không hype, nêu trend/pattern)",
+  "highlights": ["Điểm nổi bật 1 — có context vì sao quan trọng", "Điểm nổi bật 2", "Điểm nổi bật 3"],
+  "risks": ["Rủi ro 1 — kèm 1 action gợi ý", "Rủi ro 2"],
+  "next_week_focus": "Khuyến nghị ưu tiên tuần sau cho anh Huy (1-2 câu, mention rõ G3 nào nên own)"
 }}
+
+Yêu cầu strategic:
+- Highlights phải nói WHY this matters cho OKR/team, không chỉ liệt kê what.
+- Risks phải có forward-looking signal (vd "Thương over-loaded → delegation gap").
+- Next_week_focus tránh cliché, propose 1 specific bet cho anh Huy.
 """
-    result = _safe_call(_router_model, prompt)
+    result = call_tier(
+        "premium",
+        prompt,
+        system=_ROUTER_SYSTEM,
+        label="weekly_summary",
+        retries=1,
+    )
     if not result:
         return {
             "headline": f"Tuần {period_label}: {len(done_tasks)} done, {len(overdue_tasks)} overdue.",
@@ -326,8 +297,74 @@ Trả về JSON:
     }
 
 
+def synthesize_okr_risk(
+    at_risk: list[tuple],
+    watch: list[tuple],
+    on_track: list[tuple],
+    overloaded: list[tuple],
+    underloaded: list[tuple],
+    weekday_label: str = "",
+) -> dict:
+    """
+    Balanced-tier AI synthesis on top of computed OKR health data.
+    Produces strategic narrative + 2-3 specific recommendations for anh Huy.
+
+    Input tuples (kr_id, label, overdue, total, critical) for OKR rows.
+    Members: (name, active_count, overdue_count) for overloaded.
+    """
+    def _fmt_kr_list(rows: list[tuple]) -> str:
+        return "\n".join(
+            f"  - {kr} {lbl} ({od}/{total} overdue, {crit} critical)"
+            for kr, lbl, od, total, crit in rows
+        ) or "  (none)"
+
+    prompt = f"""Bạn là Strategic OKR Analyst cho anh Huy (Manager Truck Ops).
+Phân tích snapshot OKR health ngày {weekday_label} và trả về JSON insight chuyên sâu.
+
+AT RISK (≥50% actions overdue):
+{_fmt_kr_list(at_risk)}
+
+WATCH (25-50% overdue hoặc nhiều critical):
+{_fmt_kr_list(watch)}
+
+ON TRACK:
+{_fmt_kr_list(on_track)}
+
+OVERLOADED members:
+{chr(10).join(f"  - {n}: {a} active, {o} overdue" for n, a, o in overloaded) or "  (none)"}
+
+UNDERLOADED members:
+{chr(10).join(f"  - {n}: {a} active" for n, a in underloaded) or "  (none)"}
+
+Trả JSON:
+{{
+  "headline": "1 câu strategic về state hôm nay (không lặp số liệu)",
+  "top_concern": "OKR/KR nào anh Huy nên focus tuần này, và vì sao",
+  "recommended_actions": [
+    {{"action": "...", "owner_grade": "G3|G2|G1", "owner_hint": "Thống|Thành|Khánh|... hoặc 'team SGN'", "rationale": "..."}},
+    {{"action": "...", "owner_grade": "...", "owner_hint": "...", "rationale": "..."}}
+  ],
+  "delegation_signal": "1 câu — nếu thấy pattern anh Huy đang tự giữ việc đáng delegate, flag ngay. Nếu không thấy: null.",
+  "redistribute_suggestion": "Nếu có overload + underload: gợi ý cụ thể chuyển task gì → ai. Else: null."
+}}
+
+Tone: strategic, không liệt kê. CEO-level reasoning.
+"""
+
+    result = call_tier("balanced", prompt, system=_ROUTER_SYSTEM, label="okr_risk_synth", retries=1)
+    if not result:
+        return {
+            "headline": "",
+            "top_concern": "",
+            "recommended_actions": [],
+            "delegation_signal": None,
+            "redistribute_suggestion": None,
+        }
+    return result
+
+
 def image_pipeline(image_bytes: bytes) -> dict:
-    """OCR + route from screenshot (Zalo, email, etc.)."""
+    """OCR + route from screenshot (Zalo, email, etc.). Fast tier."""
     import PIL.Image
     import io
 
@@ -338,7 +375,10 @@ def image_pipeline(image_bytes: bytes) -> dict:
     )
     try:
         img = PIL.Image.open(io.BytesIO(image_bytes))
-        resp = _router_model.generate_content([prompt, img])
+        model, _ = get_model("fast", system=_ROUTER_SYSTEM, json_mode=True)
+        t0 = time.time()
+        resp = model.generate_content([prompt, img])
+        logger.info(f"[ai/fast] image_pipeline {time.time()-t0:.2f}s")
         result = json.loads(resp.text)
         return {
             "is_task":             result.get("is_task", False),

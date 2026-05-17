@@ -1,4 +1,9 @@
-import type { Task, Member, User, TeamStats, OkrData } from "./types";
+import type {
+  Task, Member, User, TeamStats, OkrData,
+  GradeMatrixData, PlaybookList, Playbook,
+  MemberScopeData, MemberScope, DelegationHealth,
+  DelegationCoachResult, CrisisReport, CrisisRequest, ModelTiers,
+} from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const API_SECRET = process.env.NEXT_PUBLIC_API_SECRET || "ops-tasks-secret-change-me";
@@ -94,4 +99,40 @@ export const api = {
     }),
 
   okr: () => req<OkrData>("/api/okr"),
+
+  // ─── Delegation Framework ──────────────────────────────────────────────
+  grades: () => req<GradeMatrixData>("/api/grades"),
+
+  playbooks: (params?: { grade?: string; category?: string; search?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.grade) q.set("grade", params.grade);
+    if (params?.category) q.set("category", params.category);
+    if (params?.search) q.set("search", params.search);
+    return req<PlaybookList>(
+      `/api/playbooks${q.toString() ? `?${q}` : ""}`
+    );
+  },
+
+  playbook: (id: string) => req<Playbook>(`/api/playbooks/${id}`),
+
+  memberScopes: () => req<MemberScopeData>("/api/member-scopes"),
+
+  memberScope: (emailOrName: string) =>
+    req<MemberScope>(`/api/member-scopes/${encodeURIComponent(emailOrName)}`),
+
+  delegationHealth: () => req<DelegationHealth>("/api/delegation/health"),
+
+  // ─── Sub-agents ────────────────────────────────────────────────────────
+  coachDelegation: (taskId: number) =>
+    req<DelegationCoachResult>(`/api/agents/delegation-coach/${taskId}`, {
+      method: "POST",
+    }),
+
+  crisis: (body: CrisisRequest) =>
+    req<CrisisReport>("/api/agents/crisis", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  modelTiers: () => req<ModelTiers>("/api/agents/tiers"),
 };

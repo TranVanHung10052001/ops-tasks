@@ -23,6 +23,8 @@ from bot import (
     cmd_done, cmd_snooze, cmd_cancel, cmd_stats, cmd_skip,
     cmd_assign, cmd_team, cmd_pending,
     cmd_approve, cmd_users, cmd_setrole, cmd_coach,
+    cmd_scope, cmd_playbooks, cmd_playbook, cmd_delegate,
+    cmd_coach_delegation, cmd_crisis,
     handle_forward, handle_photo, handle_callback,
     handle_keyboard_text, KEYBOARD_ROUTES,
 )
@@ -84,6 +86,12 @@ async def main():
         ("users",    cmd_users),
         ("setrole",  cmd_setrole),
         ("coach",    cmd_coach),
+        ("scope",    cmd_scope),
+        ("playbooks", cmd_playbooks),
+        ("playbook", cmd_playbook),
+        ("delegate", cmd_delegate),
+        ("coach_delegation", cmd_coach_delegation),
+        ("crisis",   cmd_crisis),
     ]:
         app.add_handler(CommandHandler(cmd, handler))
 

@@ -8,6 +8,9 @@ import {
   Users,
   Target,
   Truck,
+  Shield,
+  BookOpen,
+  Bot,
 } from "lucide-react";
 
 const NAV = [
@@ -15,6 +18,9 @@ const NAV = [
   { href: "/tasks", label: "Tasks", icon: ListTodo },
   { href: "/team", label: "Team", icon: Users },
   { href: "/okr", label: "OKR", icon: Target },
+  { href: "/roles", label: "Roles", icon: Shield },
+  { href: "/playbooks", label: "Playbooks", icon: BookOpen },
+  { href: "/agents", label: "AI Agents", icon: Bot },
 ];
 
 export default function Sidebar() {

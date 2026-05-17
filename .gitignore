@@ -17,6 +17,12 @@ bot/data/*.db
 web/.next/
 web/out/
 web/node_modules/
+web/next-env.d.ts
+web/*.tsbuildinfo
+web/tsconfig.tsbuildinfo
+
+# Bot log
+bot/bot.log
 
 # OS
 .DS_Store

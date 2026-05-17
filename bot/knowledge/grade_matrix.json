@@ -1,0 +1,287 @@
+{
+  "version": "2026-Q2",
+  "updated_at": "2026-05-17",
+  "grades": [
+    {
+      "id": "G4",
+      "label": "Manager",
+      "title_short": "Giám sát Vận hành Xe tải",
+      "core_question": "Đã set đúng chiến lược và phát triển đúng người chưa?",
+      "time_split": { "strategic": 60, "tactical": 25, "operational": 15 },
+      "span_of_control": "3 G3 trực tiếp (1 acting), 7 indirect (G2+G1)",
+      "owns": [
+        "P&L toàn bộ network Truck Ops (Bulky / GXT / B2B / LH)",
+        "OKR L1 setting + cascade xuống 3 nhánh (HAN / SGN / B2B)",
+        "Hire G3+, performance review G3, succession planning",
+        "Stakeholder management cấp C: BD, CFO, Tech leadership, Legal",
+        "Network design: KCN expansion, hub-and-spoke, EV partner strategy",
+        "Strategic bets >500M VNĐ (LTL, Installation, AI Bot)",
+        "Crisis ownership khi FR < 60% hoặc COGS > 90K/kiện kéo dài 2+ tuần"
+      ],
+      "delegates": [
+        "Daily FR report → G2 (Thương/Phú) → G3 review",
+        "Vendor B2B daily dispatch → G1 Coordinator (Ngân)",
+        "Driver recruitment campaigns → G1 (Toàn/Phú/Khâm/Hùng)",
+        "Backlog clear hàng ngày → G2 (Chiến/Thương)",
+        "Cost/policy proposal monthly → G2 draft, G3 approve",
+        "Cross-team feature requests (Tech/Data/Product) → G2 lead"
+      ],
+      "should_not_do": [
+        "Tự update productivity/retention data hàng ngày",
+        "Đàm phán giá từng vendor B2B <100M VNĐ/tháng",
+        "Truyền thông policy đến driver mass (G1 task)",
+        "Approve từng case mở khoá/huỷ đơn (G2 + QM)",
+        "Lên hợp đồng và bảng kê chi phí B2B (G1 Coordinator)",
+        "Tự đi tuyển driver theo từng campaign"
+      ],
+      "escalates_to": "Lê Hữu Chung (C-level Ops) — chỉ khi: P&L impact >1B/tháng, scope mới >1 quarter, regulatory/legal risk, hire G4+"
+    },
+    {
+      "id": "G3",
+      "label": "Team Lead",
+      "title_short": "Trưởng Nhóm Vận Hành Xe Tải",
+      "core_question": "Region/segment của tôi có đạt OKR L2 và team có grow không?",
+      "time_split": { "strategic": 25, "tactical": 50, "operational": 25 },
+      "span_of_control": "2-3 G1/G2 trực tiếp",
+      "owns": [
+        "OKR L2 cho region/segment (HAN | SGN | B2B)",
+        "Regional/segment P&L: cost, performance, SLA",
+        "People mgmt: 1:1 hàng tuần, hire G1/G2, perf review",
+        "Monthly planning: capacity, vendor, hub, recruitment",
+        "Vendor strategy (B2B): RFP, contract, renegotiation >100M",
+        "Cross-functional escalation: Tech, Data, QM, Growth, BD",
+        "Process redesign cấp region (workflow, automation request)",
+        "Crisis response khi FR/SLA region drop >5pp 1 tuần"
+      ],
+      "delegates": [
+        "Daily data update → G1/G2 (KHÔNG tự làm)",
+        "Driver/vendor case xử lý hàng ngày → G2",
+        "Truyền thông policy → G1",
+        "Bảng kê/contract drafting → G1 Coordinator",
+        "Insight analysis → G2 draft, G3 review & escalate"
+      ],
+      "should_not_do": [
+        "Tự update productivity/retention hàng ngày (G1 task)",
+        "Tự gọi từng tài xế inactive (G2 task)",
+        "Lập bảng kê chi phí từng dự án (G1 Coordinator)",
+        "Drafting hợp đồng B2B từng vendor (G1 Coordinator)",
+        "Phân tích từng case Fail KPI cụ thể (G2 task)"
+      ],
+      "escalates_to": "G4 (anh Huy) — chỉ khi: cross-region impact, scope mới chưa precedent, budget >100M/quyết, hire G2+, vendor contract >200M, FR drop >7pp"
+    },
+    {
+      "id": "G2",
+      "label": "Specialist",
+      "title_short": "Chuyên viên Vận hành Xe tải",
+      "core_question": "Phân tích của tôi có dẫn tới quyết định đúng không?",
+      "time_split": { "strategic": 10, "tactical": 60, "operational": 30 },
+      "span_of_control": "Mentor 1 G1 (informal); không hire",
+      "owns": [
+        "Forecast capacity weekly theo tập driver (đội nhóm/mass)",
+        "Insight analysis: Fail KPI breakdown (driver/region/reason)",
+        "Monthly cost/policy proposal cho G3 approve",
+        "Backlog management: gán đơn 4h, clear daily",
+        "Inactive driver recovery campaign (noti/call/policy)",
+        "Cross-team feature/data request (Tech Ops, Data, Product)",
+        "QM case resolution: mở khoá, huỷ đơn theo policy",
+        "Driver case escalation từ G1 → review trước khi lên G3",
+        "OKR L3 execution action ownership (1-3 actions per quarter)"
+      ],
+      "delegates": [
+        "Daily data update → G1 (chỉ review)",
+        "Driver communication mass → G1",
+        "Recruitment outreach individual → G1",
+        "Bảng kê chi phí từng dự án → G1 Coordinator"
+      ],
+      "should_not_do": [
+        "Approve budget hoặc policy mới (đề xuất → G3 approve)",
+        "Vendor contract signing (G3+ only)",
+        "Trực tiếp hire/fire driver group (G3 decision)",
+        "Strategy-level planning (escalate insight cho G3 set strategy)"
+      ],
+      "escalates_to": "G3 (Team Lead) — khi: pattern cross-region, policy mới >2% incentive budget, vendor issue >50M, recurring driver complaint, tech blocker >3 ngày"
+    },
+    {
+      "id": "G1",
+      "label": "Executive / Coordinator",
+      "title_short": "Nhân viên / Điều phối Vận Hành",
+      "core_question": "Daily execution có on-time, on-quality không?",
+      "time_split": { "strategic": 0, "tactical": 20, "operational": 80 },
+      "span_of_control": "None — execution role",
+      "owns": [
+        "Daily data update: Productivity, Retention, Order Creation, Backlog, FR N-1",
+        "Direct driver communication: noti, call, follow-up campaign",
+        "Recruitment outreach: tiếp xúc đội nhóm mới, decal tracking",
+        "Vendor B2B daily dispatch: gán xe, theo dõi đơn, bảng kê chi phí",
+        "Contract drafting B2B (Coordinator): hợp đồng, phụ lục giá",
+        "Weekly contribution report (đội nhóm: vol total, bulky, 4h, instant)",
+        "Coordination với S/O, vendor, driver hub tại field",
+        "Truyền thông policy/dịch vụ mới đến driver mass"
+      ],
+      "delegates": [
+        "Không delegate xuống (role thấp nhất); escalate UP khi cần"
+      ],
+      "should_not_do": [
+        "Tự decide policy/cost (đề xuất lên G2)",
+        "Tự approve case mở khoá/huỷ đơn (G2 + QM)",
+        "Drafting OKR/strategy doc (escalate insight lên G2/G3)",
+        "Tự negotiate vendor pricing (G3 owns pricing)"
+      ],
+      "escalates_to": "G2 hoặc G3 trực tiếp — khi: data anomaly không giải thích được, driver complaint nghiêm trọng, vendor refuse dispatch, deadline conflict 2+ deliverables"
+    }
+  ],
+  "responsibility_areas": [
+    {
+      "id": "strategy",
+      "label": "Strategy & Planning",
+      "icon": "compass",
+      "G4": "Annual AOP, OKR L1 quarterly, network roadmap 12-24 tháng, strategic bets",
+      "G3": "Translate OKR L1 → L2 region/segment, monthly planning, vendor strategy",
+      "G2": "Forecast capacity weekly, cost/policy proposal monthly, OKR L3 action plan",
+      "G1": "Daily execution plan, follow weekly cadence từ G2/G3"
+    },
+    {
+      "id": "people",
+      "label": "People Management",
+      "icon": "users",
+      "G4": "Hire G3+, perf review G3, succession plan, comp & ben G3+",
+      "G3": "1:1 weekly G1/G2, hire G1/G2, perf review G1/G2, dev plan",
+      "G2": "Informal mentor G1, share knowledge, NO hire/fire",
+      "G1": "Own role mastery, surface blockers, ask for coaching"
+    },
+    {
+      "id": "execution",
+      "label": "Daily Execution",
+      "icon": "zap",
+      "G4": "Approve >200M VNĐ decisions, review crisis only",
+      "G3": "Approve <200M region decisions, vendor contract <500M, escalate edge cases",
+      "G2": "Run analyses, draft policy, execute OKR L3 actions, QM case resolution",
+      "G1": "Update data, call drivers, coordinate vendors, dispatch B2B daily"
+    },
+    {
+      "id": "reporting",
+      "label": "Reporting & Analysis",
+      "icon": "bar-chart",
+      "G4": "Board/exec monthly review, quarterly OKR retro",
+      "G3": "Weekly regional report to G4, monthly trend deep-dive",
+      "G2": "Daily FR insight, monthly fail-KPI analysis, weekly forecast",
+      "G1": "Daily ops dashboard, weekly contribution report"
+    },
+    {
+      "id": "stakeholder",
+      "label": "Stakeholder Management",
+      "icon": "network",
+      "G4": "BD, CFO, Tech leadership, Legal, Board",
+      "G3": "Tech Ops mgrs, Data Lead, QM PMs, Growth Lead, BD AM",
+      "G2": "Tech Ops Driver PM, Data analyst, Growth ops, QM ops",
+      "G1": "S/O, vendor account exec, driver hub leaders"
+    },
+    {
+      "id": "innovation",
+      "label": "Innovation & Process",
+      "icon": "lightbulb",
+      "G4": "Strategic bets (LTL, Installation, AI), org redesign, M&A integration",
+      "G3": "Process redesign region/segment, automation roadmap, hub model",
+      "G2": "Tool/feature requests, workflow automation, dashboard design",
+      "G1": "Surface pain points, propose micro-improvements"
+    },
+    {
+      "id": "authority",
+      "label": "Decision Authority",
+      "icon": "shield",
+      "G4": "Budget >200M/quyết, hire G3+, vendor >500M, network expansion, OKR set",
+      "G3": "Budget <200M region, hire G2/G1, vendor <500M, regional policy",
+      "G2": "Propose policy + cost, NO approval; escalate to G3",
+      "G1": "Execute only; surface options + data, no authority"
+    }
+  ],
+  "decision_authority_matrix": [
+    {
+      "decision": "Hire decision",
+      "G4": "G3+ hires + final say all roles",
+      "G3": "G1 / G2 within own segment",
+      "G2": "Recommend only",
+      "G1": "—"
+    },
+    {
+      "decision": "Approve incentive budget",
+      "G4": ">200M VNĐ/tháng cấp segment",
+      "G3": "<200M VNĐ/tháng region",
+      "G2": "Đề xuất, không approve",
+      "G1": "—"
+    },
+    {
+      "decision": "Vendor contract sign",
+      "G4": ">500M VNĐ/năm",
+      "G3": "<500M VNĐ/năm",
+      "G2": "RFP support",
+      "G1": "Bảng kê & phụ lục"
+    },
+    {
+      "decision": "Driver case (mở khoá / huỷ đơn / kỷ luật)",
+      "G4": "Escalation case có legal/PR risk",
+      "G3": "Recurring case + cross-region pattern",
+      "G2": "Case theo policy + QM cooperation",
+      "G1": "Surface case lên G2 trong ngày"
+    },
+    {
+      "decision": "New OKR / KR setting",
+      "G4": "OKR L1 quarterly",
+      "G3": "OKR L2 region cascade",
+      "G2": "OKR L3 action plan",
+      "G1": "Execute action"
+    },
+    {
+      "decision": "Cross-team feature request",
+      "G4": "Strategic features >1 quarter (AI bot, dynamic pricing)",
+      "G3": "Major features 1-3 sprint",
+      "G2": "Feature draft + spec, đầu mối Tech/Data",
+      "G1": "Surface pain → G2"
+    },
+    {
+      "decision": "Hub / KCN go-live",
+      "G4": "Approve location + budget + timeline",
+      "G3": "Operational readiness + driver supply plan",
+      "G2": "Capacity forecast + cost model",
+      "G1": "Onsite recruitment & coordination"
+    }
+  ],
+  "delegation_principles": [
+    {
+      "id": "P1",
+      "rule": "Anh Huy KHÔNG tự update data hàng ngày — review insight do G2 chuẩn bị",
+      "why": "G4 time đắt nhất; daily data là job G1 (10 phút/ngày), insight là job G2",
+      "test": "Nếu task <30 phút và lặp lại weekly+, delegate xuống"
+    },
+    {
+      "id": "P2",
+      "rule": "Anh Huy ngừng approve từng promo <50M — set policy band, G3 approve trong band",
+      "why": "Approval bottleneck giết speed; G3 hiểu region hơn",
+      "test": "Nếu policy đã có precedent + budget impact < 200M → G3 quyết"
+    },
+    {
+      "id": "P3",
+      "rule": "G3 KHÔNG tự gọi từng tài xế hoặc làm bảng kê — G2/G1 owns",
+      "why": "G3 là multiplier (manage team); làm execution = wasted leverage",
+      "test": "Nếu task lặp lại weekly+ và <1h → G2 hoặc G1 owns"
+    },
+    {
+      "id": "P4",
+      "rule": "G2 KHÔNG drafting hợp đồng B2B — Coordinator (G1) owns + Legal review",
+      "why": "Coordinator chuyên contract template; G2 dùng thời gian cho insight",
+      "test": "Task có template + repetitive → G1 owns"
+    },
+    {
+      "id": "P5",
+      "rule": "Mọi task có playbook gắn — 'làm thế nào' phải written, không phải tribal knowledge",
+      "why": "Onboard người mới + handover khi nghỉ phép + giảm dependency lên 1 người",
+      "test": "Task lặp lại 3+ lần/quý → cần playbook"
+    },
+    {
+      "id": "P6",
+      "rule": "Escalation phải có data + 2 options, không chỉ surface vấn đề",
+      "why": "Anh Huy/G3 không decide trong thông tin trống; tránh ping-pong",
+      "test": "Mỗi escalation: 1 problem statement + 2 options + recommendation"
+    }
+  ]
+}

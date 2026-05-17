@@ -13,7 +13,8 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKe
 from telegram.ext import ContextTypes
 
 from store import (
-    get_user, register_user, approve_user, reject_user,
+    get_user, get_user_by_username, get_user_by_name,
+    register_user, approve_user, reject_user,
     set_user_role, list_users, list_pending_approval, touch_user,
     add_task, get_task, list_user_tasks, list_user_today_tasks,
     list_team_tasks, list_team_by_person, get_team_stats, get_user_stats,
@@ -29,6 +30,10 @@ from roles import (
 )
 from classifier import full_pipeline, image_pipeline, extract_deadline, route_task, coach_task
 from roast import get_done_roast, get_snooze_roast
+import knowledge_loader as kn
+from nl_router import route_intent
+from agents import coach_delegation, run_crisis_commander, CRISIS_TYPES
+from models import tier_info
 
 logger = logging.getLogger(__name__)
 
@@ -290,6 +295,11 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/cancel <id>` — huỷ task\n"
         "• `/stats` — thống kê tuần này\n"
         "• `/coach <id>` — AI hướng dẫn cách làm task\n"
+        "\n*Delegation Framework:*\n"
+        "• `/scope` — scope của bạn theo grade (DO / DON'T / DELEGATE)\n"
+        "• `/playbooks` — list playbook theo grade\n"
+        "• `/playbook <id|từ khoá>` — chi tiết playbook + steps\n"
+        "• `/delegate <task_id>` — AI suggest người nên delegate\n"
     )
 
     manager_cmds = ""
@@ -299,6 +309,9 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• `/assign @user <mô tả>` — giao task cho người khác\n"
             "• `/team` — dashboard toàn team\n"
             "• `/pending` — task chưa được nhận\n"
+            "\n*🤖 AI Sub-agents (premium tier):*\n"
+            "• `/coach_delegation <task_id>` — AI đánh giá delegation, suggest reassign\n"
+            "• `/crisis <type> <mô tả>` — Crisis Commander: RCA + immediate + structural plan\n"
         )
     if is_manager(user):
         manager_cmds += (
@@ -307,9 +320,22 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• `/setrole @user <role> [team]` — cấp quyền\n"
         )
 
+    nl_examples = (
+        "\n*💬 Chat tự nhiên (AI tự hiểu):*\n"
+        "• _\"Giao Thống làm báo cáo FR Q2 deadline T6 17h\"_ → giao task\n"
+        "• _\"Chuyển task #12 cho Chiến\"_ → đổi assignee\n"
+        "• _\"Task #5 xong\"_ → mark done\n"
+        "• _\"Đổi deadline #7 sang mai 9h\"_ → update deadline\n"
+        "• _\"Thương đang làm gì\"_ → query task của ai đó\n"
+        "• _\"Team SGN overdue\"_ → query theo team\n"
+        "• _\"Ai nên làm task #15\"_ → AI gợi ý delegate\n"
+        "• _\"Tôi nên làm gì\"_ → xem scope cá nhân\n"
+        "• _\"Cách làm capacity forecast\"_ → tìm playbook\n"
+    )
+
     await update.message.reply_text(
         "📖 *Hướng dẫn sử dụng*\n\n"
-        + personal + manager_cmds +
+        + personal + manager_cmds + nl_examples +
         "\n*Tạo task nhanh:* Forward tin nhắn bất kỳ vào đây → bot tự classify.",
         parse_mode="Markdown",
     )
@@ -1127,7 +1153,11 @@ async def handle_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
 
-    # Regular text — create task for self
+    # Natural-language intent routing — chat tự nhiên (giao, chuyển, mark done, query, ...)
+    if await try_handle_nl_intent(update, context, user, text):
+        return
+
+    # Regular text — create task for self (fallback when NL router returns CREATE_TASK / UNCLEAR low-conf)
     result = full_pipeline(text)
     if result.get("is_task") and result.get("confidence", 0) >= 0.6:
         task_id = add_task(
@@ -1441,6 +1471,45 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             unblock_task(task_id)
             await query.edit_message_text(f"✓ Task #{task_id} unblocked — back to pending.")
 
+    # ── deleg_reassign:<task_id>:<target_uid> — Delegation Coach one-tap reassign ──
+    elif data.startswith("deleg_reassign:"):
+        if not can_assign(user):
+            await query.edit_message_text("Bạn không có quyền chuyển task.")
+            return
+        parts = data.split(":")
+        task_id, target_uid = int(parts[1]), int(parts[2])
+        task = get_task(task_id)
+        target = get_user(target_uid)
+        if not task or not target:
+            await query.edit_message_text("Task hoặc user không tồn tại.")
+            return
+        from store import get_db
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE tasks SET assignee_id = ? WHERE id = ?",
+                (target_uid, task_id),
+            )
+        log_action(user["telegram_id"], "delegation_coach_reassign", "task", task_id,
+                   f"→ {target['full_name']}")
+        await query.edit_message_text(
+            f"🔁 Đã chuyển task #{task_id} → *{target['full_name']}* (theo gợi ý Delegation Coach).",
+            parse_mode="Markdown",
+        )
+        # Notify new assignee
+        try:
+            await context.bot.send_message(
+                chat_id=target_uid,
+                text=(
+                    f"📥 *{user['full_name']}* chuyển task cho bạn (qua Delegation Coach):\n\n"
+                    f"#{task_id} {task.get('summary', '')[:100]}\n"
+                    f"Gõ `/coach {task_id}` để xem AI hướng dẫn cách làm."
+                ),
+                parse_mode="Markdown",
+                reply_markup=_task_keyboard(task_id),
+            )
+        except Exception as e:
+            logger.error(f"deleg_reassign notify failed: {e}")
+
     # ── confirm_assign — manager confirms AI-routed assignee ──
     elif data == "confirm_assign":
         state = _pending_confirm.get(uid)
@@ -1555,3 +1624,1146 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── ignore ──
     elif data == "ignore":
         await query.edit_message_text("Bỏ qua.")
+
+
+# ─── Delegation Framework commands ────────────────────────────────────────────
+
+def _format_scope_card(scope: dict) -> str:
+    """Render a member scope card as markdown for Telegram."""
+    lines = [
+        f"👤 *{scope.get('name', '?')}* — `{scope.get('grade', '?')}` _{scope.get('title', '')}_",
+    ]
+    reports = scope.get("reports_to")
+    if reports:
+        lines.append(f"↗️ Reports to: {reports}")
+    drs = scope.get("direct_reports") or []
+    if drs:
+        lines.append(f"↘️ Direct reports: {', '.join(drs)}")
+
+    owns = scope.get("owns") or []
+    if owns:
+        lines.append("\n*🎯 OWNS:*")
+        for x in owns[:7]:
+            lines.append(f"• {x}")
+
+    do_more = scope.get("do_more") or []
+    if do_more:
+        lines.append("\n*✅ DO MORE:*")
+        for x in do_more[:5]:
+            lines.append(f"• {x}")
+
+    do_less = scope.get("do_less") or []
+    if do_less:
+        lines.append("\n*🚫 DO LESS:*")
+        for x in do_less[:5]:
+            lines.append(f"• {x}")
+
+    delegate_to = scope.get("delegate_to") or {}
+    if delegate_to:
+        lines.append("\n*🔁 DELEGATE TO:*")
+        for k, v in list(delegate_to.items())[:5]:
+            lines.append(f"• {k} → *{v}*")
+
+    okrs = scope.get("owns_okr") or []
+    if okrs:
+        lines.append(f"\n*OKR:* {', '.join(okrs[:4])}")
+
+    pbs = scope.get("playbooks_to_supervise") or []
+    if pbs:
+        lines.append(f"*Playbooks:* `{', '.join(pbs[:6])}` — /playbook <id>")
+
+    red = scope.get("red_flags") or []
+    if red:
+        lines.append("\n*🚩 RED FLAGS (nếu thấy, escalate hoặc tự coach):*")
+        for x in red[:4]:
+            lines.append(f"• {x}")
+
+    return "\n".join(lines)
+
+
+async def cmd_scope(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /scope — Show user's scope card from delegation framework.
+    /scope <name|email|grade> — (manager/TL only) lookup another member.
+    """
+    user = await _require_approved(update)
+    if not user:
+        return
+
+    target_query = " ".join(context.args).strip() if context.args else ""
+
+    # Default: look up self by name
+    scope = None
+    if not target_query:
+        scope = kn.get_member_scope(name=user.get("full_name"))
+    else:
+        if not can_see_team(user) and target_query.lower() not in user.get("full_name", "").lower():
+            await update.message.reply_text("Chỉ Manager/TL mới xem được scope người khác.")
+            return
+        # Try grade filter
+        q = target_query.upper().strip()
+        if q in ("G1", "G2", "G3", "G4", "ACT-G3"):
+            members = [m for m in kn.member_scopes().get("members", [])
+                       if m.get("grade") == q]
+            if not members:
+                await update.message.reply_text(f"Không có ai grade {q}.")
+                return
+            lines = [f"*Grade {q}* — {len(members)} người:"]
+            for m in members:
+                lines.append(f"• {m['name']} ({m.get('title','')})")
+            lines.append("\n_Gõ `/scope <tên>` để xem chi tiết._")
+            await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+            return
+        scope = kn.get_member_scope(email=target_query) or kn.get_member_scope(name=target_query)
+
+    if not scope:
+        await update.message.reply_text(
+            "Không tìm thấy scope.\n"
+            "Tip: `/scope` xem scope của bạn | `/scope <tên>` xem người khác | `/scope G2` xem theo grade."
+        )
+        return
+
+    await update.message.reply_text(_format_scope_card(scope), parse_mode="Markdown")
+
+
+def _format_playbook_brief(p: dict) -> str:
+    okr = ", ".join(p.get("okr_links", [])[:3]) or "—"
+    return (
+        f"📘 `{p['id']}` *{p['name']}*\n"
+        f"   Owner: `{p.get('owner_grade','?')}` · {p.get('frequency','—')} · "
+        f"~{p.get('estimated_minutes','?')}ph · OKR: {okr}"
+    )
+
+
+def _format_playbook_detail(p: dict) -> str:
+    lines = [
+        f"📘 `{p['id']}` *{p['name']}*",
+        f"_{p.get('category','')}_ · Owner: `{p.get('owner_grade','?')}` (support: `{p.get('support_grade','—')}`)",
+        f"⏱ ~{p.get('estimated_minutes','?')}ph · 🔄 {p.get('frequency','—')}",
+    ]
+    okrs = p.get("okr_links", [])
+    if okrs:
+        lines.append(f"🎯 OKR: {', '.join(okrs)}")
+
+    inputs = p.get("inputs") or []
+    if inputs:
+        lines.append("\n*📥 Inputs:*")
+        for i in inputs:
+            lines.append(f"• {i}")
+
+    outputs = p.get("outputs") or []
+    if outputs:
+        lines.append("\n*📤 Outputs:*")
+        for o in outputs:
+            lines.append(f"• {o}")
+
+    steps = p.get("steps") or []
+    if steps:
+        lines.append("\n*🪜 Steps:*")
+        for s in steps:
+            n = s.get("n", "?")
+            title = s.get("title", "")
+            owner = s.get("owner_grade", "?")
+            lines.append(f"*{n}.* `{owner}` {title}")
+            if s.get("expected_output"):
+                lines.append(f"   → _Output:_ {s['expected_output']}")
+            if s.get("watch_out"):
+                lines.append(f"   ⚠️ {s['watch_out']}")
+
+    esc = p.get("escalation")
+    if esc:
+        lines.append(f"\n*🆘 Escalation:* {esc}")
+
+    return "\n".join(lines)
+
+
+async def cmd_playbooks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/playbooks — list all playbooks (filtered by user's grade if available)."""
+    user = await _require_approved(update)
+    if not user:
+        return
+
+    # Default: filter by user's grade if found in member_scopes
+    scope = kn.get_member_scope(name=user.get("full_name"))
+    user_grade = scope.get("grade") if scope else None
+
+    items = kn.list_playbooks()
+    if user_grade:
+        own_grade = [p for p in items if p.get("owner_grade") == user_grade]
+        supervise_ids = (scope or {}).get("playbooks_to_supervise") or []
+        supervised = [p for p in items if p["id"] in supervise_ids]
+        merged = {p["id"]: p for p in (own_grade + supervised)}.values()
+        items = list(merged)
+
+    if not items:
+        items = kn.list_playbooks()[:8]
+
+    header = f"📚 *Playbook Library* — {len(items)} playbooks"
+    if user_grade:
+        header += f" (grade `{user_grade}`)"
+    lines = [header, ""]
+    for p in items[:18]:
+        lines.append(_format_playbook_brief(p))
+    lines.append("\n_Gõ `/playbook <id>` (vd: `/playbook PB01`) để xem chi tiết._")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+async def cmd_playbook(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/playbook <id|search> — view a single playbook detail or search."""
+    user = await _require_approved(update)
+    if not user:
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            "Cú pháp: `/playbook <id|từ khoá>`\n"
+            "Ví dụ: `/playbook PB01` hoặc `/playbook backlog`\n"
+            "Gõ `/playbooks` để xem danh sách.",
+            parse_mode="Markdown",
+        )
+        return
+
+    query = " ".join(context.args).strip()
+
+    # Try exact ID
+    p = kn.get_playbook(query)
+    if p:
+        await update.message.reply_text(_format_playbook_detail(p), parse_mode="Markdown")
+        return
+
+    # Search by name/category/OKR
+    matches = kn.search_playbooks(query)
+    if not matches:
+        await update.message.reply_text(f"Không tìm thấy playbook nào khớp '{query}'.")
+        return
+
+    if len(matches) == 1:
+        await update.message.reply_text(_format_playbook_detail(matches[0]), parse_mode="Markdown")
+        return
+
+    lines = [f"🔍 *{len(matches)} playbook khớp '{query}':*", ""]
+    for p in matches[:10]:
+        lines.append(_format_playbook_brief(p))
+    lines.append("\n_Gõ `/playbook <id>` để xem chi tiết._")
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+async def cmd_delegate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /delegate <task_id> — AI suggest who should own this task based on
+    grade matrix + member scope + OKR mapping.
+    """
+    user = await _require_approved(update)
+    if not user:
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            "Cú pháp: `/delegate <task_id>`\n"
+            "AI sẽ đề xuất ai nên ownership task này (theo grade + OKR + scope).",
+            parse_mode="Markdown",
+        )
+        return
+
+    try:
+        task_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("ID phải là số.")
+        return
+
+    task = get_task(task_id)
+    if not task or not can_see_task(user, task):
+        await update.message.reply_text(f"Không tìm thấy task #{task_id}.")
+        return
+
+    # Pull classifier meta if available
+    meta = task.get("classifier_meta") or {}
+    if isinstance(meta, str):
+        import json as _json
+        try:
+            meta = _json.loads(meta)
+        except Exception:
+            meta = {}
+
+    okr_ref = meta.get("okr_ref") or task.get("okr_ref")
+    category = task.get("category", "other")
+    summary = task.get("summary", "")
+    current_assignee = task.get("assignee_name")
+
+    # Heuristic: find candidates based on OKR ownership + grade fit
+    candidates = []
+    for m in kn.member_scopes().get("members", []):
+        score = 0
+        reasons = []
+
+        # OKR match
+        for okr in m.get("owns_okr", []):
+            if okr_ref and okr_ref in okr:
+                score += 5
+                reasons.append(f"owns OKR {okr_ref}")
+
+        # Playbook supervision relevance
+        for pb_id in m.get("playbooks_to_supervise", []):
+            pb = kn.get_playbook(pb_id)
+            if not pb:
+                continue
+            if okr_ref and okr_ref in pb.get("okr_links", []):
+                score += 2
+                reasons.append(f"supervises {pb_id}")
+            text_match = (
+                summary and any(
+                    word in pb.get("name", "").lower()
+                    for word in summary.lower().split()
+                    if len(word) > 3
+                )
+            )
+            if text_match:
+                score += 3
+                reasons.append(f"task ~ playbook '{pb['name']}'")
+
+        # Grade fit: prefer lowest grade that can own
+        grade = m.get("grade", "")
+        if grade.endswith("G4"):
+            score += 0
+        elif grade.endswith("G3"):
+            score += 1
+        elif grade.endswith("G2"):
+            score += 2
+        elif grade.endswith("G1"):
+            score += 1
+
+        if score > 0:
+            candidates.append({
+                "name": m["name"],
+                "short_name": m.get("short_name", m["name"]),
+                "grade": grade,
+                "title": m.get("title", ""),
+                "score": score,
+                "reasons": reasons[:3],
+            })
+
+    candidates.sort(key=lambda c: -c["score"])
+
+    if not candidates:
+        await update.message.reply_text(
+            f"⚠️ Không match được người sở hữu task #{task_id} từ knowledge base.\n"
+            f"Gợi ý: xem `/scope` để check grade-fit thủ công."
+        )
+        return
+
+    top = candidates[:3]
+    emoji = P_EMOJI.get(task.get("priority", "P3"), "⚪")
+    lines = [
+        f"{emoji} *#{task_id}* {summary[:80]}",
+        f"Hiện assign: {current_assignee or 'chưa giao'}",
+        "",
+        "*🎯 Delegate gợi ý (theo OKR + scope + grade):*",
+    ]
+    for i, c in enumerate(top, 1):
+        reasons = "; ".join(c["reasons"]) if c["reasons"] else "scope fit"
+        lines.append(f"{i}. *{c['short_name']}* `{c['grade']}` — _{c['title']}_")
+        lines.append(f"   _Lý do:_ {reasons}")
+
+    lines.append("\n_Áp dụng:_ `/assign @<username>` để giao + `/coach <id>` để AI hướng dẫn.")
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+# ─── Natural Language Intent Dispatcher ───────────────────────────────────────
+
+def _resolve_user_from_hint(hint: str | None, requester: dict | None = None) -> dict | None:
+    """Best-effort resolve user from a free-form hint (name/nickname/@username/email/_self)."""
+    if not hint:
+        return None
+    h = hint.strip().lstrip("@").lower()
+    if h in ("_self", "tôi", "toi", "mình", "minh", "me", "myself"):
+        return requester
+    # Try by username
+    u = get_user_by_username(h)
+    if u:
+        return u
+    # Try by name (full or partial)
+    u = get_user_by_name(h)
+    if u:
+        return u
+    # Try by email from knowledge base, map to short_name
+    scope = kn.get_member_scope(email=hint) or kn.get_member_scope(name=hint)
+    if scope and scope.get("short_name"):
+        return get_user_by_name(scope["short_name"])
+    return None
+
+
+def _format_task_line(t: dict, with_assignee: bool = False) -> str:
+    return _fmt_task(t, show_assignee=with_assignee)
+
+
+async def _intent_assign_task(update, context, user, text, entities):
+    """ASSIGN_TASK — Manager/TL only. Reuses existing route + confirm card flow."""
+    if not can_assign(user):
+        await update.message.reply_text("Chỉ Manager/TL mới giao task. Dùng `/add` để tự tạo task.")
+        return True
+
+    summary = entities.get("task_summary") or text
+    hint = entities.get("assignee_hint")
+
+    # Run full router to extract deadline/priority/OKR from natural text
+    routed = route_task(text)
+    routed["summary"] = summary or routed.get("summary", text[:80])
+    if entities.get("priority"):
+        routed["priority"] = entities["priority"]
+
+    # Override assignee via hint resolution
+    if hint:
+        target = _resolve_user_from_hint(hint)
+        if target:
+            routed["assignee_name"] = target["full_name"]
+            routed["assignee_email"] = ""
+            routed["assignee_confidence"] = 0.95
+
+    if routed.get("assignee_confidence", 0) >= 0.7 and routed.get("assignee_name"):
+        await _show_confirm_card(update, context, user, text, routed)
+    else:
+        uid = update.effective_chat.id
+        _pending_assign_who[uid] = {"task_text": text, "result": routed, "ts": datetime.now()}
+        await _show_assignee_picker(update, context, user, text, routed)
+    return True
+
+
+async def _intent_reassign_task(update, context, user, text, entities):
+    """REASSIGN_TASK — Manager/TL only. Changes assignee_id of existing task."""
+    if not can_assign(user):
+        await update.message.reply_text("Chỉ Manager/TL mới chuyển task.")
+        return True
+
+    task_id = entities.get("task_id")
+    if not task_id:
+        await update.message.reply_text("Cần task ID. Vd: `Chuyển task #12 cho Chiến`", parse_mode="Markdown")
+        return True
+
+    task = get_task(task_id)
+    if not task:
+        await update.message.reply_text(f"Không tìm thấy task #{task_id}.")
+        return True
+
+    hint = entities.get("assignee_hint")
+    target = _resolve_user_from_hint(hint)
+    if not target:
+        await update.message.reply_text(
+            f"Không tìm được user '{hint or '?'}'. Dùng `/users` xem danh sách.",
+            parse_mode="Markdown",
+        )
+        return True
+
+    old_assignee = task.get("assignee_id")
+    from store import get_db
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE tasks SET assignee_id = ? WHERE id = ?",
+            (target["telegram_id"], task_id),
+        )
+    log_action(user["telegram_id"], "reassign", "task", task_id,
+               f"{old_assignee} → {target['telegram_id']}")
+
+    emoji = P_EMOJI.get(task.get("priority", "P3"), "⚪")
+    await update.message.reply_text(
+        f"🔁 Chuyển task #{task_id} → *{target['full_name']}*\n"
+        f"{emoji} _{task.get('summary', '')[:80]}_",
+        parse_mode="Markdown",
+    )
+
+    # Notify new assignee
+    try:
+        await context.bot.send_message(
+            chat_id=target["telegram_id"],
+            text=(
+                f"📥 *{user['full_name']}* chuyển task cho bạn:\n\n"
+                f"{emoji} *#{task_id}* {task.get('summary', '')[:100]}"
+            ),
+            parse_mode="Markdown",
+            reply_markup=_task_keyboard(task_id),
+        )
+    except Exception as e:
+        logger.error(f"Notify new assignee failed: {e}")
+    return True
+
+
+async def _intent_update_deadline(update, context, user, text, entities):
+    task_id = entities.get("task_id")
+    if not task_id:
+        await update.message.reply_text("Cần task ID. Vd: `Đổi deadline task #5 sang T6 17h`", parse_mode="Markdown")
+        return True
+    task = get_task(task_id)
+    if not task or not can_see_task(user, task):
+        await update.message.reply_text(f"Không tìm thấy task #{task_id}.")
+        return True
+
+    dl_text = entities.get("deadline_text") or text
+    parsed = extract_deadline(dl_text)
+    iso = parsed.get("deadline_iso")
+    if not iso:
+        await update.message.reply_text("Không parse được deadline. Thử lại format vd: `T6 17h`, `mai 9h`.")
+        return True
+
+    update_task_deadline(task_id, iso, parsed.get("confidence", "asked"))
+    log_action(user["telegram_id"], "nl_update_deadline", "task", task_id, iso)
+    try:
+        dl = datetime.fromisoformat(iso)
+        when = dl.strftime("%d/%m %H:%M")
+    except (ValueError, TypeError):
+        when = iso
+    await update.message.reply_text(f"📅 Task #{task_id} deadline: *{when}*", parse_mode="Markdown")
+    return True
+
+
+async def _intent_update_priority(update, context, user, text, entities):
+    task_id = entities.get("task_id")
+    priority = entities.get("priority")
+    if not task_id or not priority:
+        await update.message.reply_text("Cần task ID + priority. Vd: `Task #12 P0`", parse_mode="Markdown")
+        return True
+    task = get_task(task_id)
+    if not task or not can_see_task(user, task):
+        await update.message.reply_text(f"Không tìm thấy task #{task_id}.")
+        return True
+
+    from store import update_task_priority
+    update_task_priority(task_id, priority)
+    log_action(user["telegram_id"], "nl_update_priority", "task", task_id, priority)
+    emoji = P_EMOJI.get(priority, "⚪")
+    await update.message.reply_text(
+        f"{emoji} Task #{task_id}: priority → *{priority}*",
+        parse_mode="Markdown",
+    )
+    return True
+
+
+async def _intent_mark_done(update, context, user, text, entities):
+    task_id = entities.get("task_id")
+    if not task_id:
+        await update.message.reply_text("Cần task ID. Vd: `Task #5 xong`", parse_mode="Markdown")
+        return True
+    task = get_task(task_id)
+    if not task or not can_see_task(user, task):
+        await update.message.reply_text(f"Không tìm thấy task #{task_id}.")
+        return True
+    if mark_done(task_id):
+        roast = get_done_roast()
+        await update.message.reply_text(
+            f"✅ Done #{task_id}.\n_{roast}_",
+            parse_mode="Markdown",
+        )
+    else:
+        await update.message.reply_text(f"Không thể đánh dấu done #{task_id}.")
+    return True
+
+
+async def _intent_cancel(update, context, user, text, entities):
+    task_id = entities.get("task_id")
+    if not task_id:
+        await update.message.reply_text("Cần task ID. Vd: `Huỷ task #5`", parse_mode="Markdown")
+        return True
+    task = get_task(task_id)
+    if not task or not can_see_task(user, task):
+        await update.message.reply_text(f"Không tìm thấy task #{task_id}.")
+        return True
+    if cancel_task(task_id):
+        await update.message.reply_text(f"✕ Task #{task_id} đã huỷ.")
+    return True
+
+
+async def _intent_snooze(update, context, user, text, entities):
+    task_id = entities.get("task_id")
+    duration = entities.get("snooze_duration") or "2h"
+    if not task_id:
+        await update.message.reply_text("Cần task ID. Vd: `Snooze task #12 2h`", parse_mode="Markdown")
+        return True
+    task = get_task(task_id)
+    if not task or not can_see_task(user, task):
+        await update.message.reply_text(f"Không tìm thấy task #{task_id}.")
+        return True
+
+    # Parse duration like "2h", "1d", "30m"
+    m = re.match(r"(\d+)\s*([hdm]|ngày|giờ)", duration.lower())
+    if not m:
+        await update.message.reply_text("Format snooze không hợp lệ. Vd: 2h, 1d, 30m.")
+        return True
+    n = int(m.group(1))
+    unit = m.group(2)
+    delta = timedelta(hours=n) if unit in ("h", "giờ") else timedelta(days=n) if unit in ("d", "ngày") else timedelta(minutes=n)
+    until = (datetime.now() + delta).isoformat()
+    snooze_task(task_id, until)
+    log_action(user["telegram_id"], "nl_snooze", "task", task_id, until)
+    await update.message.reply_text(
+        f"◷ Task #{task_id} hoãn tới {(datetime.now() + delta).strftime('%d/%m %H:%M')}"
+    )
+    return True
+
+
+async def _intent_block(update, context, user, text, entities):
+    task_id = entities.get("task_id")
+    reason = entities.get("block_reason") or text
+    if not task_id:
+        await update.message.reply_text("Cần task ID. Vd: `Task #5 stuck do chờ data`", parse_mode="Markdown")
+        return True
+    task = get_task(task_id)
+    if not task or not can_see_task(user, task):
+        await update.message.reply_text(f"Không tìm thấy task #{task_id}.")
+        return True
+    block_task(task_id, reason[:200])
+    log_action(user["telegram_id"], "nl_block", "task", task_id, reason[:200])
+    await update.message.reply_text(
+        f"⛔ Task #{task_id} blocked: _{reason[:150]}_",
+        parse_mode="Markdown",
+    )
+    return True
+
+
+async def _intent_query_my_tasks(update, context, user, text, entities):
+    tasks = list_user_tasks(user["telegram_id"], statuses=["pending", "in_progress", "blocked"])
+    if not tasks:
+        await update.message.reply_text("Bạn không có task active nào.")
+        return True
+    lines = [f"📋 *Task của bạn* ({len(tasks)}):", ""]
+    for t in tasks[:15]:
+        lines.append(_format_task_line(t))
+    if len(tasks) > 15:
+        lines.append(f"\n_... và {len(tasks) - 15} task khác. Dùng /mytasks để xem đầy đủ._")
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    return True
+
+
+async def _intent_query_team(update, context, user, text, entities):
+    if not can_see_team(user):
+        await update.message.reply_text("Chỉ Manager/TL xem được task team. Dùng /mytasks.")
+        return True
+
+    assignee_hint = entities.get("assignee_hint")
+    filter_team = entities.get("filter_team")
+    filter_status = entities.get("filter_status") or "active"
+
+    target = _resolve_user_from_hint(assignee_hint) if assignee_hint and assignee_hint != "_self" else None
+
+    statuses = ["pending", "in_progress", "blocked"] if filter_status == "active" else [filter_status]
+    tasks = list_team_tasks(team=filter_team, statuses=statuses, limit=100)
+    if target:
+        tasks = [t for t in tasks if t.get("assignee_id") == target["telegram_id"]]
+
+    if not tasks:
+        label = target["full_name"] if target else (filter_team or "team")
+        await update.message.reply_text(f"Không có task active của {label}.")
+        return True
+
+    header_parts = []
+    if target:
+        header_parts.append(target["full_name"])
+    if filter_team:
+        header_parts.append(f"team {filter_team}")
+    if filter_status and filter_status != "active":
+        header_parts.append(filter_status)
+    header = " · ".join(header_parts) if header_parts else "Team"
+
+    lines = [f"📋 *{header}* ({len(tasks)}):", ""]
+    for t in tasks[:15]:
+        lines.append(_format_task_line(t, with_assignee=not target))
+    if len(tasks) > 15:
+        lines.append(f"\n_... và {len(tasks) - 15} task khác._")
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    return True
+
+
+async def _intent_query_today(update, context, user, text, entities):
+    today = list_user_today_tasks(user["telegram_id"])
+    overdue = get_overdue_tasks_for_user(user["telegram_id"])
+    lines = []
+    if overdue:
+        lines.append(f"🔴 *Overdue ({len(overdue)}):*")
+        for t in overdue[:5]:
+            lines.append(_format_task_line(t))
+        lines.append("")
+    if today:
+        lines.append(f"📅 *Hôm nay ({len(today)}):*")
+        for t in today[:10]:
+            lines.append(_format_task_line(t))
+    if not lines:
+        lines.append("✨ Không có task overdue hay due hôm nay.")
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    return True
+
+
+async def _intent_query_okr(update, context, user, text, entities):
+    okr_ref = entities.get("okr_ref")
+    team = entities.get("filter_team")
+    msg_lines = ["🎯 *OKR Q2/2026*"]
+    if okr_ref:
+        msg_lines.append(f"Tìm: `{okr_ref}`")
+    if team:
+        msg_lines.append(f"Region: {team}")
+    msg_lines.append("\nXem chi tiết OKR + actions tại dashboard: /okr (web) hoặc gõ `/team` cho overview.")
+    msg_lines.append("\n_Tip:_ `/playbook <từ khoá>` để xem cách làm task liên quan.")
+    await update.message.reply_text("\n".join(msg_lines), parse_mode="Markdown")
+    return True
+
+
+async def _intent_suggest_delegate(update, context, user, text, entities):
+    """Reuse cmd_delegate logic with task_id from entities."""
+    task_id = entities.get("task_id")
+    if not task_id:
+        await update.message.reply_text("Cần task ID. Vd: `Task #15 giao ai phù hợp?`", parse_mode="Markdown")
+        return True
+
+    class FakeArgs:
+        def __init__(self, tid):
+            self.args = [str(tid)]
+    context.args = [str(task_id)]
+    await cmd_delegate(update, context)
+    return True
+
+
+async def _intent_view_scope(update, context, user, text, entities):
+    hint = entities.get("assignee_hint")
+    if not hint or hint == "_self":
+        scope = kn.get_member_scope(name=user.get("full_name"))
+    else:
+        # Allow non-managers to view any scope (read-only)
+        scope = kn.get_member_scope(email=hint) or kn.get_member_scope(name=hint)
+        # Or filter by grade
+        q = hint.upper()
+        if not scope and q in ("G1", "G2", "G3", "G4", "ACT-G3"):
+            members = [m for m in kn.member_scopes().get("members", []) if m.get("grade") == q]
+            if members:
+                lines = [f"*Grade {q}* — {len(members)} người:"]
+                for m in members:
+                    lines.append(f"• {m['name']} ({m.get('title','')})")
+                lines.append("\n_Gõ tên cụ thể để xem scope chi tiết._")
+                await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+                return True
+
+    if not scope:
+        await update.message.reply_text(f"Không tìm thấy scope '{hint or 'của bạn'}'.")
+        return True
+    await update.message.reply_text(_format_scope_card(scope), parse_mode="Markdown")
+    return True
+
+
+async def _intent_view_playbook(update, context, user, text, entities):
+    query = entities.get("playbook_query") or text
+    context.args = query.split()
+    await cmd_playbook(update, context)
+    return True
+
+
+async def _intent_coach(update, context, user, text, entities):
+    task_id = entities.get("task_id")
+    if not task_id:
+        await update.message.reply_text("Cần task ID. Vd: `Coach task #12`", parse_mode="Markdown")
+        return True
+    context.args = [str(task_id)]
+    await cmd_coach(update, context)
+    return True
+
+
+async def _intent_help(update, context, user, text, entities):
+    await cmd_help(update, context)
+    return True
+
+
+async def _intent_smalltalk(update, context, user, text, entities):
+    await update.message.reply_text(
+        "Hi 👋 Bot quản lý task team Truck Ops.\n"
+        "Gõ `/help` xem các lệnh, hoặc chat tự nhiên: vd \"giao Thống làm FR Q2\", \"task của tôi\", \"task #5 xong\".",
+        parse_mode="Markdown",
+    )
+    return True
+
+
+_INTENT_HANDLERS = {
+    "ASSIGN_TASK":      _intent_assign_task,
+    "REASSIGN_TASK":    _intent_reassign_task,
+    "UPDATE_DEADLINE":  _intent_update_deadline,
+    "UPDATE_PRIORITY":  _intent_update_priority,
+    "MARK_DONE":        _intent_mark_done,
+    "CANCEL_TASK":      _intent_cancel,
+    "SNOOZE_TASK":      _intent_snooze,
+    "BLOCK_TASK":       _intent_block,
+    "QUERY_MY_TASKS":   _intent_query_my_tasks,
+    "QUERY_TEAM_TASKS": _intent_query_team,
+    "QUERY_TODAY":      _intent_query_today,
+    "QUERY_OKR":        _intent_query_okr,
+    "SUGGEST_DELEGATE": _intent_suggest_delegate,
+    "VIEW_SCOPE":       _intent_view_scope,
+    "VIEW_PLAYBOOK":    _intent_view_playbook,
+    "COACH_TASK":       _intent_coach,
+    "HELP":             _intent_help,
+    "SMALLTALK":        _intent_smalltalk,
+}
+
+
+async def try_handle_nl_intent(update, context, user, text) -> bool:
+    """
+    Try to interpret the message as a natural-language intent.
+
+    Returns True if the intent was handled (response sent).
+    Returns False to fall through to existing task-creation logic.
+    """
+    routed = route_intent(text, {
+        "role": user.get("role"),
+        "full_name": user.get("full_name"),
+        "team": user.get("team"),
+    })
+    intent = routed["intent"]
+    confidence = routed["confidence"]
+
+    logger.info(
+        f"NL intent: '{text[:60]}' → {intent} ({confidence:.2f}) — {routed.get('reasoning', '')}"
+    )
+
+    # CREATE_TASK and low-confidence → fall through to existing flow
+    if intent in ("CREATE_TASK", "UNCLEAR"):
+        if intent == "UNCLEAR" and confidence >= 0.4 and routed.get("clarify"):
+            # Mid-confidence unclear → ask clarify
+            await update.message.reply_text(routed["clarify"])
+            return True
+        return False
+
+    # Need >=0.55 confidence to act on action intents
+    if confidence < 0.55:
+        return False
+
+    handler = _INTENT_HANDLERS.get(intent)
+    if not handler:
+        return False
+
+    try:
+        return await handler(update, context, user, text, routed["entities"])
+    except Exception as e:
+        logger.error(f"Intent handler {intent} failed: {e}", exc_info=True)
+        return False
+
+
+# ─── Sub-agents: Delegation Coach + Crisis Commander ──────────────────────────
+
+def _format_delegation_verdict(v: dict) -> str:
+    verdict_emoji = {
+        "ok": "✅",
+        "should_delegate_down": "⬇️",
+        "should_delegate_up": "⬆️",
+        "should_split": "✂️",
+        "needs_clarification": "❓",
+    }.get(v.get("verdict", ""), "•")
+
+    lines = [
+        f"{verdict_emoji} *{v.get('verdict', '').upper()}* — AI {int(v.get('verdict_confidence', 0) * 100)}%",
+        "",
+        f"*{v.get('headline', '')}*",
+    ]
+
+    rationale = v.get("rationale") or []
+    if rationale:
+        lines.append("\n*Lý do:*")
+        for r in rationale[:4]:
+            lines.append(f"• {r}")
+
+    rec = v.get("recommended_owner")
+    if rec and rec.get("name"):
+        lines.append(f"\n*🎯 Nên giao cho:* `{rec.get('grade','?')}` *{rec['name']}*")
+        if rec.get("why"):
+            lines.append(f"_{rec['why']}_")
+
+    split = v.get("split_suggestion") or []
+    if split:
+        lines.append("\n*✂️ Chia nhỏ:*")
+        for s in split[:5]:
+            lines.append(f"• `{s.get('owner_grade','?')}` {s.get('owner_name','?')} → {s.get('sub_task','')}")
+
+    flags = v.get("red_flags") or []
+    if flags:
+        lines.append("\n*🚩 Red flags:*")
+        for f in flags[:3]:
+            lines.append(f"• {f}")
+
+    if v.get("playbook_pointer"):
+        lines.append(f"\n📘 Playbook: `{v['playbook_pointer']}` — /playbook {v['playbook_pointer']}")
+
+    if v.get("coaching_question"):
+        lines.append(f"\n💭 _{v['coaching_question']}_")
+
+    if v.get("principles_applied"):
+        lines.append(f"\n🔖 Principles: {', '.join(v['principles_applied'])}")
+
+    return "\n".join(lines)
+
+
+async def cmd_coach_delegation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /coach_delegation <task_id> — Premium-tier AI evaluates delegation quality.
+    Available to Manager + Team Leads.
+    """
+    user = await _require_approved(update)
+    if not user:
+        return
+    if not can_see_team(user):
+        await update.message.reply_text("Chỉ Manager/TL mới dùng được Delegation Coach.")
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            "Cú pháp: `/coach_delegation <task_id>`\n"
+            "AI sẽ phân tích: task này có đúng grade-fit không, nên delegate xuống/lên không, có cần split không.\n\n"
+            f"_Tier: premium ({tier_info().get('premium')})_",
+            parse_mode="Markdown",
+        )
+        return
+
+    try:
+        task_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("ID phải là số.")
+        return
+
+    task = get_task(task_id)
+    if not task or not can_see_task(user, task):
+        await update.message.reply_text(f"Không tìm thấy task #{task_id}.")
+        return
+
+    await update.message.reply_text(
+        f"🤖 *Delegation Coach* đang phân tích task #{task_id}...",
+        parse_mode="Markdown",
+    )
+
+    # Gather context
+    assignee_user = get_user(task.get("assignee_id")) if task.get("assignee_id") else None
+    assignee_stats = get_user_stats(task["assignee_id"]) if task.get("assignee_id") else {}
+    current_scope = kn.get_member_scope(name=(assignee_user or {}).get("full_name", ""))
+
+    current_assignee = None
+    if assignee_user:
+        current_assignee = {
+            "name": assignee_user["full_name"],
+            "grade": (current_scope or {}).get("grade", "?"),
+            "title": (current_scope or {}).get("title", assignee_user.get("role", "")),
+            "active_count": assignee_stats.get("pending", 0),
+            "overdue_count": assignee_stats.get("overdue", 0),
+        }
+
+    assigner_user = get_user(task.get("assigned_by")) if task.get("assigned_by") else user
+    assigner_scope = kn.get_member_scope(name=(assigner_user or {}).get("full_name", ""))
+    assigner = {
+        "name": (assigner_user or {}).get("full_name", "?"),
+        "grade": (assigner_scope or {}).get("grade", "?"),
+        "role": (assigner_user or {}).get("role", "?"),
+    }
+
+    # Team alternatives
+    members = list_team_by_person()
+    team_load = []
+    for m in members:
+        if m["telegram_id"] == task.get("assignee_id"):
+            continue
+        m_scope = kn.get_member_scope(name=m.get("full_name", ""))
+        team_load.append({
+            "name": m.get("full_name"),
+            "grade": (m_scope or {}).get("grade", "?"),
+            "title": (m_scope or {}).get("title", ""),
+            "active_count": m.get("active_count", 0),
+            "overdue_count": m.get("overdue_count", 0),
+        })
+
+    task_payload = {
+        "id": task["id"],
+        "summary": task.get("summary", ""),
+        "okr_ref": task.get("okr_ref"),
+        "category": task.get("category", "other"),
+        "priority": task.get("priority", "P3"),
+        "deadline_iso": task.get("deadline"),
+        "estimated_minutes": task.get("estimated_minutes"),
+    }
+
+    verdict = coach_delegation(
+        task=task_payload,
+        current_assignee=current_assignee,
+        assigner=assigner,
+        team_load=team_load,
+    )
+
+    # Action buttons based on verdict
+    buttons = []
+    rec = verdict.get("recommended_owner") or {}
+    if verdict.get("verdict") == "should_delegate_down" and rec.get("name"):
+        # Try to find user to enable one-tap reassign
+        target = get_user_by_name(rec["name"])
+        if target:
+            buttons.append([
+                InlineKeyboardButton(
+                    f"🔁 Chuyển → {rec['name'].split()[-1]}",
+                    callback_data=f"deleg_reassign:{task_id}:{target['telegram_id']}",
+                ),
+            ])
+    if verdict.get("playbook_pointer"):
+        buttons.append([
+            InlineKeyboardButton(
+                f"📘 Xem {verdict['playbook_pointer']}",
+                callback_data="ignore",
+            ),
+        ])
+
+    kb = InlineKeyboardMarkup(buttons) if buttons else None
+
+    await update.message.reply_text(
+        f"📋 *#{task_id}* {task.get('summary', '')[:80]}\n\n"
+        + _format_delegation_verdict(verdict),
+        parse_mode="Markdown",
+        reply_markup=kb,
+    )
+
+
+def _format_crisis_report(c: dict) -> str:
+    sev_emoji = {
+        "watch": "🟡",
+        "active_crisis": "🟠",
+        "p0_crisis": "🔴",
+    }.get(c.get("severity", ""), "⚪")
+
+    lines = [
+        f"{sev_emoji} *{c.get('severity', '').upper()}*",
+        f"_{c.get('severity_rationale', '')}_",
+        "",
+        f"*{c.get('headline', '')}*",
+    ]
+
+    rca = c.get("rca_questions") or []
+    if rca:
+        lines.append("\n*🔍 RCA (5 Whys):*")
+        for i, q in enumerate(rca[:5], 1):
+            lines.append(f"{i}. {q}")
+
+    immediate = c.get("immediate_actions") or []
+    if immediate:
+        lines.append("\n*⚡ IMMEDIATE (24-48h):*")
+        for a in immediate[:4]:
+            owner = f"`{a.get('owner_grade','?')}` {a.get('owner_name','?')}"
+            deadline = f"{a.get('deadline_hours','?')}h"
+            lines.append(f"• {owner} — {a.get('action','')}")
+            lines.append(f"  ⏱ {deadline} · 📏 {a.get('success_criterion','?')}")
+            if a.get("cost_estimate_vnd"):
+                lines.append(f"  💸 ~{a['cost_estimate_vnd']:,}đ")
+
+    structural = c.get("structural_actions") or []
+    if structural:
+        lines.append("\n*🔧 STRUCTURAL (1 tuần):*")
+        for a in structural[:3]:
+            owner = f"`{a.get('owner_grade','?')}` {a.get('owner_name','?')}"
+            lines.append(f"• {owner} — {a.get('action','')}")
+            lines.append(f"  📅 {a.get('deadline_days','?')}d · 📤 {a.get('deliverable','?')}")
+
+    wr = c.get("war_room") or {}
+    if wr.get("lead"):
+        lines.append(f"\n*🛟 War Room — lead {wr['lead']}*")
+        if wr.get("core_team"):
+            lines.append(f"Team: {', '.join(wr['core_team'])}")
+        if wr.get("cadence"):
+            lines.append(f"Cadence: _{wr['cadence']}_")
+
+    comm = c.get("communication_plan") or {}
+    if comm:
+        lines.append("\n*📢 Communication:*")
+        if comm.get("internal_team"):
+            lines.append(f"• Team: _{comm['internal_team']}_")
+        if comm.get("manager_brief"):
+            lines.append(f"• Brief lên: _{comm['manager_brief']}_")
+        if comm.get("escalate_to_c_level"):
+            lines.append(f"• ⬆️ Escalate C-level: {comm.get('escalate_when','same day')}")
+
+    risks = c.get("risks_to_action_plan") or []
+    if risks:
+        lines.append("\n*⚠️ Risks:*")
+        for r in risks[:3]:
+            lines.append(f"• {r}")
+
+    if c.get("playbook_pointer"):
+        lines.append(f"\n📘 Reference: `{c['playbook_pointer']}` — /playbook {c['playbook_pointer']}")
+
+    return "\n".join(lines)
+
+
+async def cmd_crisis(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /crisis <type> <description> — Activate Crisis Commander (premium).
+    Available to Manager + Team Leads.
+
+    Examples:
+      /crisis fr_drop FR Core HAN drop 8pp 3 ngày, target 68%, hiện 60%
+      /crisis vendor_failure Vendor B2B X từ chối dispatch 2 ngày
+      /crisis sla_drop SLA pickup SGN miss 15% tuần này
+    """
+    user = await _require_approved(update)
+    if not user:
+        return
+    if not can_see_team(user):
+        await update.message.reply_text("Chỉ Manager/TL mới activate Crisis Commander.")
+        return
+
+    args = context.args or []
+    if not args:
+        types_list = ", ".join(f"`{t}`" for t in CRISIS_TYPES)
+        await update.message.reply_text(
+            "Cú pháp: `/crisis <type> <mô tả>`\n\n"
+            f"Type: {types_list}\n\n"
+            "Ví dụ: `/crisis fr_drop FR Core HAN drop 8pp 3 ngày, hiện 60% (target 68%)`\n\n"
+            f"_Tier: premium ({tier_info().get('premium')})_",
+            parse_mode="Markdown",
+        )
+        return
+
+    ctype = args[0].lower()
+    if ctype not in CRISIS_TYPES:
+        # Treat first arg as part of description if no type matched
+        description = " ".join(args)
+        ctype = "external_event"
+    else:
+        description = " ".join(args[1:])
+
+    if not description:
+        await update.message.reply_text("Cần mô tả chi tiết crisis (region, mức độ, duration).")
+        return
+
+    await update.message.reply_text(
+        f"🚨 *Crisis Commander* đang phân tích `{ctype}`...\n_Premium tier — có thể mất 8-15s._",
+        parse_mode="Markdown",
+    )
+
+    # Heuristic: detect region from description
+    region = None
+    for r in ("HAN", "SGN", "EXP", "B2B"):
+        if r.lower() in description.lower():
+            region = r
+            break
+
+    # Team members from knowledge base
+    team_members = []
+    for m in kn.member_scopes().get("members", []):
+        team_members.append({
+            "name": m.get("short_name") or m.get("name"),
+            "grade": m.get("grade"),
+            "team": m.get("team"),
+        })
+
+    trigger = {
+        "type": ctype,
+        "severity_hint": "active",  # let AI re-assess
+        "raw_description": description,
+        "region": region or "all",
+    }
+
+    report = run_crisis_commander(
+        trigger=trigger,
+        team_members=team_members,
+        constraints={"stakeholder_pressure": "Manager đã trigger qua /crisis"},
+    )
+
+    log_action(user["telegram_id"], "crisis_activate", "crisis", 0, f"{ctype}: {description[:100]}")
+
+    await update.message.reply_text(
+        f"🚨 *CRISIS REPORT — {ctype.upper()}*\n_{description[:140]}_\n\n"
+        + _format_crisis_report(report),
+        parse_mode="Markdown",
+    )

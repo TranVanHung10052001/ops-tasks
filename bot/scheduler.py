@@ -389,10 +389,37 @@ async def okr_risk_intel(app):
         msg += "\n"
 
     if underloaded and overloaded:
-        msg += "💡 *Suggest:* Xem xét redistribute task từ overload → "
+        msg += "💡 *Redistribute heuristic:* từ overload → "
         msg += ", ".join(n for n, _ in underloaded[:2]) + "\n\n"
 
-    msg += "/team chi tiết · /assign giao việc mới"
+    # AI synthesis layer (balanced tier) — strategic recommendation on top of computed data
+    try:
+        from classifier import synthesize_okr_risk
+        synth = synthesize_okr_risk(
+            at_risk=at_risk, watch=watch, on_track=on_track,
+            overloaded=overloaded, underloaded=underloaded,
+            weekday_label=day_str,
+        )
+        if synth.get("headline"):
+            msg += f"*🤖 AI Insight:*\n_{synth['headline']}_\n\n"
+        if synth.get("top_concern"):
+            msg += f"*Focus tuần này:* {synth['top_concern']}\n\n"
+        if synth.get("recommended_actions"):
+            msg += "*Action gợi ý:*\n"
+            for a in synth["recommended_actions"][:3]:
+                owner = f"`{a.get('owner_grade','?')}` {a.get('owner_hint','?')}"
+                msg += f"  • {owner} → {a.get('action','')}\n"
+                if a.get("rationale"):
+                    msg += f"    _{a['rationale']}_\n"
+            msg += "\n"
+        if synth.get("delegation_signal"):
+            msg += f"⬇️ *Delegation signal:* {synth['delegation_signal']}\n\n"
+        if synth.get("redistribute_suggestion"):
+            msg += f"🔄 *Redistribute:* {synth['redistribute_suggestion']}\n\n"
+    except Exception as e:
+        logger.warning(f"okr_risk_intel AI synth failed: {e}")
+
+    msg += "/team chi tiết · /assign giao việc mới · /crisis nếu cần war room"
 
     try:
         await app.bot.send_message(
