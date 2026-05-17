@@ -1,0 +1,84 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --sidebar-width: 240px;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-gray-50 text-gray-900;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  h1 { @apply text-xl font-semibold tracking-tight; }
+  h2 { @apply text-base font-semibold; }
+  h3 { @apply text-sm font-medium text-gray-600; }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1;
+  }
+  .btn-primary {
+    @apply btn bg-gray-900 text-white hover:bg-gray-700 focus:ring-gray-900;
+  }
+  .btn-secondary {
+    @apply btn bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 focus:ring-gray-300;
+  }
+  .btn-ghost {
+    @apply btn text-gray-600 hover:bg-gray-100 hover:text-gray-900 focus:ring-gray-300;
+  }
+  .btn-danger {
+    @apply btn bg-red-600 text-white hover:bg-red-700 focus:ring-red-500;
+  }
+
+  .card {
+    @apply bg-white border border-gray-200 rounded-lg;
+  }
+
+  .input {
+    @apply block w-full px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-md
+           placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent
+           transition-shadow;
+  }
+
+  .select {
+    @apply input pr-8 appearance-none cursor-pointer;
+  }
+
+  .table-row-hover {
+    @apply hover:bg-gray-50 transition-colors;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: #d1d5db transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: #d1d5db;
+    border-radius: 2px;
+  }
+}

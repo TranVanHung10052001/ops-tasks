@@ -1,0 +1,23 @@
+# Environment — credentials, never commit
+bot/.env
+web/.env.local
+web/.env*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Database — local data
+bot/data/*.db
+
+# Next.js build artifacts
+web/.next/
+web/out/
+web/node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
