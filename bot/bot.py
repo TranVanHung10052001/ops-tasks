@@ -27,7 +27,7 @@ from roles import (
     is_manager, is_team_lead, can_assign, can_see_team,
     can_approve_users, can_see_task,
 )
-from classifier import full_pipeline, image_pipeline, extract_deadline, route_task
+from classifier import full_pipeline, image_pipeline, extract_deadline, route_task, coach_task
 from roast import get_done_roast, get_snooze_roast
 
 logger = logging.getLogger(__name__)
@@ -289,6 +289,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/snooze <id> 2h|1d` — hoãn lại\n"
         "• `/cancel <id>` — huỷ task\n"
         "• `/stats` — thống kê tuần này\n"
+        "• `/coach <id>` — AI hướng dẫn cách làm task\n"
     )
 
     manager_cmds = ""
@@ -532,6 +533,104 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Đang pending: {s['pending']}\n"
         f"Overdue: {s['overdue']}",
         parse_mode="Markdown",
+    )
+
+
+async def cmd_coach(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /coach <task_id> — AI coaching guide for a specific task.
+    Available to all team members for their own tasks; manager/TL for any task.
+    """
+    user = await _require_approved(update)
+    if not user:
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            "Cú pháp: `/coach <id>`\n"
+            "Ví dụ: `/coach 12` — AI phân tích task #12 và hướng dẫn cách làm",
+            parse_mode="Markdown",
+        )
+        return
+
+    try:
+        task_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("ID phải là số.")
+        return
+
+    task = get_task(task_id)
+    if not task or not can_see_task(user, task):
+        await update.message.reply_text(f"Không tìm thấy task #{task_id}.")
+        return
+
+    await update.message.reply_text("🤔 AI đang phân tích task...")
+
+    meta = task.get("classifier_meta") or {}
+    if isinstance(meta, str):
+        import json as _json
+        try:
+            meta = _json.loads(meta)
+        except Exception:
+            meta = {}
+
+    guide = coach_task(
+        task_summary=task.get("summary", task.get("raw_message", "")),
+        okr_ref=meta.get("okr_ref") or task.get("okr_ref"),
+        okr_action_id=meta.get("okr_action_id"),
+        breakdown=meta.get("breakdown") or [],
+        priority=task.get("priority", "P2"),
+        deadline_iso=task.get("deadline"),
+        assignee_name=task.get("assignee_name"),
+    )
+
+    emoji = P_EMOJI.get(task.get("priority", "P3"), "⚪")
+    summary = task.get("summary", "")
+    okr_ref = meta.get("okr_ref") or task.get("okr_ref")
+
+    lines = [
+        f"{emoji} *#{task_id}* {summary[:70]}",
+        "",
+    ]
+
+    if okr_ref:
+        lines.append(f"🎯 *OKR {okr_ref}*")
+
+    if guide.get("why_matters"):
+        lines.append(f"📌 _{guide['why_matters']}_")
+
+    lines.append("")
+    if guide.get("steps"):
+        lines.append("*Cách làm:*")
+        for i, step in enumerate(guide["steps"][:5], 1):
+            lines.append(f"{i}. {step}")
+
+    if guide.get("watch_out"):
+        lines.append("")
+        lines.append("*⚠️ Lưu ý:*")
+        for w in guide["watch_out"][:3]:
+            lines.append(f"• {w}")
+
+    if guide.get("tips"):
+        lines.append("")
+        lines.append(f"💡 _{guide['tips']}_")
+
+    mins = guide.get("estimated_minutes", 0)
+    if mins:
+        h, m = divmod(mins, 60)
+        time_str = (f"{h}h{m:02d}ph" if h else f"{m}ph")
+        lines.append(f"\n⏱ Ước tính: {time_str}")
+
+    # Action buttons
+    coach_kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✓ Done", callback_data=f"done:{task_id}"),
+        InlineKeyboardButton("◷ 2h", callback_data=f"snooze:{task_id}:2h"),
+    ]])
+
+    await update.message.reply_text(
+        "\n".join(lines),
+        parse_mode="Markdown",
+        reply_markup=coach_kb,
     )
 
 

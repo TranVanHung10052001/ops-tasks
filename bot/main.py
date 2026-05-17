@@ -22,14 +22,14 @@ from bot import (
     cmd_start, cmd_help, cmd_add, cmd_mytasks, cmd_today,
     cmd_done, cmd_snooze, cmd_cancel, cmd_stats, cmd_skip,
     cmd_assign, cmd_team, cmd_pending,
-    cmd_approve, cmd_users, cmd_setrole,
+    cmd_approve, cmd_users, cmd_setrole, cmd_coach,
     handle_forward, handle_photo, handle_callback,
     handle_keyboard_text, KEYBOARD_ROUTES,
 )
 from scheduler import (
     morning_briefing_all, manager_team_digest,
     deadline_check_all, eod_recap_all, stall_check_all,
-    okr_risk_intel,
+    okr_risk_intel, weekly_report,
 )
 from store import init_db
 from roles import MANAGER_CHAT_ID
@@ -83,6 +83,7 @@ async def main():
         ("approve",  cmd_approve),
         ("users",    cmd_users),
         ("setrole",  cmd_setrole),
+        ("coach",    cmd_coach),
     ]:
         app.add_handler(CommandHandler(cmd, handler))
 
@@ -140,9 +141,11 @@ async def main():
                   args=[app], id="stall_check")
     sched.add_job(okr_risk_intel,        "cron", day_of_week="mon,wed,fri",
                   hour=8, minute=35, args=[app], id="okr_risk_intel")
+    sched.add_job(weekly_report,         "cron", day_of_week="fri",
+                  hour=17, minute=0, args=[app], id="weekly_report")
 
     sched.start()
-    logger.info("Scheduler started — 6 jobs")
+    logger.info("Scheduler started — 7 jobs")
 
     logger.info(f"Bot starting | Manager: {MANAGER_CHAT_ID}")
 

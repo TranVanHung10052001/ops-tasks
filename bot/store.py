@@ -285,8 +285,11 @@ def list_team_tasks(
     team: str = None,
     statuses: list[str] = None,
     limit: int = 200,
+    since: str = None,
 ) -> list[dict]:
-    """All tasks visible to manager/TL, grouped by team if specified."""
+    """All tasks visible to manager/TL, grouped by team if specified.
+    `since`: ISO datetime string — filter by updated_at or created_at >= since.
+    """
     if statuses is None:
         statuses = ["pending", "in_progress", "blocked"]
     placeholders = ",".join("?" * len(statuses))
@@ -304,6 +307,9 @@ def list_team_tasks(
         if team:
             q += " AND u.team = ?"
             params.append(team)
+        if since:
+            q += " AND COALESCE(t.updated_at, t.created_at) >= ?"
+            params.append(since)
         q += " ORDER BY u.full_name ASC, t.priority ASC, t.deadline ASC LIMIT ?"
         params.append(limit)
         return [dict(r) for r in conn.execute(q, params).fetchall()]

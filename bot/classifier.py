@@ -216,6 +216,116 @@ def full_pipeline(text: str) -> dict:
     return classified
 
 
+def coach_task(
+    task_summary: str,
+    okr_ref: str | None = None,
+    okr_action_id: str | None = None,
+    breakdown: list | None = None,
+    priority: str = "P2",
+    deadline_iso: str | None = None,
+    assignee_name: str | None = None,
+) -> dict:
+    """
+    Generate AI coaching guide for a specific task.
+    Returns: {why_matters, steps, watch_out, tips, estimated_minutes}
+    """
+    context_parts = []
+    if okr_ref:
+        context_parts.append(f"OKR: {okr_ref}" + (f" (action {okr_action_id})" if okr_action_id else ""))
+    if priority:
+        context_parts.append(f"Priority: {priority}")
+    if deadline_iso:
+        context_parts.append(f"Deadline: {deadline_iso}")
+    if assignee_name:
+        context_parts.append(f"Assignee: {assignee_name}")
+    if breakdown:
+        context_parts.append("Breakdown gợi ý: " + " | ".join(breakdown))
+
+    prompt = f"""Bạn là AI coach cho team Truck Ops Ahamove. Phân tích task sau và trả về JSON hướng dẫn thực tế.
+
+TASK: {task_summary}
+CONTEXT: {", ".join(context_parts) if context_parts else "Không có thêm context"}
+
+Trả về JSON với cấu trúc:
+{{
+  "why_matters": "Tại sao task này quan trọng với team/OKR (1-2 câu súc tích)",
+  "steps": ["Bước 1 cụ thể...", "Bước 2...", "Bước 3..."],
+  "watch_out": ["Rủi ro/blockers cần lưu ý 1", "Rủi ro 2"],
+  "tips": "Mẹo hoặc shortcut để làm nhanh hơn (1 câu)",
+  "estimated_minutes": <số phút ước tính thực tế>
+}}
+
+Yêu cầu: steps phải cụ thể, actionable, phù hợp với nghiệp vụ logistics/truck ops. Tối đa 5 steps.
+"""
+    result = _safe_call(_router_model, prompt)
+    if not result:
+        return {
+            "why_matters": "Task quan trọng cho OKR team.",
+            "steps": breakdown or ["Thực hiện task theo mô tả."],
+            "watch_out": [],
+            "tips": "",
+            "estimated_minutes": 30,
+        }
+    return {
+        "why_matters":        result.get("why_matters", ""),
+        "steps":              result.get("steps", breakdown or []),
+        "watch_out":          result.get("watch_out", []),
+        "tips":               result.get("tips", ""),
+        "estimated_minutes":  result.get("estimated_minutes", 30),
+    }
+
+
+def weekly_summary(done_tasks: list, pending_tasks: list, overdue_tasks: list,
+                   period_label: str = "") -> dict:
+    """
+    AI-generated weekly report highlights.
+    Returns: {headline, highlights, risks, next_week_focus}
+    """
+    done_text = "\n".join(
+        f"- {t.get('summary', '')[:80]} [{t.get('assignee_name', '?')}]"
+        for t in done_tasks[:20]
+    ) or "(không có)"
+
+    overdue_text = "\n".join(
+        f"- {t.get('summary', '')[:60]} [{t.get('assignee_name', '?')}] deadline={t.get('deadline', '?')[:10]}"
+        for t in overdue_tasks[:10]
+    ) or "(không có)"
+
+    prompt = f"""Bạn là AI analyst cho team Truck Ops Ahamove. Phân tích performance tuần và trả về JSON báo cáo.
+
+TUẦN: {period_label}
+DONE ({len(done_tasks)} tasks):
+{done_text}
+
+OVERDUE ({len(overdue_tasks)} tasks):
+{overdue_text}
+
+ĐANG PENDING: {len(pending_tasks)} tasks
+
+Trả về JSON:
+{{
+  "headline": "Tóm tắt 1 câu về tuần này (tone: factual, không hype)",
+  "highlights": ["Điểm nổi bật 1", "Điểm nổi bật 2", "Điểm nổi bật 3"],
+  "risks": ["Rủi ro/cần chú ý 1", "Rủi ro 2"],
+  "next_week_focus": "Khuyến nghị ưu tiên tuần sau (1-2 câu)"
+}}
+"""
+    result = _safe_call(_router_model, prompt)
+    if not result:
+        return {
+            "headline": f"Tuần {period_label}: {len(done_tasks)} done, {len(overdue_tasks)} overdue.",
+            "highlights": [],
+            "risks": [f"{len(overdue_tasks)} tasks quá hạn cần xử lý."] if overdue_tasks else [],
+            "next_week_focus": "Tập trung giảm overdue và đảm bảo deadline tuần tới.",
+        }
+    return {
+        "headline":        result.get("headline", ""),
+        "highlights":      result.get("highlights", []),
+        "risks":           result.get("risks", []),
+        "next_week_focus": result.get("next_week_focus", ""),
+    }
+
+
 def image_pipeline(image_bytes: bytes) -> dict:
     """OCR + route from screenshot (Zalo, email, etc.)."""
     import PIL.Image

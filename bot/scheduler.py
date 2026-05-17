@@ -445,3 +445,85 @@ async def stall_check_all(app):
                 increment_defer(task["id"])
             except Exception as e:
                 logger.error(f"stall_check failed for task #{task['id']}: {e}")
+
+
+# ─── Weekly Friday Report (17:00 Fri) ─────────────────────────────────────────
+
+async def weekly_report(app):
+    """
+    Friday 17:00 — AI-generated weekly summary sent to manager.
+    Covers: done, overdue, velocity, AI highlights + next-week focus.
+    """
+    if _is_quiet() or not MANAGER_ID:
+        return
+
+    now = datetime.now()
+    if now.weekday() != 4:  # Friday only
+        return
+
+    from store import list_team_tasks, get_team_stats
+    from classifier import weekly_summary as ai_summary
+
+    # Collect last 7 days data
+    week_start = (now - timedelta(days=7)).isoformat()
+    done_tasks    = list_team_tasks(statuses=["done"],    since=week_start)
+    pending_tasks = list_team_tasks(statuses=["pending"])
+    overdue_tasks = get_all_overdue_tasks()
+    stats = get_team_stats()
+
+    period_label = f"{(now - timedelta(days=7)).strftime('%d/%m')}–{now.strftime('%d/%m/%Y')}"
+
+    # AI analysis
+    ai = ai_summary(done_tasks, pending_tasks, overdue_tasks, period_label)
+
+    # Build report
+    msg = f"📊 *Weekly Report — Tuần {period_label}*\n\n"
+
+    # Headline
+    if ai.get("headline"):
+        msg += f"_{ai['headline']}_\n\n"
+
+    # Numbers
+    msg += (
+        f"*Tổng kết:*\n"
+        f"  ✅ Done: *{len(done_tasks)}* tasks\n"
+        f"  ⏳ Pending: *{len(pending_tasks)}* tasks\n"
+        f"  🔴 Overdue: *{len(overdue_tasks)}* tasks\n"
+    )
+
+    # Team velocity (top doers)
+    doer_count: dict[str, int] = {}
+    for t in done_tasks:
+        name = t.get("assignee_name") or "?"
+        doer_count[name] = doer_count.get(name, 0) + 1
+    if doer_count:
+        top3 = sorted(doer_count.items(), key=lambda x: -x[1])[:3]
+        msg += "\n*🏆 Top contributors:*\n"
+        for name, cnt in top3:
+            msg += f"  • {name}: {cnt} tasks done\n"
+
+    # AI highlights
+    if ai.get("highlights"):
+        msg += "\n*💡 Highlights:*\n"
+        for h in ai["highlights"][:3]:
+            msg += f"  • {h}\n"
+
+    # Risks
+    if ai.get("risks"):
+        msg += "\n*⚠️ Cần chú ý:*\n"
+        for r in ai["risks"][:2]:
+            msg += f"  • {r}\n"
+
+    # Next week focus
+    if ai.get("next_week_focus"):
+        msg += f"\n*📌 Tuần tới:* _{ai['next_week_focus']}_\n"
+
+    msg += "\n/team · /pending · /stats"
+
+    try:
+        await app.bot.send_message(
+            chat_id=MANAGER_ID, text=msg, parse_mode="Markdown"
+        )
+        logger.info("Weekly report sent to manager")
+    except Exception as e:
+        logger.error(f"weekly_report failed: {e}")
