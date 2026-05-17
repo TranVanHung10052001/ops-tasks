@@ -274,6 +274,134 @@ async def eod_recap_all(app):
             logger.error(f"manager eod digest failed: {e}")
 
 
+# ─── OKR Risk Intel (Mon/Wed/Fri 8:30 — Manager only) ───────────────────────
+
+# Static OKR actions from api.py (duplicated here to avoid circular import)
+# Update deadline when OKR changes
+_OKR_ACTIONS = [
+    ("O1.1", "FR Core ≥68%", ["1.1.1","1.1.2","1.1.3","1.1.4"]),
+    ("O1.2", "FR Long Haul ≥70%", ["1.2.1","1.2.2","1.2.3","1.2.4"]),
+    ("O1.3", "FR SME 100–300kg ≥65%", ["1.3.1","1.3.2","1.3.3","1.3.4"]),
+    ("O2.1", "KCN BDG + LAN Hub", ["2.1.1","2.1.2","2.1.3","2.1.4","2.1.5","2.1.6"]),
+    ("O2.2", "Shift Model ≥100 drivers", ["2.2.1","2.2.2","2.2.3","2.2.4","2.2.5"]),
+    ("O2.4", "Driver Retention D30 70%", ["2.4.1","2.4.2","2.4.3"]),
+    ("O3.1", "1st PU On-Time 80%", ["3.1.1","3.1.2","3.1.3"]),
+    ("O3.2", "COGS GXT 75K/kiện", ["3.2.1","3.2.2","3.2.3","3.2.4"]),
+    ("O3.3", "Vendor Truck B2B 11", ["3.3.1","3.3.2"]),
+    ("O3.4", "Distribution GSV ≥4.5B", ["3.4.1","3.4.2"]),
+]
+
+_DEADLINES = {
+    "1.1.1": "2026-04-29","1.1.2": "2026-04-30","1.1.3": "2026-05-27","1.1.4": "2026-04-30",
+    "1.2.1": "2026-05-10","1.2.2": "2026-05-22","1.2.3": "2026-06-15","1.2.4": "2026-05-31",
+    "1.3.1": "2026-05-18","1.3.2": "2026-05-22","1.3.3": "2026-05-15","1.3.4": "2026-04-30",
+    "2.1.1": "2026-05-10","2.1.2": "2026-05-27","2.1.3": "2026-05-20","2.1.4": "2026-06-30",
+    "2.1.5": "2026-05-27","2.1.6": "2026-05-15","2.2.1": "2026-04-22","2.2.2": "2026-04-30",
+    "2.2.3": "2026-05-07","2.2.4": "2026-05-15","2.2.5": "2026-05-15","2.4.1": "2026-05-07",
+    "2.4.2": "2026-05-15","2.4.3": "2026-05-31","3.1.1": "2026-04-15","3.1.2": "2026-04-30",
+    "3.1.3": "2026-04-22","3.2.1": "2026-04-20","3.2.2": "2026-04-30","3.2.3": "2026-05-31",
+    "3.2.4": "2026-05-31","3.3.1": "2026-05-30","3.3.2": "2026-06-15","3.4.1": "2026-04-30",
+    "3.4.2": "2026-05-31",
+}
+
+
+async def okr_risk_intel(app):
+    """
+    Send OKR Risk Radar to manager Mon/Wed/Fri 8:30.
+    Analyzes overdue OKR actions + team member overload → actionable suggestions.
+    """
+    if _is_quiet() or not MANAGER_ID:
+        return
+
+    now = datetime.now()
+    weekday = now.weekday()  # 0=Mon, 1=Tue, ...
+    if weekday not in (0, 2, 4):  # Mon/Wed/Fri only
+        return
+
+    # Compute OKR health
+    at_risk = []
+    watch = []
+    on_track = []
+
+    for kr_id, kr_label, action_ids in _OKR_ACTIONS:
+        total = len(action_ids)
+        overdue_count = 0
+        critical_count = 0  # due in ≤ 3 days
+        for aid in action_ids:
+            dl_str = _DEADLINES.get(aid)
+            if not dl_str:
+                continue
+            try:
+                dl = datetime.fromisoformat(dl_str)
+                delta = (dl - now).total_seconds()
+                if delta < 0:
+                    overdue_count += 1
+                elif delta <= 3 * 86400:
+                    critical_count += 1
+            except (ValueError, TypeError):
+                pass
+
+        overdue_pct = overdue_count / total if total else 0
+        if overdue_pct >= 0.5:
+            at_risk.append((kr_id, kr_label, overdue_count, total, critical_count))
+        elif overdue_pct >= 0.25 or critical_count >= 2:
+            watch.append((kr_id, kr_label, overdue_count, total, critical_count))
+        else:
+            on_track.append((kr_id, kr_label, overdue_count, total, critical_count))
+
+    # Team load analysis
+    members = list_team_by_person()
+    overloaded = [(m["full_name"], m["active_count"], m["overdue_count"])
+                  for m in members if m.get("active_count", 0) > 6 or m.get("overdue_count", 0) > 2]
+    underloaded = [(m["full_name"], m["active_count"])
+                   for m in members if m.get("active_count", 0) <= 1 and m.get("role") != "manager"]
+
+    # Build message
+    day_str = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu"][weekday]
+    msg = f"*🎯 OKR Risk Radar — {day_str} {now.strftime('%d/%m')}*\n\n"
+
+    if at_risk:
+        msg += "🔴 *AT RISK — cần xử lý ngay:*\n"
+        for kr_id, label, od, total, crit in at_risk:
+            msg += f"  • {kr_id} {label}: {od}/{total} actions overdue"
+            if crit:
+                msg += f", {crit} sắp hết hạn"
+            msg += "\n"
+        msg += "\n"
+
+    if watch:
+        msg += "🟡 *WATCH — cần theo dõi:*\n"
+        for kr_id, label, od, total, crit in watch:
+            msg += f"  • {kr_id} {label}: {od}/{total} overdue"
+            if crit:
+                msg += f", {crit} sắp hết hạn"
+            msg += "\n"
+        msg += "\n"
+
+    if on_track:
+        msg += f"✅ *Đúng track:* " + ", ".join(kr for kr, *_ in on_track) + "\n\n"
+
+    # Team capacity suggestions
+    if overloaded:
+        msg += "⚠️ *Overload:*\n"
+        for name, active, overdue in overloaded:
+            msg += f"  • {name}: {active} active, {overdue} overdue\n"
+        msg += "\n"
+
+    if underloaded and overloaded:
+        msg += "💡 *Suggest:* Xem xét redistribute task từ overload → "
+        msg += ", ".join(n for n, _ in underloaded[:2]) + "\n\n"
+
+    msg += "/team chi tiết · /assign giao việc mới"
+
+    try:
+        await app.bot.send_message(
+            chat_id=MANAGER_ID, text=msg, parse_mode="Markdown"
+        )
+    except Exception as e:
+        logger.error(f"okr_risk_intel failed: {e}")
+
+
 # ─── Stall check (9:00 and 15:00) ────────────────────────────────────────────
 
 async def stall_check_all(app):

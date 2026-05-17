@@ -29,6 +29,7 @@ from bot import (
 from scheduler import (
     morning_briefing_all, manager_team_digest,
     deadline_check_all, eod_recap_all, stall_check_all,
+    okr_risk_intel,
 )
 from store import init_db
 from roles import MANAGER_CHAT_ID
@@ -137,9 +138,11 @@ async def main():
                   args=[app], id="eod_recap")
     sched.add_job(stall_check_all,       "cron", hour="9,15", minute=0,
                   args=[app], id="stall_check")
+    sched.add_job(okr_risk_intel,        "cron", day_of_week="mon,wed,fri",
+                  hour=8, minute=35, args=[app], id="okr_risk_intel")
 
     sched.start()
-    logger.info("Scheduler started — 5 jobs")
+    logger.info("Scheduler started — 6 jobs")
 
     logger.info(f"Bot starting | Manager: {MANAGER_CHAT_ID}")
 

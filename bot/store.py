@@ -126,6 +126,36 @@ def get_user_by_username(username: str) -> dict | None:
         return dict(row) if row else None
 
 
+def get_user_by_email(email: str) -> dict | None:
+    """Find user by Ahamove email (stored in username or full_name won't work — match on email field if exists, else skip)."""
+    # Email not stored in DB currently — match by known email→name mapping from team_context
+    # This is a best-effort lookup; falls back to get_user_by_name
+    return None
+
+
+def get_user_by_name(name: str) -> dict | None:
+    """Find user by partial full_name match (case-insensitive)."""
+    if not name:
+        return None
+    name_lower = name.lower().strip()
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM users WHERE is_approved = 1"
+        ).fetchall()
+        # Try exact match first
+        for row in rows:
+            if row["full_name"].lower() == name_lower:
+                return dict(row)
+        # Try partial match (last name, nickname)
+        for row in rows:
+            full = row["full_name"].lower()
+            parts = full.split()
+            # Match any name part or if search is contained
+            if any(p == name_lower for p in parts) or name_lower in full:
+                return dict(row)
+    return None
+
+
 def approve_user(telegram_id: int) -> bool:
     with get_db() as conn:
         cursor = conn.execute(

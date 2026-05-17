@@ -27,7 +27,7 @@ from roles import (
     is_manager, is_team_lead, can_assign, can_see_team,
     can_approve_users, can_see_task,
 )
-from classifier import full_pipeline, image_pipeline, extract_deadline
+from classifier import full_pipeline, image_pipeline, extract_deadline, route_task
 from roast import get_done_roast, get_snooze_roast
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,9 @@ _pending_assign_deadline: dict[int, dict] = {}
 
 # {user_chat_id: (task_id, ts)} — waiting for deadline on self-created task
 _pending_deadline: dict[int, tuple] = {}
+
+# {manager_chat_id: {routed task data}} — waiting for manager to confirm AI routing
+_pending_confirm: dict[int, dict] = {}
 
 DEADLINE_TTL = 300  # 5 minutes
 
@@ -583,9 +586,13 @@ async def cmd_assign(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Has description but no assignee — show team picker
-    result = full_pipeline(args_text)
-    await _show_assignee_picker(update, context, user, args_text, result)
+    # Has description but no assignee — try smart route first
+    await update.message.reply_text("⏳ Đang phân tích...")
+    routed = route_task(args_text)
+    if routed.get("assignee_confidence", 0) >= 0.75 and routed.get("assignee_name"):
+        await _show_confirm_card(update, context, user, args_text, routed)
+    else:
+        await _show_assignee_picker(update, context, user, args_text, routed)
 
 
 async def _do_assign_with_text(
@@ -645,6 +652,71 @@ async def _do_assign_with_text(
 
     log_action(assigner["telegram_id"], "assign", "task", task_id,
                f"→ {assignee['full_name']}")
+
+
+async def _show_confirm_card(
+    update: Update, context: ContextTypes.DEFAULT_TYPE,
+    assigner: dict, task_text: str, routed: dict,
+):
+    """
+    Show AI-routed task confirm card when assignee detected with high confidence.
+    Manager taps [✅ Assign] to confirm or [✏️ Đổi người] to open picker.
+    """
+    uid = update.effective_chat.id
+    _pending_confirm[uid] = {
+        "task_text": task_text,
+        "routed": routed,
+        "ts": datetime.now(),
+    }
+
+    priority = routed.get("priority", "P2")
+    emoji = P_EMOJI.get(priority, "⚪")
+    summary = routed.get("summary", task_text[:80])
+    assignee_name = routed.get("assignee_name", "?")
+    deadline_iso = routed.get("deadline_iso")
+    okr_ref = routed.get("okr_ref")
+    in_scope = routed.get("in_scope", True)
+    scope_note = routed.get("scope_note", "")
+    breakdown = routed.get("breakdown", [])
+    confidence = int(routed.get("assignee_confidence", 0) * 100)
+
+    # Build message
+    lines = [f"📋 *{summary}*\n"]
+    detail = f"👤 *{assignee_name}*  ·  {emoji} {priority}"
+    if deadline_iso:
+        try:
+            dl = datetime.fromisoformat(deadline_iso)
+            detail += f"  ·  📅 {dl.strftime('%d/%m')}"
+        except (ValueError, TypeError):
+            pass
+    lines.append(detail)
+
+    if okr_ref:
+        lines.append(f"🎯 OKR {okr_ref}")
+
+    scope_icon = "✅" if in_scope else "⚠️"
+    lines.append(f"{scope_icon} {scope_note or ('Đúng scope' if in_scope else 'Ngoài scope')}"
+                 f"  ·  AI {confidence}%")
+
+    if breakdown:
+        lines.append("\n*Gợi ý thực hiện:*")
+        for i, step in enumerate(breakdown[:4], 1):
+            lines.append(f"{i}. {step}")
+
+    confirm_kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(f"✅ Assign cho {assignee_name.split()[-1]}",
+                                 callback_data="confirm_assign"),
+            InlineKeyboardButton("✏️ Đổi người", callback_data="change_assignee"),
+        ],
+        [InlineKeyboardButton("❌ Huỷ", callback_data="cancel_assign")],
+    ])
+
+    await update.message.reply_text(
+        "\n".join(lines),
+        parse_mode="Markdown",
+        reply_markup=confirm_kb,
+    )
 
 
 async def _show_assignee_picker(
@@ -933,16 +1005,21 @@ async def handle_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _show_assignee_picker(update, context, user, text, state["result"])
         return
 
-    # Manager forwarding external message → task creation for assignment
+    # Manager forwarding external message → smart route + confirm card / picker
     if can_assign(user) and (update.message.forward_date or update.message.forward_origin):
-        result = full_pipeline(text)
-        if result.get("is_task"):
-            _pending_assign_who[uid] = {
-                "task_text": text,
-                "result": result,
-                "ts": datetime.now(),
-            }
-            await _show_assignee_picker(update, context, user, text, result)
+        await update.message.reply_text("⏳ Đang phân tích...")
+        routed = route_task(text)
+        if routed.get("is_task"):
+            # High confidence → confirm card; low confidence → picker
+            if routed.get("assignee_confidence", 0) >= 0.75 and routed.get("assignee_name"):
+                await _show_confirm_card(update, context, user, text, routed)
+            else:
+                _pending_assign_who[uid] = {
+                    "task_text": text,
+                    "result": routed,
+                    "ts": datetime.now(),
+                }
+                await _show_assignee_picker(update, context, user, text, routed)
         else:
             await update.message.reply_text(
                 "Không phát hiện task trong tin nhắn này.\n"
@@ -1264,6 +1341,117 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if task and can_see_task(user, task):
             unblock_task(task_id)
             await query.edit_message_text(f"✓ Task #{task_id} unblocked — back to pending.")
+
+    # ── confirm_assign — manager confirms AI-routed assignee ──
+    elif data == "confirm_assign":
+        state = _pending_confirm.get(uid)
+        if not state:
+            await query.edit_message_text("Phiên đã hết hạn. Thử lại.")
+            return
+        _pending_confirm.pop(uid, None)
+        routed = state["routed"]
+        task_text = state["task_text"]
+
+        # Find assignee by email or name
+        assignee = None
+        if routed.get("assignee_email"):
+            from store import get_user_by_email
+            assignee = get_user_by_email(routed["assignee_email"])
+        if not assignee and routed.get("assignee_name"):
+            from store import get_user_by_name
+            assignee = get_user_by_name(routed["assignee_name"])
+
+        if not assignee:
+            # Fall back to picker if user not found in DB yet
+            _pending_assign_who[uid] = {"task_text": task_text, "result": routed, "ts": datetime.now()}
+            members = list_team_by_person()
+            members = [m for m in members if m["telegram_id"] != uid]
+            await query.edit_message_text(
+                f"Chưa tìm thấy {routed.get('assignee_name')} trong hệ thống. Chọn người khác:",
+                reply_markup=_assignee_keyboard(members, str(hash(task_text))[:8]),
+            )
+            return
+
+        task_id = add_task(
+            raw_message=task_text,
+            summary=routed.get("summary", task_text[:100]),
+            assignee_id=assignee["telegram_id"],
+            assigned_by=uid,
+            team=assignee.get("team"),
+            source="ai_route",
+            sender=user["full_name"] if user else "Manager",
+            deadline=routed.get("deadline_iso"),
+            priority=routed.get("priority", "P2"),
+            category=routed.get("category", "other"),
+            classifier_meta=routed,
+        )
+
+        emoji = P_EMOJI.get(routed.get("priority", "P2"), "⚪")
+        summary = routed.get("summary", task_text[:80])
+        okr_str = f" | 🎯 {routed['okr_ref']}" if routed.get("okr_ref") else ""
+        await query.edit_message_text(
+            f"✅ *#{task_id}* giao cho *{assignee['full_name']}*\n"
+            f"{emoji} _{summary}_{okr_str}",
+            parse_mode="Markdown",
+        )
+        log_action(uid, "assign_ai", "task", task_id, f"→ {assignee['full_name']}")
+
+        # DM to assignee with OKR context
+        accept_kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✓ Nhận việc", callback_data=f"accept:{task_id}"),
+            InlineKeyboardButton("✗ Từ chối", callback_data=f"decline:{task_id}"),
+        ]])
+        dm_msg = (
+            f"📥 *{user['full_name'] if user else 'Manager'}* giao việc cho bạn:\n\n"
+            f"{emoji} *{summary}*"
+        )
+        if routed.get("deadline_iso"):
+            try:
+                dl = datetime.fromisoformat(routed["deadline_iso"])
+                dm_msg += f"\n📅 Deadline: *{dl.strftime('%d/%m')}*"
+            except (ValueError, TypeError):
+                pass
+        if routed.get("okr_ref"):
+            dm_msg += f"\n🎯 OKR: {routed['okr_ref']}"
+        if routed.get("scope_note"):
+            dm_msg += f"\n💡 _{routed['scope_note']}_"
+        if routed.get("breakdown"):
+            dm_msg += "\n\n*Gợi ý thực hiện:*\n" + "\n".join(
+                f"{i}. {s}" for i, s in enumerate(routed["breakdown"][:4], 1)
+            )
+        try:
+            await context.bot.send_message(
+                chat_id=assignee["telegram_id"],
+                text=dm_msg, parse_mode="Markdown", reply_markup=accept_kb,
+            )
+        except Exception as e:
+            logger.error(f"DM to assignee failed: {e}")
+
+    # ── change_assignee — manager wants to override AI pick ──
+    elif data == "change_assignee":
+        state = _pending_confirm.get(uid)
+        if not state:
+            await query.edit_message_text("Phiên đã hết hạn.")
+            return
+        task_text = state["task_text"]
+        routed = state["routed"]
+        _pending_confirm.pop(uid, None)
+        _pending_assign_who[uid] = {"task_text": task_text, "result": routed, "ts": datetime.now()}
+        members = list_team_by_person()
+        members = [m for m in members if m["telegram_id"] != uid]
+        emoji = P_EMOJI.get(routed.get("priority", "P2"), "⚪")
+        summary = routed.get("summary", task_text[:60])
+        await query.edit_message_text(
+            f"{emoji} _{summary}_\n\nGiao cho ai?",
+            parse_mode="Markdown",
+            reply_markup=_assignee_keyboard(members, str(hash(task_text))[:8]),
+        )
+
+    # ── cancel_assign ──
+    elif data == "cancel_assign":
+        _pending_confirm.pop(uid, None)
+        _pending_assign_who.pop(uid, None)
+        await query.edit_message_text("❌ Đã huỷ.")
 
     # ── ignore ──
     elif data == "ignore":
