@@ -1,247 +1,176 @@
-"use client";
-
-import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
-import type { Member, Task } from "@/lib/types";
-import { LoadBadge, PriorityBadge, StatusBadge } from "@/components/ui/badge";
-import { ChevronRight, RefreshCw, X } from "lucide-react";
-
-function MemberCard({
-  member,
-  onClick,
-}: {
-  member: Member;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="card p-4 text-left hover:border-gray-300 transition-colors w-full"
-    >
-      <div className="flex items-start justify-between mb-3">
-        <div>
-          <p className="font-semibold text-gray-900">{member.full_name}</p>
-          {member.username && (
-            <p className="text-xs text-gray-400">@{member.username}</p>
-          )}
-        </div>
-        <div className="flex items-center gap-1.5">
-          <LoadBadge load={member.load} />
-          <ChevronRight size={14} className="text-gray-300" />
-        </div>
-      </div>
-      <p className="text-xs text-gray-500 mb-3">{member.role_label}{member.team && ` · ${member.team}`}</p>
-      <div className="grid grid-cols-4 gap-2 text-center">
-        <div>
-          <p className="text-lg font-bold text-gray-900 tabular-nums">{member.active_count}</p>
-          <p className="text-[10px] text-gray-400 uppercase tracking-wide">Active</p>
-        </div>
-        <div>
-          <p className="text-lg font-bold text-green-600 tabular-nums">{member.done_today}</p>
-          <p className="text-[10px] text-gray-400 uppercase tracking-wide">Done</p>
-        </div>
-        <div>
-          <p className="text-lg font-bold text-red-500 tabular-nums">{member.overdue_count}</p>
-          <p className="text-[10px] text-gray-400 uppercase tracking-wide">Overdue</p>
-        </div>
-        <div>
-          <p className="text-lg font-bold text-orange-500 tabular-nums">{member.blocked_count}</p>
-          <p className="text-[10px] text-gray-400 uppercase tracking-wide">Blocked</p>
-        </div>
-      </div>
-    </button>
-  );
-}
-
-function MemberDrawer({
-  member,
-  onClose,
-}: {
-  member: Member;
-  onClose: () => void;
-}) {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState("active");
-
-  useEffect(() => {
-    setLoading(true);
-    api
-      .memberTasks(member.telegram_id, statusFilter === "active" ? undefined : statusFilter)
-      .then(setTasks)
-      .finally(() => setLoading(false));
-  }, [member.telegram_id, statusFilter]);
-
-  return (
-    <div className="fixed inset-0 z-50 flex">
-      <div className="flex-1 bg-black/30" onClick={onClose} />
-      <div className="w-full max-w-lg bg-white border-l border-gray-200 flex flex-col h-full shadow-xl">
-        {/* Header */}
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-          <div>
-            <h2>{member.full_name}</h2>
-            <p className="text-xs text-gray-400">{member.role_label}</p>
-          </div>
-          <button onClick={onClose} className="btn-ghost p-1.5">
-            <X size={16} />
-          </button>
-        </div>
-
-        {/* Stats row */}
-        <div className="px-5 py-3 border-b border-gray-100 grid grid-cols-4 gap-3 text-center">
-          {[
-            { label: "Active", val: member.active_count, color: "text-gray-900" },
-            { label: "Done Today", val: member.done_today, color: "text-green-600" },
-            { label: "Overdue", val: member.overdue_count, color: "text-red-500" },
-            { label: "Blocked", val: member.blocked_count, color: "text-orange-500" },
-          ].map(({ label, val, color }) => (
-            <div key={label}>
-              <p className={`text-xl font-bold tabular-nums ${color}`}>{val}</p>
-              <p className="text-[10px] text-gray-400">{label}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* Filter tabs */}
-        <div className="px-5 py-2 border-b border-gray-100 flex gap-1">
-          {["active", "done", "blocked", "snoozed"].map((s) => (
-            <button
-              key={s}
-              onClick={() => setStatusFilter(s)}
-              className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                statusFilter === s
-                  ? "bg-gray-900 text-white"
-                  : "text-gray-500 hover:bg-gray-100"
-              }`}
-            >
-              {s.charAt(0).toUpperCase() + s.slice(1)}
-            </button>
-          ))}
-        </div>
-
-        {/* Task list */}
-        <div className="flex-1 overflow-y-auto scrollbar-thin">
-          {loading ? (
-            <div className="p-5 space-y-3">
-              {[...Array(4)].map((_, i) => (
-                <div key={i} className="h-14 bg-gray-100 rounded animate-pulse" />
-              ))}
-            </div>
-          ) : tasks.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-10">No tasks</p>
-          ) : (
-            <ul className="divide-y divide-gray-50">
-              {tasks.map((t) => (
-                <li key={t.id} className="px-5 py-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900">{t.summary}</p>
-                      <div className="flex items-center gap-1.5 mt-1">
-                        <PriorityBadge priority={t.priority} />
-                        {t.deadline && (
-                          <span className="text-[11px] text-gray-400">
-                            due {t.deadline.slice(0, 10)}
-                          </span>
-                        )}
-                        {t.category && (
-                          <span className="text-[11px] text-gray-400">{t.category}</span>
-                        )}
-                      </div>
-                      {t.block_reason && (
-                        <p className="text-xs text-red-500 mt-1 bg-red-50 px-2 py-0.5 rounded">
-                          Blocked: {t.block_reason}
-                        </p>
-                      )}
-                    </div>
-                    <StatusBadge status={t.status} />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
+import { MEMBERS, TASKS, memberById } from "@/lib/mock";
+import clsx from "clsx";
 
 export default function TeamPage() {
-  const [members, setMembers] = useState<Member[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Member | null>(null);
-
-  const load = async () => {
-    setLoading(true);
-    setError(null);
-    api.team()
-      .then(setMembers)
-      .catch((e: Error) => setError(e.message ?? "Failed to load team"))
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(() => { load(); }, []);
+  const online = MEMBERS.filter((m) => m.status === "online").length;
 
   return (
-    <div className="p-8 max-w-5xl">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-6 space-y-5 max-w-[1400px]">
+      <header className="flex items-end justify-between">
         <div>
-          <h1>Team</h1>
-          <p className="text-xs text-gray-400 mt-0.5">{members.length} members</p>
+          <div className="label-ops text-2xs mb-1.5">Đài chính · 04 · Nhóm điều vận</div>
+          <h1 className="text-2xl text-text-primary editorial leading-tight">Đội điều vận xe tải · 8 callsign.</h1>
+          <p className="text-md text-text-secondary mt-1">
+            {online}/{MEMBERS.length} thành viên đang trực · ca ngày 06:00 → 18:00 · ca đêm 18:00 → 06:00.
+          </p>
         </div>
-        <button onClick={load} disabled={loading} className="btn-ghost text-xs">
-          <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
-          Refresh
-        </button>
-      </div>
+        <button className="btn-ops primary">+ Thêm thành viên</button>
+      </header>
 
-      {error && (
-        <div className="card p-5 border-red-200 mb-4">
-          <p className="text-sm text-red-600 font-medium">Cannot connect to API</p>
-          <p className="text-xs text-gray-400 mt-0.5">{error}</p>
-          <button onClick={load} className="btn-secondary mt-3 text-xs">Retry</button>
-        </div>
-      )}
+      <div className="grid grid-cols-4 gap-3">
+        {MEMBERS.map((m) => {
+          const tasks = TASKS.filter((t) => t.assignee === m.id);
+          const p0 = tasks.filter((t) => t.priority === "P0").length;
+          const blocked = tasks.filter((t) => t.status === "bi_chan").length;
+          const loadPct = (m.workload / m.workloadMax) * 100;
+          return (
+            <div key={m.id} className="ops-surface p-4 relative">
+              {m.status === "online" && (
+                <div className="absolute top-3 right-3 flex items-center gap-1.5">
+                  <span className="status-dot active" />
+                  <span className="mono text-2xs text-state-active uppercase tracking-wider">trực</span>
+                </div>
+              )}
+              {m.status === "busy" && (
+                <div className="absolute top-3 right-3 flex items-center gap-1.5">
+                  <span className="status-dot pending" />
+                  <span className="mono text-2xs text-state-pending uppercase tracking-wider">bận</span>
+                </div>
+              )}
+              {m.status === "away" && (
+                <div className="absolute top-3 right-3 flex items-center gap-1.5">
+                  <span className="status-dot paused" />
+                  <span className="mono text-2xs text-state-paused uppercase tracking-wider">vắng</span>
+                </div>
+              )}
+              {m.status === "offline" && (
+                <div className="absolute top-3 right-3 flex items-center gap-1.5">
+                  <span className="w-2 h-2 bg-text-disabled" />
+                  <span className="mono text-2xs text-text-disabled uppercase tracking-wider">off</span>
+                </div>
+              )}
 
-      {loading && members.length === 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="card p-4 h-40 animate-pulse bg-gray-100" />
-          ))}
-        </div>
-      ) : (
-        <>
-          {/* Manager/Lead first */}
-          {["manager", "team_lead"].map((role) => {
-            const group = members.filter((m) => m.role === role);
-            if (group.length === 0) return null;
-            return (
-              <div key={role} className="mb-6">
-                <h3 className="mb-3">{role === "manager" ? "Manager" : "Team Leads"}</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {group.map((m) => (
-                    <MemberCard key={m.telegram_id} member={m} onClick={() => setSelected(m)} />
+              <div className="flex items-start gap-3 mb-4">
+                <div className="callsign large">{m.initials}</div>
+                <div className="flex-1 mt-1">
+                  <div className="text-md text-text-primary leading-tight">{m.name}</div>
+                  <div className="mono text-2xs text-text-tertiary tracking-wider mt-0.5">{m.callsign}</div>
+                  <div className="text-xs text-text-tertiary mt-1.5">{m.role}</div>
+                </div>
+              </div>
+
+              {/* Workload bar */}
+              <div className="mb-3">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="label-ops text-2xs">Tải công việc</span>
+                  <span className="mono text-xs text-text-primary tabular">
+                    {m.workload}/{m.workloadMax}
+                  </span>
+                </div>
+                <div className="flex gap-px h-3">
+                  {Array.from({ length: m.workloadMax }).map((_, i) => (
+                    <div
+                      key={i}
+                      className={clsx(
+                        "flex-1",
+                        i < m.workload
+                          ? loadPct > 80
+                            ? "bg-signal-p0"
+                            : loadPct > 60
+                            ? "bg-signal-p2"
+                            : "bg-signal-p3"
+                          : "bg-surface-deep border-y border-divider-strong"
+                      )}
+                    />
                   ))}
                 </div>
               </div>
-            );
-          })}
-          {members.filter((m) => m.role === "employee").length > 0 && (
-            <div>
-              <h3 className="mb-3">Team Members</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {members.filter((m) => m.role === "employee").map((m) => (
-                  <MemberCard key={m.telegram_id} member={m} onClick={() => setSelected(m)} />
-                ))}
+
+              {/* Mini stats */}
+              <div className="grid grid-cols-3 gap-0 border-y border-divider py-2">
+                <div className="text-center border-r border-divider">
+                  <div className="mono text-md text-text-primary tabular">{tasks.length}</div>
+                  <div className="mono text-2xs text-text-tertiary uppercase tracking-wider">task</div>
+                </div>
+                <div className="text-center border-r border-divider">
+                  <div className={clsx("mono text-md tabular", p0 > 0 ? "text-signal-p0" : "text-text-tertiary")}>
+                    {p0}
+                  </div>
+                  <div className="mono text-2xs text-text-tertiary uppercase tracking-wider">p0</div>
+                </div>
+                <div className="text-center">
+                  <div className={clsx("mono text-md tabular", blocked > 0 ? "text-signal-p1" : "text-text-tertiary")}>
+                    {blocked}
+                  </div>
+                  <div className="mono text-2xs text-text-tertiary uppercase tracking-wider">chặn</div>
+                </div>
+              </div>
+
+              {/* Top task */}
+              {tasks[0] && (
+                <div className="mt-3 text-xs">
+                  <div className="label-ops text-2xs mb-1">Đang xử lý</div>
+                  <div className="text-text-primary leading-snug line-clamp-2">{tasks[0].title}</div>
+                </div>
+              )}
+
+              <div className="dotted-divider my-3" />
+
+              <div className="flex items-center justify-between">
+                <button className="mono text-2xs text-accent-paper uppercase tracking-wider hover:text-accent-amber">
+                  ► Chi tiết
+                </button>
+                <button className="mono text-2xs text-text-tertiary uppercase tracking-wider hover:text-text-primary">
+                  + Giao task
+                </button>
               </div>
             </div>
-          )}
-        </>
-      )}
+          );
+        })}
+      </div>
 
-      {selected && (
-        <MemberDrawer member={selected} onClose={() => setSelected(null)} />
-      )}
+      {/* Capacity overview */}
+      <section className="ops-surface p-5">
+        <header className="flex items-center justify-between mb-4">
+          <div>
+            <div className="label-ops text-2xs">Tổng quan năng lực</div>
+            <div className="mono text-2xs text-text-tertiary mt-0.5">cập nhật 14:32 ICT</div>
+          </div>
+          <button className="btn-ops">Tái phân bổ tự động</button>
+        </header>
+
+        <div className="space-y-3">
+          {MEMBERS.map((m) => {
+            const loadPct = (m.workload / m.workloadMax) * 100;
+            const isOver = loadPct > 80;
+            return (
+              <div key={m.id} className="flex items-center gap-3">
+                <div className="w-24 mono text-xs text-text-secondary tracking-wider shrink-0">{m.callsign}</div>
+                <div className="w-32 text-sm text-text-primary shrink-0">{m.name}</div>
+                <div className="flex-1 h-5 bg-surface-deep border border-divider relative">
+                  <div
+                    className={clsx(
+                      "absolute top-0 bottom-0 left-0",
+                      isOver ? "bg-signal-p0/50" : loadPct > 60 ? "bg-signal-p2/40" : "bg-signal-p3/40"
+                    )}
+                    style={{ width: `${loadPct}%` }}
+                  />
+                  <div
+                    className="absolute top-0 bottom-0 w-px bg-text-tertiary opacity-50"
+                    style={{ left: "80%" }}
+                    title="Ngưỡng overload 80%"
+                  />
+                </div>
+                <div className="w-16 text-right mono text-xs text-text-primary tabular shrink-0">{loadPct}%</div>
+                {isOver && (
+                  <span className="mono text-2xs text-signal-p0 uppercase tracking-wider shrink-0 w-20">⚠ overload</span>
+                )}
+                {!isOver && <span className="shrink-0 w-20" />}
+              </div>
+            );
+          })}
+        </div>
+      </section>
     </div>
   );
 }

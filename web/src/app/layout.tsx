@@ -1,11 +1,20 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import Sidebar from "@/components/layout/sidebar";
+import TopBar from "@/components/layout/top-bar";
+import ChannelSidebar from "@/components/layout/channel-sidebar";
+import AIPanel from "@/components/layout/ai-panel";
 
 export const metadata: Metadata = {
-  title: "Ops Truck Dashboard",
-  description: "Ahamove Ops Truck Team Management",
+  title: "Đài Điều Vận · Ahamove Truck Ops",
+  description: "Hệ thống điều phối nhóm vận hành xe tải Ahamove",
 };
+
+const themeInit = `
+try {
+  var t = localStorage.getItem('ops-theme');
+  if (t === 'sang') document.documentElement.setAttribute('data-theme','sang');
+} catch(e) {}
+`;
 
 export default function RootLayout({
   children,
@@ -14,13 +23,16 @@ export default function RootLayout({
 }) {
   return (
     <html lang="vi">
-      <body>
-        <div className="flex min-h-screen">
-          <Sidebar />
-          <main className="flex-1 ml-60 min-h-screen">
-            {children}
-          </main>
-        </div>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInit }} />
+      </head>
+      <body className="min-h-screen">
+        <TopBar />
+        <ChannelSidebar />
+        <main className="ml-[220px] mr-[320px] mt-10 min-h-[calc(100vh-40px)]">
+          {children}
+        </main>
+        <AIPanel />
       </body>
     </html>
   );

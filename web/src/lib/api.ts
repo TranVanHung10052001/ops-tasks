@@ -1,97 +1,115 @@
-import type { Task, Member, User, TeamStats, OkrData } from "./types";
+// Types mirroring bot/api.py serialisers (_fmt_task, _fmt_member)
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const API_SECRET = process.env.NEXT_PUBLIC_API_SECRET || "ops-tasks-secret-change-me";
-
-async function req<T>(
-  path: string,
-  options: RequestInit = {}
-): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${API_SECRET}`,
-      ...options.headers,
-    },
-    cache: "no-store",
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`API ${path}: ${res.status} ${text}`);
-  }
-  return res.json();
+export interface ApiTask {
+  id: number;
+  summary: string;
+  assignee_id: number | null;
+  assignee_name: string | null;
+  assigned_by: number | null;
+  assigner_name: string | null;
+  team: string | null;
+  priority: "P0" | "P1" | "P2" | "P3";
+  category: string;
+  status: "pending" | "in_progress" | "blocked" | "done" | "snoozed" | "cancelled";
+  deadline: string | null;
+  block_reason: string | null;
+  source: string | null;
+  created_at: string;
+  completed_at: string | null;
+  estimated_minutes: number | null;
+  actual_minutes: number | null;
+  visibility: string;
 }
 
-export const api = {
-  stats: () => req<TeamStats>("/api/stats"),
+export interface ApiMember {
+  telegram_id: number;
+  full_name: string;
+  username: string | null;
+  role: string;
+  role_label: string;
+  team: string | null;
+  active_count: number;
+  done_today: number;
+  overdue_count: number;
+  blocked_count: number;
+  load: "critical" | "high" | "normal" | "low";
+}
 
-  team: () => req<Member[]>("/api/team"),
+export interface ApiStats {
+  active: number;
+  done_today: number;
+  overdue: number;
+  blocked: number;
+  done_week: number;
+  overloaded_count: number;
+  member_count: number;
+  overdue_tasks: ApiTask[];
+}
 
-  memberTasks: (userId: number, status?: string) =>
-    req<Task[]>(
-      `/api/team/${userId}/tasks${status ? `?status=${status}` : ""}`
-    ),
+export interface ApiOkrKR {
+  id: string;
+  label: string;
+  baseline?: string;
+  target: string;
+  weight: string;
+}
 
-  tasks: (params?: {
-    status?: string;
-    assignee_id?: number;
-    priority?: string;
-    search?: string;
-  }) => {
-    const q = new URLSearchParams();
-    if (params?.status) q.set("status", params.status);
-    if (params?.assignee_id) q.set("assignee_id", String(params.assignee_id));
-    if (params?.priority) q.set("priority", params.priority);
-    if (params?.search) q.set("search", params.search);
-    return req<{ tasks: Task[]; total: number }>(
-      `/api/tasks${q.toString() ? `?${q}` : ""}`
-    );
-  },
+export interface ApiOkrObjective {
+  id: string;
+  label: string;
+  krs: ApiOkrKR[];
+  category: string;
+}
 
-  doneTasks: () => req<Task[]>("/api/tasks/done"),
+export interface ApiOkrAction {
+  id: string;
+  okr: string;
+  kr?: string;
+  name: string;
+  pic: string;
+  priority: string;
+  deadline: string;
+  is_overdue: boolean;
+  days_left: number | null;
+}
 
-  taskDetail: (id: number) => req<Task>(`/api/tasks/${id}`),
+export interface ApiOkrResponse {
+  objectives: ApiOkrObjective[];
+  actions: ApiOkrAction[];
+  north_star: string;
+  quarter: string;
+  total_actions: number;
+  overdue_actions: number;
+  p0_actions: number;
+}
 
-  updateTask: (
-    id: number,
-    body: {
-      status?: string;
-      priority?: string;
-      assignee_id?: number;
-      deadline?: string;
-      block_reason?: string;
-    }
-  ) =>
-    req<{ ok: boolean; task: Task }>(`/api/tasks/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify(body),
-    }),
+// ── Server-side fetch (used only in Next.js API route handlers) ────────────────
 
-  createTask: (body: {
-    summary: string;
-    assignee_id: number;
-    priority?: string;
-    deadline?: string;
-    category?: string;
-  }) =>
-    req<{ ok: boolean; task_id: number }>("/api/tasks", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+export async function fetchBotApi<T>(
+  path: string,
+  options?: RequestInit,
+): Promise<T> {
+  const baseUrl = process.env.BOT_API_URL;
+  const secret = process.env.BOT_API_SECRET;
 
-  users: () => req<User[]>("/api/users"),
+  if (!baseUrl || !secret) {
+    throw new Error("BOT_API_URL and BOT_API_SECRET are not configured");
+  }
 
-  pendingUsers: () => req<User[]>("/api/users/pending"),
+  const res = await fetch(`${baseUrl}${path}`, {
+    ...options,
+    next: { revalidate: 0 },
+    headers: {
+      Authorization: `Bearer ${secret}`,
+      "Content-Type": "application/json",
+      ...(options?.headers ?? {}),
+    },
+  });
 
-  approveUser: (id: number) =>
-    req<{ ok: boolean }>(`/api/users/${id}/approve`, { method: "POST" }),
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Bot API ${res.status}: ${body}`);
+  }
 
-  setRole: (id: number, role: string, team?: string) =>
-    req<{ ok: boolean }>(`/api/users/${id}/role`, {
-      method: "PATCH",
-      body: JSON.stringify({ role, team }),
-    }),
-
-  okr: () => req<OkrData>("/api/okr"),
-};
+  return res.json() as Promise<T>;
+}

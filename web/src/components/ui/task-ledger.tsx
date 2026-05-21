@@ -1,0 +1,128 @@
+import { TASKS, memberById, formatDeadline, statusLabel, OpsTask, Priority } from "@/lib/mock";
+import SignalBadge from "./signal-badge";
+import clsx from "clsx";
+
+const STATUS_DOT_CLASS: Record<string, string> = {
+  dang_lam: "active",
+  bi_chan: "blocked",
+  can_lam: "pending",
+  dang_review: "done",
+  hoan_thanh: "done",
+  tam_dung: "paused",
+  cho_xu_ly: "pending",
+};
+
+const PRIORITY_BAR: Record<Priority, string> = {
+  P0: "bg-signal-p0",
+  P1: "bg-signal-p1",
+  P2: "bg-signal-p2",
+  P3: "bg-signal-p3",
+  P4: "bg-signal-p4",
+};
+
+export default function TaskLedger({ limit, title = "Task đang hoạt động" }: { limit?: number; title?: string }) {
+  const tasks = (limit ? TASKS.slice(0, limit) : TASKS).sort((a, b) => {
+    const order: Priority[] = ["P0", "P1", "P2", "P3", "P4"];
+    return order.indexOf(a.priority) - order.indexOf(b.priority);
+  });
+
+  return (
+    <section className="ops-surface">
+      <header className="flex items-center justify-between px-5 py-3 border-b border-divider">
+        <div className="flex items-baseline gap-3">
+          <span className="label-ops text-2xs">{title}</span>
+          <span className="mono text-2xs text-text-tertiary">{tasks.length} dòng</span>
+        </div>
+        <div className="flex items-center gap-2 mono text-2xs text-text-tertiary">
+          <button className="btn-ops">⊞ Bảng điều vận</button>
+          <button className="btn-ops">↧ Xuất CSV</button>
+          <button className="btn-ops primary">+ Tạo task</button>
+        </div>
+      </header>
+
+      <div className="overflow-x-auto scroll-ops">
+        <table className="w-full text-left">
+          <thead>
+            <tr className="border-b border-divider mono text-2xs uppercase tracking-wider text-text-tertiary">
+              <th className="w-1.5 p-0" />
+              <th className="px-3 py-2 font-normal">Mã task</th>
+              <th className="px-3 py-2 font-normal w-20">Kênh</th>
+              <th className="px-3 py-2 font-normal">Nội dung</th>
+              <th className="px-3 py-2 font-normal w-24">Người thực hiện</th>
+              <th className="px-3 py-2 font-normal w-24">Mức độ</th>
+              <th className="px-3 py-2 font-normal w-28">Trạng thái</th>
+              <th className="px-3 py-2 font-normal w-32 text-right">Thời hạn</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tasks.map((t: OpsTask) => {
+              const m = memberById(t.assignee);
+              const d = formatDeadline(t.deadline);
+              const overdue = d.relative.startsWith("quá");
+              return (
+                <tr
+                  key={t.id}
+                  className="border-b border-divider hover:bg-surface-raised transition-colors group cursor-pointer"
+                >
+                  <td className={clsx("p-0", PRIORITY_BAR[t.priority])} />
+                  <td className="px-3 py-2.5 mono text-xs text-text-secondary tabular">{t.id}</td>
+                  <td className="px-3 py-2.5">
+                    <span className="mono text-2xs uppercase tracking-wider px-1.5 py-0.5 border border-divider-strong text-text-secondary">
+                      {t.channel}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <div className="text-md text-text-primary leading-snug">{t.title}</div>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="mono text-2xs text-text-tertiary">{t.channelLabel}</span>
+                      {t.tags.slice(0, 2).map((tag) => (
+                        <span key={tag} className="mono text-2xs text-accent-paper">
+                          #{tag}
+                        </span>
+                      ))}
+                      {t.aiClassified && (
+                        <span className="mono text-2xs text-accent-amber flex items-center gap-1">
+                          ⊙ AI {Math.round((t.aiConfidence || 0) * 100)}%
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    {m && (
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 border border-divider-strong bg-surface mono text-2xs flex items-center justify-center text-accent-paper">
+                          {m.initials}
+                        </div>
+                        <div className="leading-tight">
+                          <div className="text-xs text-text-primary">{m.name}</div>
+                          <div className="mono text-2xs text-text-tertiary">{m.callsign}</div>
+                        </div>
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <SignalBadge priority={t.priority} outline={t.priority === "P3" || t.priority === "P4"} />
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className={clsx("status-dot", STATUS_DOT_CLASS[t.status])} />
+                      <span className="text-xs text-text-secondary">{statusLabel(t.status)}</span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5 text-right">
+                    <div className="mono text-xs text-text-primary tabular">
+                      {d.date} · {d.time}
+                    </div>
+                    <div className={clsx("mono text-2xs", overdue ? "text-signal-p0" : "text-text-tertiary")}>
+                      {d.relative}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
