@@ -46,7 +46,7 @@ export default function TasksView({
       t.channelLabel.toLowerCase().includes(q) ||
       t.tags.some((tag) => tag.toLowerCase().includes(q)) ||
       members.find((m) => m.id === t.assignee)?.name.toLowerCase().includes(q) ||
-      members.find((m) => m.id === t.assignee)?.callsign.toLowerCase().includes(q)
+      members.find((m) => m.id === t.assignee)?.initials.toLowerCase().includes(q)
     );
   }, [tasks, searchQuery, members]);
 

@@ -16,7 +16,7 @@ export default function Callsign({
       {showName && (
         <div className="flex flex-col">
           <span className="text-md text-text-primary font-medium leading-tight">{member.name}</span>
-          <span className="mono text-2xs text-text-tertiary tracking-wider">{member.callsign}</span>
+          <span className="mono text-2xs text-text-tertiary tracking-wider">{member.initials}</span>
         </div>
       )}
     </div>

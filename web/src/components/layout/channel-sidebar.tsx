@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { MEMBERS, TASKS } from "@/lib/mock";
 import ThemeToggle from "./theme-toggle";
+import UserPicker from "./user-picker";
 import clsx from "clsx";
 
 const NAV_ITEMS = [
@@ -143,7 +144,7 @@ export default function ChannelSidebar() {
                       m.status === "offline" && "bg-text-disabled"
                     )}
                   />
-                  <span className="mono text-2xs text-text-tertiary w-12 shrink-0">{m.callsign}</span>
+                  <span className="mono text-2xs text-text-tertiary w-8 shrink-0">{m.initials}</span>
                   <span className="flex-1 truncate">{m.name}</span>
                   <span className="mono text-2xs text-text-tertiary tabular shrink-0">
                     {m.workload}/{m.workloadMax}
@@ -206,6 +207,7 @@ export default function ChannelSidebar() {
       </div>
 
       <div className="flex-1" />
+      <UserPicker />
       <ThemeToggle />
     </aside>
   );

@@ -21,7 +21,7 @@ load_dotenv()
 logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     level=logging.INFO,
-    handlers=[logging.StreamHandler(sys.stdout)],
+    handlers=[logging.StreamHandler(open(sys.stdout.fileno(), mode="w", encoding="utf-8", closefd=False))],
 )
 logger = logging.getLogger("server")
 

@@ -76,9 +76,9 @@ export default function TeamView({ members: membersProp, tasks: tasksProp }: Pro
       {/* Header */}
       <div className="flex items-end justify-between mb-5">
         <div>
-          <div className="label-ops text-2xs mb-1.5">Đài chính · 04 · Nhóm điều vận</div>
+          <div className="label-ops text-2xs mb-1.5">Ops · 04 · Nhóm điều vận</div>
           <h1 className="text-2xl text-text-primary editorial leading-tight">
-            Đội điều vận xe tải · {members.length} callsign.
+            Đội điều vận xe tải · {members.length} thành viên.
           </h1>
           <p className="text-md text-text-secondary mt-1">
             {online}/{members.length} thành viên đang trực · ca ngày 06:00 → 18:00 · ca đêm 18:00 → 06:00.
@@ -145,14 +145,14 @@ export default function TeamView({ members: membersProp, tasks: tasksProp }: Pro
                       </span>
                     )}
                   </div>
-                  <div className="mono text-2xs text-text-tertiary tracking-wider mt-0.5">{m.callsign}</div>
+                  <div className="mono text-2xs text-text-tertiary tracking-wider mt-0.5">{m.initials}</div>
                   <div className="text-xs text-text-tertiary mt-1 leading-snug">{m.role}</div>
                   {m.email && (
                     <div className="mono text-2xs text-text-disabled mt-1 truncate">{m.email}</div>
                   )}
                   {m.reportsTo && memberById(m.reportsTo) && (
                     <div className="mono text-2xs text-text-disabled mt-0.5">
-                      ↑ {memberById(m.reportsTo)!.callsign}
+                      ↑ {memberById(m.reportsTo)!.initials}
                     </div>
                   )}
                 </div>
@@ -249,7 +249,7 @@ export default function TeamView({ members: membersProp, tasks: tasksProp }: Pro
             const isOver = loadPct > 80;
             return (
               <div key={m.id} className="flex items-center gap-3">
-                <div className="w-24 mono text-xs text-text-secondary tracking-wider shrink-0">{m.callsign}</div>
+                <div className="w-10 mono text-xs text-text-secondary tracking-wider shrink-0">{m.initials}</div>
                 <div className="w-32 text-sm text-text-primary shrink-0">{m.name}</div>
                 <div className="flex-1 h-5 bg-surface-deep border border-divider relative">
                   <div
@@ -291,7 +291,7 @@ export default function TeamView({ members: membersProp, tasks: tasksProp }: Pro
                   <span className={clsx("border px-1.5 py-px leading-none", GRADE_COLOR[mgr.grade] ?? "text-text-tertiary border-divider")}>
                     {mgr.grade}
                   </span>
-                  <span className="text-text-secondary">{mgr.callsign}</span>
+                  <span className="text-text-secondary">{mgr.initials}</span>
                   <span className="text-text-primary">{mgr.fullName}</span>
                   <span className="text-text-disabled">—</span>
                   <span className="text-text-tertiary">{mgr.role}</span>
@@ -305,7 +305,7 @@ export default function TeamView({ members: membersProp, tasks: tasksProp }: Pro
                         <span className={clsx("border px-1 py-px leading-none text-2xs", GRADE_COLOR[dr.grade] ?? "text-text-tertiary border-divider")}>
                           {dr.grade}
                         </span>
-                        <span>{dr.callsign}</span>
+                        <span>{dr.initials}</span>
                         <span className="text-text-primary">{dr.fullName}</span>
                         <span className="text-text-disabled">·</span>
                         <span className="text-text-tertiary truncate">{dr.email}</span>
@@ -316,7 +316,7 @@ export default function TeamView({ members: membersProp, tasks: tasksProp }: Pro
                           <span className={clsx("border px-1 py-px leading-none text-2xs", GRADE_COLOR[l2.grade] ?? "text-text-tertiary border-divider")}>
                             {l2.grade}
                           </span>
-                          <span>{l2.callsign}</span>
+                          <span>{l2.initials}</span>
                           <span className="text-text-secondary">{l2.fullName}</span>
                           <span className="text-text-disabled">·</span>
                           <span className="truncate">{l2.email}</span>
@@ -347,7 +347,7 @@ export default function TeamView({ members: membersProp, tasks: tasksProp }: Pro
                       {detailMember.grade}
                     </span>
                   </div>
-                  <div className="mono text-2xs text-text-tertiary mt-0.5">{detailMember.callsign} · {detailMember.role}</div>
+                  <div className="mono text-2xs text-text-tertiary mt-0.5">{detailMember.initials} · {detailMember.role}</div>
                   <div className="mono text-2xs text-text-disabled mt-0.5">{detailMember.email}</div>
                 </div>
               </div>

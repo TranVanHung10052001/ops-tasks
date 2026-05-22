@@ -83,7 +83,7 @@ export default function TimelineTrack({
           return (
             <div key={m.id} className="flex items-center gap-3 group">
               <div className="w-[60px] flex items-center gap-2">
-                <span className="mono text-2xs text-text-tertiary">{m.callsign}</span>
+                <span className="mono text-2xs text-text-tertiary">{m.initials}</span>
               </div>
               <div className="relative flex-1 h-5 bg-surface-deep border-l border-divider">
                 {/* now line */}
@@ -121,9 +121,8 @@ export default function TimelineTrack({
 
       <div className="dotted-divider my-4" />
 
-      <div className="flex items-center justify-between mono text-2xs text-text-tertiary">
-        <span>Hover bar để xem chi tiết · Click để mở task · Drag để chỉnh lịch</span>
-        <button className="btn-ops">Mở rộng Gantt</button>
+      <div className="mono text-2xs text-text-tertiary">
+        Màu theo mức độ ưu tiên · P0 nhấp nháy · thanh = thời lượng task ước tính
       </div>
     </section>
   );

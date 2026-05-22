@@ -13,7 +13,7 @@ function buildOverviewText(stats?: ApiStats, metrics?: ApiMetrics): string {
   } else if (stats) {
     parts.push("Queue sạch — không có task đang chạy.");
   } else {
-    parts.push("Đài điều vận đang khởi động.");
+    parts.push("Hệ thống đang khởi động.");
   }
 
   if (blocked > 0) {
@@ -188,12 +188,10 @@ export default function BriefingCard({
           <div className="flex items-center gap-2 text-2xs text-text-tertiary">
             <span className="text-accent-amber">⊙</span>
             <span className="mono uppercase tracking-wider">
-              Đài điều vận · nguồn: Ops DB + Redash BI
+              Ahamove Ops · nguồn: Ops DB + Redash BI
             </span>
           </div>
-          <div className="flex gap-2">
-            <button className="btn-ops">► Xem chi tiết</button>
-          </div>
+          <div />
         </div>
       </div>
     </section>

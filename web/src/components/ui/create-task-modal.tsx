@@ -79,7 +79,7 @@ export default function CreateTaskModal({ members, defaultAssignee, onClose, onS
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-divider">
           <div>
             <div className="label-ops text-2xs">Tạo task mới</div>
-            <div className="mono text-2xs text-text-tertiary mt-0.5">⌘N · Đài điều vận</div>
+            <div className="mono text-2xs text-text-tertiary mt-0.5">⌘N · Ops Center</div>
           </div>
           <button
             type="button"
@@ -178,7 +178,7 @@ export default function CreateTaskModal({ members, defaultAssignee, onClose, onS
               >
                 {members.map(m => (
                   <option key={m.id} value={m.id}>
-                    {m.callsign} · {m.name}
+                    {m.initials} · {m.name}
                   </option>
                 ))}
               </select>

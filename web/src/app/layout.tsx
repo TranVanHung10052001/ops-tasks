@@ -6,7 +6,7 @@ import ChannelSidebar from "@/components/layout/channel-sidebar";
 import AIPanel from "@/components/layout/ai-panel";
 
 export const metadata: Metadata = {
-  title: "Đài Điều Vận · Ahamove Truck Ops",
+  title: "Ops Center · Ahamove Truck Ops",
   description: "Hệ thống điều phối nhóm vận hành xe tải Ahamove",
 };
 

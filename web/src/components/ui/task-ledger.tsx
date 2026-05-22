@@ -13,7 +13,7 @@ function exportCsv(tasks: OpsTask[], members: Member[]) {
       t.id,
       t.channel,
       `"${t.title.replace(/"/g, '""')}"`,
-      m ? `${m.callsign} ${m.name}` : t.assignee,
+      m ? `${m.initials} ${m.name}` : t.assignee,
       t.priority,
       statusLabel(t.status),
       `${d.date} ${d.time}`,
@@ -154,7 +154,7 @@ export default function TaskLedger({
                         </div>
                         <div className="leading-tight">
                           <div className="text-xs text-text-primary">{m.name}</div>
-                          <div className="mono text-2xs text-text-tertiary">{m.callsign}</div>
+                          <div className="mono text-2xs text-text-tertiary">{m.initials}</div>
                         </div>
                       </div>
                     )}

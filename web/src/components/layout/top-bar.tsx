@@ -39,7 +39,7 @@ export default function TopBar() {
           <div className="w-2 h-2 bg-accent-amber" />
           <span className="mono text-xs text-text-secondary tracking-widest uppercase">
             AHAMOVE OPS <span className="text-text-tertiary">·</span>{" "}
-            <span className="text-accent-paper">ĐÀI ĐIỀU VẬN</span>
+            <span className="text-accent-paper">OPS CENTER</span>
           </span>
         </div>
         <span className="text-text-tertiary text-xs">·</span>
@@ -58,31 +58,11 @@ export default function TopBar() {
         </div>
       </div>
 
-      {/* Controls + clock */}
-      <div className="flex items-center gap-3 mono text-xs text-text-secondary shrink-0">
-        <button className="flex items-center gap-1.5 px-2 py-1 hover:bg-surface transition-colors">
-          <span className="text-text-tertiary">{">"}</span>
-          <span>tìm task</span>
-          <span className="kbd">⌘K</span>
-        </button>
-        <span className="text-divider-strong">│</span>
-        <button className="flex items-center gap-1.5 px-2 py-1 hover:bg-surface transition-colors">
-          <span className="text-accent-amber">+</span>
-          <span>tạo task</span>
-          <span className="kbd">⌘N</span>
-        </button>
-        <span className="text-divider-strong">│</span>
-        <button className="flex items-center gap-1.5 px-2 py-1 hover:bg-surface transition-colors">
-          <span>⊙</span>
-          <span>trợ lý</span>
-          <span className="kbd">⌘J</span>
-        </button>
-        <span className="text-divider-strong">│</span>
-        <div className="flex items-center gap-2">
-          <span className="status-dot active" />
-          <span className="text-text-primary tabular">{time}</span>
-          <span className="text-text-tertiary">ICT</span>
-        </div>
+      {/* Clock */}
+      <div className="flex items-center gap-2 mono text-xs text-text-secondary shrink-0">
+        <span className="status-dot active" />
+        <span className="text-text-primary tabular">{time}</span>
+        <span className="text-text-tertiary">ICT</span>
       </div>
     </header>
   );

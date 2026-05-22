@@ -4,6 +4,7 @@ import OpsStatsRow from "@/components/ui/ops-stats-row";
 import TimelineTrack from "@/components/ui/timeline-track";
 import TaskLedger from "@/components/ui/task-ledger";
 import CompetitiveStrip from "@/components/ui/competitive-strip";
+import ClientGreeting from "@/components/ui/client-greeting";
 import { ACTIVITY, TODAY } from "@/lib/mock";
 import { getTasksData, getMembersData, getStatsData, getMetricsData } from "@/lib/data";
 
@@ -26,8 +27,8 @@ export default async function DashboardPage() {
     <div className="p-6 space-y-5 max-w-[1400px]">
       <header className="flex items-end justify-between mb-1">
         <div>
-          <div className="label-ops text-2xs mb-1.5">Đài chính · I · Tổng quan</div>
-          <h1 className="text-[32px] text-text-primary editorial leading-tight">{TODAY.greeting}.</h1>
+          <div className="label-ops text-2xs mb-1.5">Ops · I · Tổng quan</div>
+          <ClientGreeting />
           <p className="text-md text-text-secondary mt-1">
             Truck Ops · {members.length} thành viên trực · ca {TODAY.dayName.toLowerCase()} {TODAY.short}
             {metrics.active_drivers ? ` · ${parseInt(metrics.active_drivers).toLocaleString("vi-VN")} truck driver đang hoạt động.` : " · 4,412 truck driver toàn quốc."}
@@ -60,7 +61,7 @@ export default async function DashboardPage() {
 
         <aside className="ops-surface">
           <header className="px-4 py-3 border-b border-divider flex items-center justify-between">
-            <span className="label-ops text-2xs">Hoạt động đài</span>
+            <span className="label-ops text-2xs">Hoạt động gần đây</span>
             <span className="mono text-2xs text-text-tertiary">live</span>
           </header>
           <ol className="px-4 py-3 space-y-3">

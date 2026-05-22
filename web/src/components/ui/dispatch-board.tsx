@@ -94,7 +94,7 @@ function TaskCard({ task, members, onTaskClick }: { task: OpsTask; members: Memb
             <div className="w-5 h-5 border border-divider-strong bg-surface-deep mono text-2xs flex items-center justify-center text-accent-paper">
               {m.initials}
             </div>
-            <span className="mono text-2xs text-text-tertiary">{m.callsign}</span>
+            <span className="mono text-2xs text-text-tertiary">{m.initials}</span>
           </div>
         )}
         <div className="text-right">

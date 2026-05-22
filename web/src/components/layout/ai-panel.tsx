@@ -6,6 +6,7 @@ import { ApiOkrResponse, ApiStats, ApiMetrics } from "@/lib/api";
 // ─── SWR fetcher ──────────────────────────────────────────────────────────────
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
+const BOT_USERNAME = "ahamove_truck_ops_bot";
 
 // ─── Mini OKR dial ────────────────────────────────────────────────────────────
 
@@ -124,7 +125,7 @@ function buildSignals(
     }
   }
 
-  if (okrData) {
+  if (okrData?.objectives) {
     const atRisk = okrData.objectives.filter((obj) => {
       const actions = okrData.actions.filter(
         (a) => a.okr === obj.id || a.okr.startsWith(obj.id + ".")
@@ -158,7 +159,7 @@ function buildQuickSuggestions(
   const fr = parseFloat(metrics?.fill_rate_core_pct ?? "");
   if (!isNaN(fr) && fr < 68) s.push("Phân tích Fill Rate");
 
-  if (okrData) {
+  if (okrData?.objectives) {
     const lowPct = okrData.objectives.find((obj) => {
       const acts = okrData.actions.filter(
         (a) => a.okr === obj.id || a.okr.startsWith(obj.id + ".")
@@ -176,7 +177,7 @@ function buildQuickSuggestions(
 }
 
 function buildSummaryInsight(okrData?: ApiOkrResponse): string {
-  if (!okrData) return "Đang tải dữ liệu vận hành…";
+  if (!okrData?.objectives) return "Đang tải dữ liệu vận hành…";
 
   const worst = okrData.objectives
     .map((obj) => {
@@ -208,7 +209,7 @@ export default function AIPanel() {
     refreshInterval: 60_000,
   });
 
-  const okrProgress = okrRaw ? computeOkrProgress(okrRaw) : null;
+  const okrProgress = okrRaw?.objectives ? computeOkrProgress(okrRaw) : null;
   const signals = buildSignals(stats, okrRaw, metrics);
   const suggestions = buildQuickSuggestions(stats, metrics, okrRaw);
   const insight = buildSummaryInsight(okrRaw);
@@ -249,8 +250,8 @@ export default function AIPanel() {
           </div>
           <div className="bg-surface border border-divider p-3">
             <div className="text-sm text-text-primary mb-3">
-              <span className="text-accent-paper">{okrRaw ? `${okrRaw.objectives.length} OKR Q2` : "OKR Q2"}</span>
-              {okrRaw && (
+              <span className="text-accent-paper">{okrRaw?.objectives ? `${okrRaw.objectives.length} OKR Q2` : "OKR Q2"}</span>
+              {okrRaw?.objectives && (
                 <span className="text-text-secondary"> · {okrRaw.overdue_actions} action overdue · {okrRaw.p0_actions} P0</span>
               )}
             </div>
@@ -275,10 +276,6 @@ export default function AIPanel() {
 
             <div className="editorial text-md text-accent-paper border-t border-divider pt-3">
               "{insight}"
-            </div>
-            <div className="flex gap-1.5 mt-3">
-              <button className="btn-ops text-2xs">Xem chi tiết</button>
-              <button className="btn-ops primary text-2xs">Tạo plan</button>
             </div>
           </div>
         </div>
@@ -331,36 +328,9 @@ export default function AIPanel() {
       </div>
 
       {/* Quick suggestions */}
-      <div className="px-4 py-2 border-t border-divider">
-        <div className="label-ops text-2xs mb-2">Gợi ý nhanh</div>
-        <div className="flex flex-wrap gap-1 mb-2">
-          {suggestions.map((s) => (
-            <button
-              key={s}
-              className="text-2xs px-2 py-1 bg-surface border border-divider text-text-secondary hover:text-text-primary hover:border-accent-amber-deep transition-colors"
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Input */}
       <div className="px-4 py-3 border-t border-divider">
-        <div className="flex items-center gap-2 bg-surface border border-divider-strong px-3 py-2 focus-within:border-accent-amber-deep">
-          <span className="text-accent-amber text-sm">{">"}</span>
-          <input
-            type="text"
-            placeholder="Hỏi gì về team..."
-            className="flex-1 bg-transparent outline-none text-sm text-text-primary placeholder:text-text-tertiary"
-          />
-          <span className="kbd">↵</span>
-        </div>
-        <div className="flex items-center justify-between mt-2">
-          <span className="mono text-2xs text-text-tertiary">@mention · #task để link</span>
-          <span className="mono text-2xs text-text-tertiary">
-            {isConnected ? "live" : "offline"}
-          </span>
+        <div className="mono text-2xs text-text-tertiary text-center">
+          Dùng <a href="/telegram" className="text-accent-amber hover:underline">@{BOT_USERNAME}</a> để tương tác với bot
         </div>
       </div>
     </aside>

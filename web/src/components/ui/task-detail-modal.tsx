@@ -105,7 +105,7 @@ export default function TaskDetailModal({ task, members, onClose, onStatusChange
                   </div>
                   <div>
                     <div className="text-sm text-text-primary">{m.name}</div>
-                    <div className="mono text-2xs text-text-tertiary">{m.callsign}</div>
+                    <div className="mono text-2xs text-text-tertiary">{m.initials}</div>
                   </div>
                 </div>
               ) : (
@@ -203,7 +203,7 @@ export default function TaskDetailModal({ task, members, onClose, onStatusChange
               Đóng
             </button>
             <a
-              href={`https://t.me/ahamove_ops_bot?start=task_${task.id}`}
+              href="https://t.me/ahamove_truck_ops_bot"
               target="_blank"
               rel="noopener noreferrer"
               className="btn-ops primary flex items-center gap-1"

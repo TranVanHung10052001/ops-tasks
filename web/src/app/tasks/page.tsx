@@ -36,11 +36,11 @@ export default async function TasksPage({
     <div className="p-6 max-w-[1400px]">
       <header className="flex items-end justify-between mb-8">
         <div>
-          <div className="label-ops text-2xs mb-1.5">Đài chính · II · Bảng điều vận</div>
+          <div className="label-ops text-2xs mb-1.5">Ops · II · Bảng điều vận</div>
           <h1 className="text-[32px] text-text-primary editorial leading-tight">Sổ điều vận hôm nay.</h1>
           <p className="text-md text-text-secondary mt-1">
             {filterActive
-              ? `${filteredTasks.length}/${activeTasks.length} task sau bộ lọc · ${channel ?? ""} ${memberId ? "· " + members.find(m => m.id === memberId)?.callsign : ""}`
+              ? `${filteredTasks.length}/${activeTasks.length} task sau bộ lọc · ${channel ?? ""} ${memberId ? "· " + members.find(m => m.id === memberId)?.initials : ""}`
               : `Tổng ${activeTasks.length} task đang theo dõi · phân theo 4 mức tín hiệu · cập nhật mỗi 30s.`
             }
           </p>

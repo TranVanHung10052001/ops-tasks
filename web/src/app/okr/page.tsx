@@ -49,7 +49,7 @@ export default async function OkrPage() {
     <div className="p-6 space-y-5 max-w-[1400px]">
       <header className="flex items-end justify-between">
         <div>
-          <div className="label-ops text-2xs mb-1.5">Đài chính · 03 · Theo dõi OKR</div>
+          <div className="label-ops text-2xs mb-1.5">Ops · 03 · Theo dõi OKR</div>
           <h1 className="text-2xl text-text-primary editorial leading-tight">
             OKR quý 2 · 2026 · {okrs.length} mục tiêu.
           </h1>
