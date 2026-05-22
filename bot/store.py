@@ -89,6 +89,13 @@ def init_db():
                 ON tasks(status, deadline);
             CREATE INDEX IF NOT EXISTS idx_tasks_team
                 ON tasks(team, status);
+
+            CREATE TABLE IF NOT EXISTS metrics (
+                key        TEXT PRIMARY KEY,
+                value      TEXT NOT NULL,
+                source     TEXT DEFAULT 'manual',
+                updated_at DATETIME DEFAULT (datetime('now', '+7 hours'))
+            );
         """)
 
 
@@ -590,3 +597,40 @@ def log_action(actor_id: int, action: str, entity_type: str = None,
             INSERT INTO audit_log (actor_id, action, entity_type, entity_id, detail)
             VALUES (?, ?, ?, ?, ?)
         """, (actor_id, action, entity_type, entity_id, detail))
+
+
+# ─── Metrics (KPI store for Redash / manual sync) ────────────────────────────
+
+def update_task_priority(task_id: int, priority: str) -> bool:
+    with get_db() as conn:
+        cursor = conn.execute(
+            "UPDATE tasks SET priority = ? WHERE id = ?", (priority, task_id)
+        )
+        return cursor.rowcount > 0
+
+
+def upsert_metric(key: str, value: str, source: str = "redash") -> None:
+    """Insert or update a KPI metric (key→value). Thread-safe via WAL."""
+    with get_db() as conn:
+        conn.execute("""
+            INSERT INTO metrics (key, value, source, updated_at)
+            VALUES (?, ?, ?, datetime('now', '+7 hours'))
+            ON CONFLICT(key) DO UPDATE SET
+                value      = excluded.value,
+                source     = excluded.source,
+                updated_at = datetime('now', '+7 hours')
+        """, (key, value, source))
+
+
+def get_all_metrics() -> dict:
+    """Return all stored metrics as {key: value, ..., updated_at: <latest>}."""
+    with get_db() as conn:
+        rows = conn.execute("SELECT key, value FROM metrics").fetchall()
+        result: dict = {r["key"]: r["value"] for r in rows}
+        if rows:
+            ts_row = conn.execute(
+                "SELECT MAX(updated_at) as ts FROM metrics"
+            ).fetchone()
+            if ts_row and ts_row["ts"]:
+                result["updated_at"] = ts_row["ts"]
+        return result

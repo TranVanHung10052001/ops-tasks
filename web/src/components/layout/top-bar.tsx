@@ -3,14 +3,14 @@
 import { useEffect, useState } from "react";
 
 const TICKER = [
-  "T-04832 · OPS-03 nhận lệnh VSIP II · 3×2.5T",
-  "T-04835 · OPS-06 xuất phát Sóng Thần · 08:14",
-  "T-04829 · OPS-01 xác nhận Foxconn Quang Châu",
-  "T-04840 · AI classify Masan → JD 74%",
-  "T-04838 · OPS-05 hoàn thành LG Hải Phòng",
-  "T-04831 · Cảnh báo · Lalamove -8% Bulky HCM",
-  "T-04833 · OPS-07 routing v2 A/B live Sóng Thần",
-  "T-04836 · OPS-02 mini-hub Hồng Bàng · đang cài",
+  "⚠ T-2026-02160 · OPS-09 LAN Hub BLOCKED · quá hạn 7 ngày",
+  "T-2026-01110 · OPS-02 FR HAN tuần 21 · deadline hôm nay 17h",
+  "T-2026-03210 · OPS-01 COGS GXT analysis · P0 chưa bắt đầu",
+  "T-2026-03113 · OPS-01 config SLA pickup window Hà Nội",
+  "T-2026-02130 · OPS-10 KCN Rental Policy · SOP v1",
+  "T-2026-02150 · OPS-09 tuyển 30 driver Long An · 27/05",
+  "T-2026-03120 · OPS-01 convert driver Bulky → Marketplace",
+  "T-2026-05221 · OPS-06 backlog clearing 4h SGN · ca chiều",
 ];
 
 export default function TopBar() {

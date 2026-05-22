@@ -83,6 +83,35 @@ export interface ApiOkrResponse {
   p0_actions: number;
 }
 
+// KPI metrics synced from Redash / Google Sheets — all values are strings
+export interface ApiMetrics {
+  // GSV
+  gsv_today_b?: string;           // "8.7" (tỷ VNĐ)
+  gsv_wow_pct?: string;           // "12.0" (% week-over-week)
+  // Orders
+  orders_today?: string;          // "1247"
+  orders_wow_pct?: string;        // "9.0"
+  // Fill Rate
+  fill_rate_core_pct?: string;    // "78.0"
+  fill_rate_han_pct?: string;     // "74.0"
+  fill_rate_sgn_pct?: string;     // "68.0"
+  fill_rate_vsip_pct?: string;    // "84.0"
+  fill_rate_songthan_pct?: string; // "71.0"
+  fill_rate_longhau_pct?: string;  // "79.0"
+  // COGS
+  cogs_bulky_pct?: string;        // "28.4"
+  cogs_wow_pct?: string;          // "-0.5" (negative = cost improved)
+  // Drivers
+  active_drivers?: string;        // "1847"
+  driver_station_pct?: string;    // "18"
+  driver_core_pct?: string;       // "31"
+  driver_hub_pct?: string;        // "28"
+  driver_mass_pct?: string;       // "23"
+  // Meta
+  updated_at?: string;            // ISO datetime of last sync
+  [key: string]: string | undefined; // allow extra keys
+}
+
 // ── Server-side fetch (used only in Next.js API route handlers) ────────────────
 
 export async function fetchBotApi<T>(

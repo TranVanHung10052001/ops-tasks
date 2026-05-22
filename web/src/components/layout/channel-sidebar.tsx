@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { MEMBERS, TASKS } from "@/lib/mock";
 import ThemeToggle from "./theme-toggle";
 import clsx from "clsx";
@@ -22,6 +22,28 @@ function workloadColor(ratio: number) {
 
 export default function ChannelSidebar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  const activeChannel = searchParams.get("channel");
+  const activeMember = searchParams.get("member");
+
+  function filterByChannel(channel: string | null) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (channel) params.set("channel", channel); else params.delete("channel");
+    params.delete("member");
+    router.push(`/tasks?${params.toString()}`);
+  }
+
+  function filterByMember(memberId: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (activeMember === memberId) {
+      params.delete("member");
+    } else {
+      params.set("member", memberId);
+    }
+    router.push(`/tasks?${params.toString()}`);
+  }
 
   const tasksByChannel = {
     JD:    TASKS.filter((t) => t.channel === "JD").length,
@@ -66,26 +88,25 @@ export default function ChannelSidebar() {
           <span className="mono text-tertiary-ops">━━━</span>
         </div>
         <div className="space-y-0">
-          <div className="channel-radio active">
-            <div className="dot" />
-            <span className="text-sm flex-1">Tất cả</span>
-            <span className="mono text-2xs text-text-tertiary">{tasksByChannel.total}</span>
-          </div>
-          <div className="channel-radio">
-            <div className="dot" />
-            <span className="text-sm flex-1">JD</span>
-            <span className="mono text-2xs text-text-tertiary">{tasksByChannel.JD}</span>
-          </div>
-          <div className="channel-radio">
-            <div className="dot" />
-            <span className="text-sm flex-1">OKR</span>
-            <span className="mono text-2xs text-text-tertiary">{tasksByChannel.OKR}</span>
-          </div>
-          <div className="channel-radio">
-            <div className="dot" />
-            <span className="text-sm flex-1">Phát sinh</span>
-            <span className="mono text-2xs text-text-tertiary">{tasksByChannel.Adhoc}</span>
-          </div>
+          {([
+            { key: null,    label: "Tất cả",   count: tasksByChannel.total },
+            { key: "JD",    label: "JD",        count: tasksByChannel.JD },
+            { key: "OKR",   label: "OKR",       count: tasksByChannel.OKR },
+            { key: "Adhoc", label: "Phát sinh", count: tasksByChannel.Adhoc },
+          ] as const).map(({ key, label, count }) => (
+            <button
+              key={label}
+              onClick={() => pathname === "/tasks" ? filterByChannel(key) : router.push(key ? `/tasks?channel=${key}` : "/tasks")}
+              className={clsx(
+                "channel-radio w-full text-left cursor-pointer transition-colors",
+                (!key && !activeChannel) || activeChannel === key ? "active" : ""
+              )}
+            >
+              <div className="dot" />
+              <span className="text-sm flex-1">{label}</span>
+              <span className="mono text-2xs text-text-tertiary">{count}</span>
+            </button>
+          ))}
         </div>
       </div>
 
@@ -100,10 +121,17 @@ export default function ChannelSidebar() {
         <div className="space-y-0.5">
           {MEMBERS.map((m) => {
             const ratio = m.workload / m.workloadMax;
+            const isActive = activeMember === m.id;
             return (
               <button
                 key={m.id}
-                className="w-full flex flex-col px-3 py-1.5 text-sm text-text-secondary hover:bg-surface hover:text-text-primary transition-colors text-left"
+                onClick={() => pathname === "/tasks" ? filterByMember(m.id) : router.push(`/tasks?member=${m.id}`)}
+                className={clsx(
+                  "w-full flex flex-col px-3 py-1.5 text-sm transition-colors text-left",
+                  isActive
+                    ? "bg-surface text-text-primary border-l-2 border-accent-amber"
+                    : "text-text-secondary hover:bg-surface hover:text-text-primary border-l-2 border-transparent"
+                )}
               >
                 <div className="flex items-center gap-2.5 w-full">
                   <span

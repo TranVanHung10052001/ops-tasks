@@ -1,62 +1,58 @@
-"use client";
+import { getTasksData, getMembersData } from "@/lib/data";
+import { Channel } from "@/lib/mock";
+import TasksView from "./tasks-view";
 
-import { useState } from "react";
-import DispatchBoard from "@/components/ui/dispatch-board";
-import TaskLedger from "@/components/ui/task-ledger";
-import TimelineTrack from "@/components/ui/timeline-track";
-import { TASKS } from "@/lib/mock";
-import clsx from "clsx";
+export default async function TasksPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ channel?: string; member?: string; priority?: string }>;
+}) {
+  const [tasks, members, params] = await Promise.all([
+    getTasksData(),
+    getMembersData(),
+    searchParams,
+  ]);
 
-const VIEWS = [
-  { key: "board", label: "Bảng điều vận", sub: "Kanban theo tín hiệu" },
-  { key: "ledger", label: "Sổ theo dõi", sub: "Bảng dense" },
-  { key: "timeline", label: "Timeline", sub: "Theo giờ" },
-] as const;
+  const channel = params.channel as Channel | undefined;
+  const memberId = params.member;
+  const priorities = params.priority?.split(",") ?? [];
 
-export default function TasksPage() {
-  const [view, setView] = useState<(typeof VIEWS)[number]["key"]>("board");
+  const activeTasks = tasks.filter(
+    (t) => t.status !== "hoan_thanh" && t.status !== "tam_dung"
+  );
+
+  // Apply sidebar filters
+  const filteredTasks = activeTasks.filter((t) => {
+    if (channel && t.channel !== channel) return false;
+    if (memberId && t.assignee !== memberId) return false;
+    if (priorities.length > 0 && !priorities.includes(t.priority)) return false;
+    return true;
+  });
+
+  // Count helpers for sidebar highlight
+  const filterActive = !!(channel || memberId || priorities.length);
 
   return (
     <div className="p-6 max-w-[1400px]">
       <header className="flex items-end justify-between mb-8">
         <div>
           <div className="label-ops text-2xs mb-1.5">Đài chính · II · Bảng điều vận</div>
-          <h1 className="text-[32px] text-text-primary editorial leading-tight">Sổ điều vận chiều thứ năm.</h1>
+          <h1 className="text-[32px] text-text-primary editorial leading-tight">Sổ điều vận hôm nay.</h1>
           <p className="text-md text-text-secondary mt-1">
-            Tổng {TASKS.length} task đang theo dõi · phân theo 4 mức tín hiệu · cập nhật mỗi 30s.
+            {filterActive
+              ? `${filteredTasks.length}/${activeTasks.length} task sau bộ lọc · ${channel ?? ""} ${memberId ? "· " + members.find(m => m.id === memberId)?.callsign : ""}`
+              : `Tổng ${activeTasks.length} task đang theo dõi · phân theo 4 mức tín hiệu · cập nhật mỗi 30s.`
+            }
           </p>
         </div>
         <div className="text-right mono text-2xs text-text-tertiary uppercase tracking-wider">
-          T-2026-04827 → T-2026-04840
+          {filteredTasks.length > 0
+            ? `${filteredTasks[0]?.id} → ${filteredTasks[filteredTasks.length - 1]?.id}`
+            : "Không có task sau bộ lọc"}
         </div>
       </header>
 
-      {/* View switcher */}
-      <div className="flex items-center gap-3 mb-8">
-        <div className="label-ops text-2xs">Chế độ xem</div>
-        <div className="flex gap-0 border border-divider-strong">
-          {VIEWS.map((v) => (
-            <button
-              key={v.key}
-              onClick={() => setView(v.key)}
-              className={clsx(
-                "px-3 py-1.5 mono text-2xs uppercase tracking-wider transition-colors border-r border-divider-strong last:border-r-0",
-                view === v.key ? "bg-accent-amber-deep text-canvas" : "bg-surface text-text-secondary hover:bg-surface-raised"
-              )}
-            >
-              {v.label}
-            </button>
-          ))}
-        </div>
-        <div className="flex-1" />
-        <div className="flex items-center gap-2 mono text-2xs text-text-tertiary">
-          <span className="status-dot active" /> đồng bộ live
-        </div>
-      </div>
-
-      {view === "board" && <DispatchBoard />}
-      {view === "ledger" && <TaskLedger />}
-      {view === "timeline" && <TimelineTrack />}
+      <TasksView key={`${channel ?? "all"}-${memberId ?? "all"}`} tasks={filteredTasks} members={members} />
     </div>
   );
 }

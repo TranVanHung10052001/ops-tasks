@@ -3,11 +3,12 @@ import { fetchBotApi } from "@/lib/api";
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const { id } = await params;
     const body = await req.json();
-    const data = await fetchBotApi(`/api/tasks/${params.id}`, {
+    const data = await fetchBotApi(`/api/tasks/${id}`, {
       method: "PATCH",
       body: JSON.stringify(body),
     });

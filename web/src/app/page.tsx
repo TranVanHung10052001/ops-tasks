@@ -5,8 +5,23 @@ import TimelineTrack from "@/components/ui/timeline-track";
 import TaskLedger from "@/components/ui/task-ledger";
 import CompetitiveStrip from "@/components/ui/competitive-strip";
 import { ACTIVITY, TODAY } from "@/lib/mock";
+import { getTasksData, getMembersData, getStatsData, getMetricsData } from "@/lib/data";
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  const [tasks, members, stats, metrics] = await Promise.all([
+    getTasksData(),
+    getMembersData(),
+    getStatsData(),
+    getMetricsData(),
+  ]);
+
+  const topTasks = tasks
+    .filter((t) => t.status !== "hoan_thanh" && t.status !== "tam_dung")
+    .sort((a, b) => {
+      const order = ["P0", "P1", "P2", "P3", "P4"];
+      return order.indexOf(a.priority) - order.indexOf(b.priority);
+    });
+
   return (
     <div className="p-6 space-y-5 max-w-[1400px]">
       <header className="flex items-end justify-between mb-1">
@@ -14,7 +29,8 @@ export default function DashboardPage() {
           <div className="label-ops text-2xs mb-1.5">Đài chính · I · Tổng quan</div>
           <h1 className="text-[32px] text-text-primary editorial leading-tight">{TODAY.greeting}.</h1>
           <p className="text-md text-text-secondary mt-1">
-            Truck Ops · 8 thành viên trực · ca chiều {TODAY.dayName.toLowerCase()} {TODAY.short} · 4,412 truck driver toàn quốc.
+            Truck Ops · {members.length} thành viên trực · ca {TODAY.dayName.toLowerCase()} {TODAY.short}
+            {metrics.active_drivers ? ` · ${parseInt(metrics.active_drivers).toLocaleString("vi-VN")} truck driver đang hoạt động.` : " · 4,412 truck driver toàn quốc."}
           </p>
         </div>
         <div className="text-right">
@@ -24,17 +40,22 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      <BriefingCard />
+      <BriefingCard stats={stats} topTasks={topTasks} metrics={metrics} />
 
-      <KpiRow />
+      <KpiRow metrics={metrics} />
 
-      <OpsStatsRow />
+      <OpsStatsRow stats={stats} tasks={topTasks} metrics={metrics} />
 
-      <TimelineTrack />
+      <TimelineTrack tasks={tasks} members={members} />
 
       <div className="grid grid-cols-3 gap-5">
         <div className="col-span-2">
-          <TaskLedger limit={8} title="Task ưu tiên hôm nay" />
+          <TaskLedger
+            tasks={topTasks}
+            members={members}
+            limit={8}
+            title="Task ưu tiên hôm nay"
+          />
         </div>
 
         <aside className="ops-surface">

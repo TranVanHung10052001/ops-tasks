@@ -1,4 +1,4 @@
-import { MEMBERS, TASKS, OpsTask } from "@/lib/mock";
+import { MEMBERS, TASKS, OpsTask, Member } from "@/lib/mock";
 import clsx from "clsx";
 
 const HOURS = [6, 8, 10, 12, 14, 16, 18, 20, 22];
@@ -23,7 +23,13 @@ function blockFor(task: OpsTask) {
   return { left: `${left}%`, width: `${Math.max(width, 1.5)}%` };
 }
 
-export default function TimelineTrack() {
+export default function TimelineTrack({
+  tasks: tasksProp,
+  members: membersProp,
+}: {
+  tasks?: OpsTask[];
+  members?: Member[];
+}) {
   return (
     <section className="ops-surface p-5">
       <div className="flex items-baseline justify-between mb-4">
@@ -72,8 +78,8 @@ export default function TimelineTrack() {
 
       {/* Member tracks */}
       <div className="space-y-1.5">
-        {MEMBERS.slice(0, 7).map((m) => {
-          const tasks = TASKS.filter((t) => t.assignee === m.id);
+        {(membersProp ?? MEMBERS).slice(0, 7).map((m) => {
+          const tasks = (tasksProp ?? TASKS).filter((t) => t.assignee === m.id);
           return (
             <div key={m.id} className="flex items-center gap-3 group">
               <div className="w-[60px] flex items-center gap-2">

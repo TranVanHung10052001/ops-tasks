@@ -31,6 +31,7 @@ from scheduler import (
     deadline_check_all, eod_recap_all, stall_check_all,
     okr_risk_intel, weekly_report,
 )
+from redash_sync import sync_all as redash_sync_all
 from store import init_db
 from roles import MANAGER_CHAT_ID
 
@@ -144,8 +145,11 @@ async def main():
     sched.add_job(weekly_report,         "cron", day_of_week="fri",
                   hour=17, minute=0, args=[app], id="weekly_report")
 
+    # Redash KPI sync — every 30 min (safe no-op if REDASH_URL not configured)
+    sched.add_job(redash_sync_all, "interval", minutes=30, id="redash_sync")
+
     sched.start()
-    logger.info("Scheduler started — 7 jobs")
+    logger.info("Scheduler started — 8 jobs (Redash sync every 30min)")
 
     logger.info(f"Bot starting | Manager: {MANAGER_CHAT_ID}")
 

@@ -1,6 +1,35 @@
-import { TASKS, memberById, formatDeadline, statusLabel, OpsTask, Priority } from "@/lib/mock";
+"use client";
+
+import { TASKS, MEMBERS, formatDeadline, statusLabel, OpsTask, Member, Priority } from "@/lib/mock";
 import SignalBadge from "./signal-badge";
 import clsx from "clsx";
+
+function exportCsv(tasks: OpsTask[], members: Member[]) {
+  const headers = ["ID", "Kênh", "Nội dung", "Người thực hiện", "Mức độ", "Trạng thái", "Thời hạn", "Tags", "Tạo bởi"];
+  const rows = tasks.map((t) => {
+    const m = members.find((mb) => mb.id === t.assignee);
+    const d = formatDeadline(t.deadline);
+    return [
+      t.id,
+      t.channel,
+      `"${t.title.replace(/"/g, '""')}"`,
+      m ? `${m.callsign} ${m.name}` : t.assignee,
+      t.priority,
+      statusLabel(t.status),
+      `${d.date} ${d.time}`,
+      t.tags.join("; "),
+      t.createdBy,
+    ];
+  });
+  const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `ops-tasks-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 const STATUS_DOT_CLASS: Record<string, string> = {
   dang_lam: "active",
@@ -20,10 +49,33 @@ const PRIORITY_BAR: Record<Priority, string> = {
   P4: "bg-signal-p4",
 };
 
-export default function TaskLedger({ limit, title = "Task đang hoạt động" }: { limit?: number; title?: string }) {
-  const tasks = (limit ? TASKS.slice(0, limit) : TASKS).sort((a, b) => {
+export default function TaskLedger({
+  limit,
+  title = "Task đang hoạt động",
+  tasks: tasksProp,
+  members: membersProp,
+  onTaskClick,
+  onCreateTask,
+}: {
+  limit?: number;
+  title?: string;
+  tasks?: OpsTask[];
+  members?: Member[];
+  onTaskClick?: (task: OpsTask) => void;
+  onCreateTask?: () => void;
+}) {
+  const allTasks = tasksProp ?? TASKS;
+  const allMembers = membersProp ?? MEMBERS;
+  const now = Date.now();
+  const tasks = (limit ? allTasks.slice(0, limit) : allTasks).sort((a, b) => {
     const order: Priority[] = ["P0", "P1", "P2", "P3", "P4"];
-    return order.indexOf(a.priority) - order.indexOf(b.priority);
+    const aOverdue = new Date(a.deadline).getTime() < now ? -1 : 0;
+    const bOverdue = new Date(b.deadline).getTime() < now ? -1 : 0;
+    const aBlocked = a.status === "bi_chan" ? -1 : 0;
+    const bBlocked = b.status === "bi_chan" ? -1 : 0;
+    const priorityDiff = order.indexOf(a.priority) - order.indexOf(b.priority);
+    if (priorityDiff !== 0) return priorityDiff;
+    return (aOverdue + aBlocked) - (bOverdue + bBlocked);
   });
 
   return (
@@ -34,9 +86,9 @@ export default function TaskLedger({ limit, title = "Task đang hoạt động" 
           <span className="mono text-2xs text-text-tertiary">{tasks.length} dòng</span>
         </div>
         <div className="flex items-center gap-2 mono text-2xs text-text-tertiary">
-          <button className="btn-ops">⊞ Bảng điều vận</button>
-          <button className="btn-ops">↧ Xuất CSV</button>
-          <button className="btn-ops primary">+ Tạo task</button>
+          <button className="btn-ops" onClick={() => window.history.back()}>⊞ Bảng điều vận</button>
+          <button className="btn-ops" onClick={() => exportCsv(tasks, allMembers)}>↧ Xuất CSV</button>
+          <button className="btn-ops primary" onClick={onCreateTask}>+ Tạo task</button>
         </div>
       </header>
 
@@ -56,13 +108,20 @@ export default function TaskLedger({ limit, title = "Task đang hoạt động" 
           </thead>
           <tbody>
             {tasks.map((t: OpsTask) => {
-              const m = memberById(t.assignee);
+              const m = allMembers.find((mb) => mb.id === t.assignee);
               const d = formatDeadline(t.deadline);
               const overdue = d.relative.startsWith("quá");
+              const blocked = t.status === "bi_chan";
               return (
                 <tr
                   key={t.id}
-                  className="border-b border-divider hover:bg-surface-raised transition-colors group cursor-pointer"
+                  onClick={() => onTaskClick?.(t)}
+                  className={clsx(
+                    "border-b border-divider transition-colors group cursor-pointer",
+                    overdue ? "bg-signal-p0/5 hover:bg-signal-p0/10" :
+                    blocked ? "bg-signal-p1/5 hover:bg-signal-p1/10" :
+                    "hover:bg-surface-raised"
+                  )}
                 >
                   <td className={clsx("p-0", PRIORITY_BAR[t.priority])} />
                   <td className="px-3 py-2.5 mono text-xs text-text-secondary tabular">{t.id}</td>
@@ -113,9 +172,12 @@ export default function TaskLedger({ limit, title = "Task đang hoạt động" 
                     <div className="mono text-xs text-text-primary tabular">
                       {d.date} · {d.time}
                     </div>
-                    <div className={clsx("mono text-2xs", overdue ? "text-signal-p0" : "text-text-tertiary")}>
+                    <div className={clsx("mono text-2xs font-bold", overdue ? "text-signal-p0" : "text-text-tertiary")}>
                       {d.relative}
                     </div>
+                    {overdue && (
+                      <div className="mono text-2xs text-signal-p0 uppercase tracking-wider">⚠ OVERDUE</div>
+                    )}
                   </td>
                 </tr>
               );

@@ -25,6 +25,7 @@ from store import (
     update_task_deadline, list_pending_approval, approve_user,
     set_user_role, add_task, block_task, unblock_task,
     get_all_overdue_tasks, get_user_stats, log_action,
+    update_task_priority, upsert_metric, get_all_metrics,
 )
 from roles import MANAGER, TEAM_LEAD, EMPLOYEE, ROLE_LABELS
 
@@ -166,7 +167,6 @@ def update_task(task_id: int, body: TaskUpdate, token: str = Depends(verify_toke
         unblock_task(task_id)
 
     if body.priority:
-        from store import update_task_priority
         update_task_priority(task_id, body.priority)
 
     if body.deadline:
@@ -394,6 +394,44 @@ def get_okr(token: str = Depends(verify_token)):
         "overdue_actions": sum(1 for a in actions_with_status if a["is_overdue"]),
         "p0_actions": sum(1 for a in ACTIONS if a["priority"] == "P0"),
     }
+
+
+# ─── Metrics (KPI sync from Redash / Google Sheets / manual) ─────────────────
+
+@app.get("/api/metrics")
+def get_metrics_endpoint(token: str = Depends(verify_token)):
+    """Return all stored KPI metrics as a flat dict {key: value}."""
+    return get_all_metrics()
+
+
+class MetricUpdate(BaseModel):
+    key: str
+    value: str
+    source: str = "manual"
+
+
+@app.post("/api/metrics")
+def update_metric_endpoint(body: MetricUpdate, token: str = Depends(verify_token)):
+    """Upsert a single KPI metric."""
+    upsert_metric(body.key, body.value, body.source)
+    return {"ok": True}
+
+
+class BulkMetricsBody(BaseModel):
+    metrics: dict  # {key: value} — all values coerced to str
+    source: str = "sheets"
+
+
+@app.post("/api/metrics/bulk")
+def update_metrics_bulk(body: BulkMetricsBody, token: str = Depends(verify_token)):
+    """
+    Bulk upsert KPI metrics. Used by Google Sheets Apps Script or manual sync.
+    Example body: {"metrics": {"gsv_today_b": "8.7", "fill_rate_core_pct": "78.0"}, "source": "sheets"}
+    """
+    for key, value in body.metrics.items():
+        upsert_metric(str(key), str(value), body.source)
+    log_action(0, "bulk_metric_update", detail=f"{len(body.metrics)} keys from {body.source}")
+    return {"ok": True, "updated": len(body.metrics)}
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────
