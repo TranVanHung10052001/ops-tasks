@@ -67,13 +67,15 @@ function MiniDial({ pct, label }: { pct: number; label: string }) {
 // ─── Data helpers ─────────────────────────────────────────────────────────────
 
 function computeOkrProgress(okr: ApiOkrResponse) {
-  return okr.objectives.map((obj) => {
-    const actions = okr.actions.filter(
+  const objectives = okr.objectives ?? [];
+  const actions = okr.actions ?? [];
+  return objectives.map((obj) => {
+    const objActions = actions.filter(
       (a) => a.okr === obj.id || a.okr.startsWith(obj.id + ".")
     );
-    const total = actions.length || 1;
-    const done = actions.filter((a) => !a.is_overdue).length;
-    const overdue = actions.filter((a) => a.is_overdue).length;
+    const total = objActions.length || 1;
+    const done = objActions.filter((a) => !a.is_overdue).length;
+    const overdue = objActions.filter((a) => a.is_overdue).length;
     const pct = Math.round((done / total) * 100);
     // Short label: first KR target or fallback to category
     const firstTarget = obj.krs[0]?.target ?? "";
@@ -218,7 +220,10 @@ export default function AIPanel() {
   const timeStr = now.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
   const dateStr = `${String(now.getDate()).padStart(2, "0")}·${String(now.getMonth() + 1).padStart(2, "0")}`;
 
-  const isConnected = !!(stats || okrRaw);
+  const isConnected = !!(
+    (stats && stats.member_count > 0) ||
+    (okrRaw?.objectives && okrRaw.objectives.length > 0)
+  );
 
   return (
     <aside className="w-[320px] bg-surface-deep border-l border-divider flex flex-col h-full fixed right-0 top-10 bottom-0 overflow-hidden">
