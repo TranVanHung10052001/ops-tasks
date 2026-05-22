@@ -22,13 +22,25 @@ import knowledge_loader as kn
 logger = logging.getLogger(__name__)
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
-DELEGATION_PROMPT = (PROMPTS_DIR / "delegation_coach.md").read_text(encoding="utf-8")
-CRISIS_PROMPT    = (PROMPTS_DIR / "crisis_commander.md").read_text(encoding="utf-8")
-TEAM_CONTEXT     = (PROMPTS_DIR / "team_context.md").read_text(encoding="utf-8")
-OKR_CONTEXT      = (PROMPTS_DIR / "okr_truck_ops.md").read_text(encoding="utf-8")
 
 
-_DELEGATION_SYSTEM = f"""
+def _read_prompt(filename: str) -> str:
+    """Read a prompt file safely — return empty string if missing."""
+    path = PROMPTS_DIR / filename
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        logger.warning("Prompt file not found: %s — agent will be degraded", filename)
+        return ""
+
+
+DELEGATION_PROMPT = _read_prompt("delegation_coach.md")
+CRISIS_PROMPT     = _read_prompt("crisis_commander.md")
+TEAM_CONTEXT      = _read_prompt("team_context.md")
+OKR_CONTEXT       = _read_prompt("okr_truck_ops.md")
+
+# Static parts of system prompts (everything except TODAY, which is injected at call time)
+_DELEGATION_SYSTEM_STATIC = f"""
 {DELEGATION_PROMPT}
 
 ---
@@ -42,12 +54,9 @@ _DELEGATION_SYSTEM = f"""
 ## OKR Q2/2026
 
 {OKR_CONTEXT}
-
-TODAY = {datetime.now().strftime("%Y-%m-%d (%A)")}
 """.strip()
 
-
-_CRISIS_SYSTEM = f"""
+_CRISIS_SYSTEM_STATIC = f"""
 {CRISIS_PROMPT}
 
 ---
@@ -61,9 +70,13 @@ _CRISIS_SYSTEM = f"""
 ## OKR Q2/2026
 
 {OKR_CONTEXT}
-
-TODAY = {datetime.now().strftime("%Y-%m-%d (%A)")}
 """.strip()
+
+
+def _build_system(static: str) -> str:
+    """Inject current date into a system prompt at call time (not import time)."""
+    today = datetime.now().strftime("%Y-%m-%d (%A)")
+    return f"{static}\n\nTODAY = {today}"
 
 
 # ─── Delegation Coach ─────────────────────────────────────────────────────────
@@ -118,7 +131,7 @@ def coach_delegation(
     result = call_tier(
         "premium",
         prompt,
-        system=_DELEGATION_SYSTEM,
+        system=_build_system(_DELEGATION_SYSTEM_STATIC),
         label="delegation_coach",
         max_output_tokens=2000,
         retries=1,
@@ -206,7 +219,7 @@ def run_crisis_commander(
     result = call_tier(
         "premium",
         prompt,
-        system=_CRISIS_SYSTEM,
+        system=_build_system(_CRISIS_SYSTEM_STATIC),
         label="crisis_commander",
         max_output_tokens=3000,
         retries=1,

@@ -13,11 +13,12 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKe
 from telegram.ext import ContextTypes
 
 from store import (
-    get_user, get_user_by_username, get_user_by_name,
+    get_user, get_user_by_username, get_user_by_name, find_users_by_name,
     register_user, approve_user, reject_user,
     set_user_role, list_users, list_pending_approval, touch_user,
     add_task, get_task, list_user_tasks, list_user_today_tasks,
     list_team_tasks, list_team_by_person, get_team_stats, get_user_stats,
+    reassign_task,
     mark_done, cancel_task, snooze_task, block_task, unblock_task,
     update_task_deadline, set_actual_minutes, increment_reminder,
     increment_defer, get_overdue_tasks_for_user, get_stalled_tasks_for_user,
@@ -1483,12 +1484,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not task or not target:
             await query.edit_message_text("Task hoặc user không tồn tại.")
             return
-        from store import get_db
-        with get_db() as conn:
-            conn.execute(
-                "UPDATE tasks SET assignee_id = ? WHERE id = ?",
-                (target_uid, task_id),
-            )
+        reassign_task(task_id, target_uid)
         log_action(user["telegram_id"], "delegation_coach_reassign", "task", task_id,
                    f"→ {target['full_name']}")
         await query.edit_message_text(
@@ -1971,25 +1967,51 @@ async def cmd_delegate(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─── Natural Language Intent Dispatcher ───────────────────────────────────────
 
-def _resolve_user_from_hint(hint: str | None, requester: dict | None = None) -> dict | None:
-    """Best-effort resolve user from a free-form hint (name/nickname/@username/email/_self)."""
+def _resolve_user_from_hint(
+    hint: str | None,
+    requester: dict | None = None,
+) -> dict | tuple[None, list[dict]]:
+    """
+    Resolve a user from a free-form hint (name/nickname/@username/email/_self).
+
+    Returns:
+        - dict  → exactly one match found
+        - None  → no match at all
+        - (None, [candidates])  → ambiguous (multiple partial matches): caller should ask user to clarify
+
+    Callers must handle the tuple case:
+        result = _resolve_user_from_hint(hint)
+        if isinstance(result, tuple):
+            _, candidates = result
+            # ask user to pick
+    """
     if not hint:
         return None
     h = hint.strip().lstrip("@").lower()
     if h in ("_self", "tôi", "toi", "mình", "minh", "me", "myself"):
         return requester
-    # Try by username
+
+    # Try exact username match
     u = get_user_by_username(h)
     if u:
         return u
-    # Try by name (full or partial)
-    u = get_user_by_name(h)
-    if u:
-        return u
-    # Try by email from knowledge base, map to short_name
+
+    # Try name lookup (returns all matches)
+    matches = find_users_by_name(h)
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        return (None, matches)  # ambiguous
+
+    # Try knowledge base: email or name → short_name → DB lookup
     scope = kn.get_member_scope(email=hint) or kn.get_member_scope(name=hint)
     if scope and scope.get("short_name"):
-        return get_user_by_name(scope["short_name"])
+        matches = find_users_by_name(scope["short_name"])
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            return (None, matches)
+
     return None
 
 
@@ -2014,9 +2036,11 @@ async def _intent_assign_task(update, context, user, text, entities):
 
     # Override assignee via hint resolution
     if hint:
-        target = _resolve_user_from_hint(hint)
-        if target:
-            routed["assignee_name"] = target["full_name"]
+        result = _resolve_user_from_hint(hint)
+        if isinstance(result, tuple):
+            pass  # ambiguous — fall through to assignee picker, don't pre-fill
+        elif result:
+            routed["assignee_name"] = result["full_name"]
             routed["assignee_email"] = ""
             routed["assignee_confidence"] = 0.95
 
@@ -2046,21 +2070,26 @@ async def _intent_reassign_task(update, context, user, text, entities):
         return True
 
     hint = entities.get("assignee_hint")
-    target = _resolve_user_from_hint(hint)
-    if not target:
+    resolved = _resolve_user_from_hint(hint)
+    if resolved is None:
         await update.message.reply_text(
             f"Không tìm được user '{hint or '?'}'. Dùng `/users` xem danh sách.",
             parse_mode="Markdown",
         )
         return True
+    if isinstance(resolved, tuple):
+        _, candidates = resolved
+        names = "\n".join(f"• {c['full_name']}" for c in candidates[:5])
+        await update.message.reply_text(
+            f"Tìm thấy {len(candidates)} người tên *{hint}*:\n{names}\n\n"
+            f"Bạn muốn chuyển cho ai? Nhập đầy đủ tên hoặc `@username`.",
+            parse_mode="Markdown",
+        )
+        return True
+    target = resolved
 
     old_assignee = task.get("assignee_id")
-    from store import get_db
-    with get_db() as conn:
-        conn.execute(
-            "UPDATE tasks SET assignee_id = ? WHERE id = ?",
-            (target["telegram_id"], task_id),
-        )
+    reassign_task(task_id, target["telegram_id"])
     log_action(user["telegram_id"], "reassign", "task", task_id,
                f"{old_assignee} → {target['telegram_id']}")
 
@@ -2241,7 +2270,19 @@ async def _intent_query_team(update, context, user, text, entities):
     filter_team = entities.get("filter_team")
     filter_status = entities.get("filter_status") or "active"
 
-    target = _resolve_user_from_hint(assignee_hint) if assignee_hint and assignee_hint != "_self" else None
+    target = None
+    if assignee_hint and assignee_hint != "_self":
+        resolved = _resolve_user_from_hint(assignee_hint)
+        if isinstance(resolved, tuple):
+            _, candidates = resolved
+            names = ", ".join(c["full_name"] for c in candidates[:4])
+            await update.message.reply_text(
+                f"Tìm thấy nhiều người tên *{assignee_hint}*: {names}\n"
+                f"Nhập đầy đủ tên để xem task cụ thể.",
+                parse_mode="Markdown",
+            )
+            return True
+        target = resolved
 
     statuses = ["pending", "in_progress", "blocked"] if filter_status == "active" else [filter_status]
     tasks = list_team_tasks(team=filter_team, statuses=statuses, limit=100)

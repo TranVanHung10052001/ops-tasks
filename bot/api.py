@@ -24,7 +24,7 @@ from store import (
     list_team_tasks, get_task, mark_done, cancel_task, snooze_task,
     update_task_deadline, list_pending_approval, approve_user,
     set_user_role, add_task, block_task, unblock_task,
-    get_all_overdue_tasks, get_user_stats, log_action,
+    get_all_overdue_tasks, get_user_stats, log_action, reassign_task,
 )
 from roles import MANAGER, TEAM_LEAD, EMPLOYEE, ROLE_LABELS
 import knowledge_loader as kn
@@ -506,8 +506,7 @@ def api_delegation_coach(task_id: int, token: str = Depends(verify_token)):
     # Build context similar to bot command
     assignee = get_user(task.get("assignee_id")) if task.get("assignee_id") else None
     assignee_scope = kn.get_member_scope(name=(assignee or {}).get("full_name", "")) if assignee else None
-    from store import get_user_stats as _stats
-    a_stats = _stats(task["assignee_id"]) if task.get("assignee_id") else {}
+    a_stats = get_user_stats(task["assignee_id"]) if task.get("assignee_id") else {}
 
     current_assignee = None
     if assignee:
@@ -575,7 +574,10 @@ class CrisisBody(BaseModel):
 def api_crisis(body: CrisisBody, token: str = Depends(verify_token)):
     """Activate Crisis Commander (premium tier)."""
     if body.type not in CRISIS_TYPES:
-        body.type = "external_event"
+        raise HTTPException(
+            status_code=422,
+            detail=f"type không hợp lệ. Phải là một trong: {list(CRISIS_TYPES)}",
+        )
 
     team_members = []
     for m in kn.member_scopes().get("members", []):

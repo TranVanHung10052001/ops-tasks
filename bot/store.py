@@ -156,6 +156,29 @@ def get_user_by_name(name: str) -> dict | None:
     return None
 
 
+def find_users_by_name(name: str) -> list[dict]:
+    """Return ALL approved users whose name partially matches — caller resolves ambiguity."""
+    if not name:
+        return []
+    name_lower = name.lower().strip()
+    matches = []
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM users WHERE is_approved = 1"
+        ).fetchall()
+        # Exact matches first (highest confidence)
+        exact = [dict(r) for r in rows if r["full_name"].lower() == name_lower]
+        if exact:
+            return exact
+        # Partial matches
+        for row in rows:
+            full = row["full_name"].lower()
+            parts = full.split()
+            if any(p == name_lower for p in parts) or name_lower in full:
+                matches.append(dict(row))
+    return matches
+
+
 def approve_user(telegram_id: int) -> bool:
     with get_db() as conn:
         cursor = conn.execute(
@@ -469,6 +492,16 @@ def unblock_task(task_id: int) -> bool:
             UPDATE tasks SET status = 'pending', block_reason = NULL
             WHERE id = ? AND status = 'blocked'
         """, (task_id,))
+        return cursor.rowcount > 0
+
+
+def reassign_task(task_id: int, new_assignee_id: int) -> bool:
+    """Change the assignee of a task. Returns True if the row was updated."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            "UPDATE tasks SET assignee_id = ? WHERE id = ?",
+            (new_assignee_id, task_id),
+        )
         return cursor.rowcount > 0
 
 
