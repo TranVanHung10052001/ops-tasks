@@ -194,3 +194,22 @@ export async function getOkrData(): Promise<OkrObjective[]> {
     return OKRS;
   }
 }
+
+// ── Activity log (real from bot audit_log) ───────────────────────────────────
+
+export interface ActivityEvent {
+  id: number;
+  ts: string;
+  actor: string;
+  action: string;
+  target?: string;
+  raw_action?: string;
+}
+
+export async function getActivityData(): Promise<ActivityEvent[]> {
+  try {
+    return await fetchBotApi<ActivityEvent[]>("/api/activity?limit=10");
+  } catch {
+    return []; // no mock — show empty state until bot logs activity
+  }
+}

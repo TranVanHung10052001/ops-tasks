@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useCallback } from "react";
 import { TASKS, MEMBERS, formatDeadline, Priority, OpsTask, Member } from "@/lib/mock";
 import clsx from "clsx";
 
@@ -34,7 +35,7 @@ const PRIORITY_ICON: Record<Priority, string> = {
   P4: "◻",
 };
 
-function TaskCard({ task, members, onTaskClick }: { task: OpsTask; members: Member[]; onTaskClick?: (t: OpsTask) => void }) {
+function TaskCard({ task, members, onTaskClick, onDragStart }: { task: OpsTask; members: Member[]; onTaskClick?: (t: OpsTask) => void; onDragStart?: (taskId: string) => void }) {
   const m = members.find((mb) => mb.id === task.assignee);
   const d = formatDeadline(task.deadline);
   const overdue = d.relative.startsWith("quá");
@@ -42,9 +43,14 @@ function TaskCard({ task, members, onTaskClick }: { task: OpsTask; members: Memb
 
   return (
     <div
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = "move";
+        onDragStart?.(task.id);
+      }}
       onClick={() => onTaskClick?.(task)}
       className={clsx(
-        "ops-surface cursor-pointer relative overflow-hidden",
+        "ops-surface cursor-grab active:cursor-grabbing relative overflow-hidden select-none",
         "p-[10px]",
         overdue && "border-signal-p0/60",
         blocked && "border-signal-p1/60",
@@ -112,20 +118,61 @@ export default function DispatchBoard({
   tasks: tasksProp,
   members: membersProp,
   onTaskClick,
+  onPriorityChange,
 }: {
   tasks?: OpsTask[];
   members?: Member[];
   onTaskClick?: (task: OpsTask) => void;
+  onPriorityChange?: (taskId: string, newPriority: Priority) => Promise<void>;
 }) {
   const allTasks = tasksProp ?? TASKS;
   const allMembers = membersProp ?? MEMBERS;
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverCol, setDragOverCol] = useState<Priority | null>(null);
+  const [localOverrides, setLocalOverrides] = useState<Record<string, Priority>>({});
+
+  const getEffectivePriority = useCallback(
+    (task: OpsTask): Priority => localOverrides[task.id] ?? task.priority,
+    [localOverrides]
+  );
+
+  const handleDrop = useCallback(
+    async (newPriority: Priority) => {
+      if (!draggingId) return;
+      setDragOverCol(null);
+      const task = allTasks.find((t) => t.id === draggingId);
+      if (!task) { setDraggingId(null); return; }
+      if (getEffectivePriority(task) === newPriority) { setDraggingId(null); return; }
+      setLocalOverrides((prev) => ({ ...prev, [draggingId]: newPriority }));
+      setDraggingId(null);
+      try {
+        await onPriorityChange?.(draggingId, newPriority);
+      } catch {
+        setLocalOverrides((prev) => { const n = { ...prev }; delete n[draggingId ?? ""]; return n; });
+      }
+    },
+    [draggingId, allTasks, getEffectivePriority, onPriorityChange]
+  );
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "28fr 26fr 23fr 23fr", gap: "12px" }}>
+    <div
+      style={{ display: "grid", gridTemplateColumns: "28fr 26fr 23fr 23fr", gap: "12px" }}
+      onDragEnd={() => { setDraggingId(null); setDragOverCol(null); }}
+    >
       {COLUMNS.map((col) => {
-        const items = allTasks.filter((t) => t.priority === col.key);
+        const items = allTasks.filter((t) => getEffectivePriority(t) === col.key);
+        const isOver = dragOverCol === col.key;
         return (
-          <div key={col.key} className="bg-surface-deep border border-divider min-h-[500px] flex flex-col">
+          <div
+            key={col.key}
+            className={clsx(
+              "bg-surface-deep border min-h-[500px] flex flex-col transition-colors",
+              isOver ? "border-accent-amber bg-accent-amber/5" : "border-divider"
+            )}
+            onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOverCol(col.key); }}
+            onDrop={(e) => { e.preventDefault(); handleDrop(col.key); }}
+            onDragLeave={() => setDragOverCol(null)}
+          >
             <header
               className={clsx(
                 "px-3 py-2 border-b-2 flex items-center justify-between",
@@ -138,13 +185,24 @@ export default function DispatchBoard({
                 </div>
                 <div className="mono text-2xs text-text-tertiary mt-0.5">{col.sub}</div>
               </div>
-              <span className="mono text-md text-text-primary tabular">{items.length}</span>
+              <span className="mono text-lg text-text-primary tabular font-light">{items.length}</span>
             </header>
+            {isOver && (
+              <div className="mx-2 mt-2 border border-dashed border-accent-amber/60 py-2 text-center mono text-2xs text-accent-amber uppercase tracking-wider">
+                ↓ thả vào đây
+              </div>
+            )}
             <div className="flex-1 p-2 space-y-1.5">
               {items.map((t) => (
-                <TaskCard key={t.id} task={t} members={allMembers} onTaskClick={onTaskClick} />
+                <TaskCard
+                  key={t.id}
+                  task={t}
+                  members={allMembers}
+                  onTaskClick={onTaskClick}
+                  onDragStart={setDraggingId}
+                />
               ))}
-              {items.length === 0 && (
+              {items.length === 0 && !isOver && (
                 <div className="text-center text-2xs text-text-tertiary py-8 mono uppercase tracking-wider">
                   không có task
                 </div>

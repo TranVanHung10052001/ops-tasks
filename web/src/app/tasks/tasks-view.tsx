@@ -2,15 +2,17 @@
 
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import DispatchBoard from "@/components/ui/dispatch-board";
+import StatusBoard from "@/components/ui/dispatch-board-status";
 import TaskLedger from "@/components/ui/task-ledger";
 import TimelineTrack from "@/components/ui/timeline-track";
 import TaskDetailModal from "@/components/ui/task-detail-modal";
 import CreateTaskModal from "@/components/ui/create-task-modal";
-import { OpsTask, Member, TaskStatus, TASKS, MEMBERS } from "@/lib/mock";
+import { OpsTask, Member, TaskStatus, Priority, TASKS, MEMBERS } from "@/lib/mock";
 import clsx from "clsx";
 
 const VIEWS = [
   { key: "board", label: "Bảng điều vận", sub: "Kanban theo tín hiệu" },
+  { key: "status-board", label: "Trạng thái", sub: "Kanban theo tiến độ" },
   { key: "ledger", label: "Sổ theo dõi", sub: "Bảng dense" },
   { key: "timeline", label: "Timeline", sub: "Theo giờ" },
 ] as const;
@@ -129,6 +131,70 @@ export default function TasksView({
     }
   }, []);
 
+  const handlePriorityChange = useCallback(async (taskId: string, newPriority: Priority) => {
+    setTasks((prev) =>
+      prev.map((t) => (t.id === taskId ? { ...t, priority: newPriority } : t))
+    );
+    setSelectedTask((prev) => (prev?.id === taskId ? { ...prev, priority: newPriority } : prev));
+    try {
+      const numericId = taskId.replace(/\D/g, "").slice(-5);
+      await fetch(`/api/tasks/${numericId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ priority: newPriority }),
+      });
+    } catch {
+      // Silently fail
+    }
+  }, []);
+
+  const handleQuickCreateWithStatus = useCallback(
+    async (title: string, status: TaskStatus) => {
+      const tempId = `T-${Date.now().toString().slice(-7)}`;
+      const newTask: OpsTask = {
+        id: tempId,
+        channel: "Adhoc",
+        channelLabel: "Phát sinh",
+        title,
+        assignee: members[0]?.id ?? "m0",
+        priority: "P2",
+        status,
+        deadline: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+        estimateHours: 2,
+        tags: [],
+        createdAt: new Date().toISOString(),
+        createdBy: "Web · OPS-10",
+      };
+      setTasks((prev) => [newTask, ...prev]);
+      try {
+        await fetch("/api/tasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ summary: title, priority: "P2", status, category: "adhoc" }),
+        });
+      } catch {
+        // Silently keep optimistic state
+      }
+    },
+    [members]
+  );
+
+  const handleDeleteTask = useCallback(async (taskId: string) => {
+    // Optimistic remove
+    setTasks((prev) => prev.filter((t) => t.id !== taskId));
+    setSelectedTask(null);
+    try {
+      const numericId = taskId.replace(/\D/g, "").slice(-5);
+      await fetch(`/api/tasks/${numericId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "cancelled" }),
+      });
+    } catch {
+      // Silently fail
+    }
+  }, []);
+
   return (
     <>
       {/* View switcher + Search */}
@@ -201,7 +267,21 @@ export default function TasksView({
       )}
 
       {view === "board" && (
-        <DispatchBoard tasks={filteredTasks} members={members} onTaskClick={handleTaskClick} />
+        <DispatchBoard
+          tasks={filteredTasks}
+          members={members}
+          onTaskClick={handleTaskClick}
+          onPriorityChange={handlePriorityChange}
+        />
+      )}
+      {view === "status-board" && (
+        <StatusBoard
+          tasks={filteredTasks}
+          members={members}
+          onTaskClick={handleTaskClick}
+          onStatusChange={handleStatusChange}
+          onQuickCreate={handleQuickCreateWithStatus}
+        />
       )}
       {view === "ledger" && (
         <TaskLedger tasks={filteredTasks} members={members} onTaskClick={handleTaskClick} onCreateTask={() => setCreateOpen(true)} />
@@ -217,6 +297,7 @@ export default function TasksView({
           members={members}
           onClose={() => setSelectedTask(null)}
           onStatusChange={handleStatusChange}
+          onDelete={handleDeleteTask}
         />
       )}
 

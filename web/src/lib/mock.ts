@@ -633,10 +633,23 @@ export function formatDeadline(iso: string): { date: string; time: string; relat
   return { date: `${dd}·${mm}`, time: `${hh}:${mi}`, relative };
 }
 
-export const TODAY = {
-  full: "Thứ Sáu, 22 tháng 5, 2026",
-  short: "22·05·2026",
-  shortDate: "22·05",
-  dayName: "Thứ Sáu",
-  greeting: "Chào chiều, Anh Huy",
-};
+function _buildToday() {
+  const now = new Date();
+  const dd = String(now.getDate()).padStart(2, "0");
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const yyyy = now.getFullYear();
+  const days = ["Chủ Nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"];
+  const dayName = days[now.getDay()];
+  const months = ["","tháng 1","tháng 2","tháng 3","tháng 4","tháng 5","tháng 6",
+                  "tháng 7","tháng 8","tháng 9","tháng 10","tháng 11","tháng 12"];
+  const hour = now.getHours();
+  const greeting = hour < 12 ? "Chào sáng" : hour < 18 ? "Chào chiều" : "Chào tối";
+  return {
+    full: `${dayName}, ${dd} ${months[now.getMonth() + 1]}, ${yyyy}`,
+    short: `${dd}·${mm}·${yyyy}`,
+    shortDate: `${dd}·${mm}`,
+    dayName,
+    greeting: `${greeting}, Anh Huy`,
+  };
+}
+export const TODAY = _buildToday();

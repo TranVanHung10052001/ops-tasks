@@ -19,11 +19,14 @@ interface Props {
   members: Member[];
   onClose: () => void;
   onStatusChange: (taskId: string, newStatus: TaskStatus) => Promise<void>;
+  onDelete?: (taskId: string) => Promise<void>;
 }
 
-export default function TaskDetailModal({ task, members, onClose, onStatusChange }: Props) {
+export default function TaskDetailModal({ task, members, onClose, onStatusChange, onDelete }: Props) {
   const [saving, setSaving] = useState(false);
   const [savedStatus, setSavedStatus] = useState<TaskStatus>(task.status);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const m = members.find((mb) => mb.id === task.assignee);
   const d = formatDeadline(task.deadline);
@@ -38,6 +41,18 @@ export default function TaskDetailModal({ task, members, onClose, onStatusChange
       await onStatusChange(task.id, s);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!onDelete) return;
+    setDeleting(true);
+    try {
+      await onDelete(task.id);
+      onClose();
+    } finally {
+      setDeleting(false);
+      setConfirmDelete(false);
     }
   }
 
@@ -198,7 +213,34 @@ export default function TaskDetailModal({ task, members, onClose, onStatusChange
           <div className="mono text-2xs text-text-disabled">
             Trạng thái: {statusLabel(savedStatus)}
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            {onDelete && (
+              confirmDelete ? (
+                <>
+                  <span className="mono text-2xs text-signal-p0">Xác nhận xoá?</span>
+                  <button
+                    onClick={handleDelete}
+                    disabled={deleting}
+                    className="btn-ops mono text-2xs text-signal-p0 border-signal-p0/60 hover:bg-signal-p0/10"
+                  >
+                    {deleting ? "Đang xoá…" : "✕ Xoá"}
+                  </button>
+                  <button
+                    onClick={() => setConfirmDelete(false)}
+                    className="btn-ops"
+                  >
+                    Huỷ
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  className="btn-ops mono text-2xs text-text-tertiary hover:text-signal-p0 hover:border-signal-p0/60"
+                >
+                  ✕ Xoá task
+                </button>
+              )
+            )}
             <button onClick={onClose} className="btn-ops">
               Đóng
             </button>

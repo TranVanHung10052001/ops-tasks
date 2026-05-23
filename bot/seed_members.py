@@ -88,7 +88,7 @@ MEMBERS = [
         "callsign":    "OPS-07",
         "full_name":   "Lê Văn Khánh",
         "email":       "khanhlv@ahamove.com",
-        "telegram_id": None,
+        "telegram_id": 6623345057,              # ← đã biết
         "username":    "",
         "role":        TEAM_LEAD,
     },

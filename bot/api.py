@@ -64,8 +64,6 @@ def get_stats(token: str = Depends(verify_token)):
     members = list_team_by_person()
 
     overloaded = [m for m in members if m.get("active_count", 0) > 8]
-    underloaded = [m for m in members if m.get("active_count", 0) <= 1
-                   and m.get("role") != MANAGER]
 
     return {
         **stats,
@@ -73,6 +71,72 @@ def get_stats(token: str = Depends(verify_token)):
         "member_count": len(members),
         "overdue_tasks": [_fmt_task(t) for t in overdue_tasks[:5]],
     }
+
+
+# ─── Activity log ─────────────────────────────────────────────────────────────
+
+@app.get("/api/activity")
+def get_activity(
+    limit: int = Query(10, le=50),
+    token: str = Depends(verify_token),
+):
+    """Recent activity log — latest actions today from audit_log (bot Telegram actions)."""
+    from store import get_db
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT a.id, a.actor_id, a.action, a.entity_type, a.entity_id,
+                   a.detail, a.ts,
+                   u.full_name as actor_name
+            FROM audit_log a
+            LEFT JOIN users u ON a.actor_id = u.telegram_id
+            WHERE a.ts >= ?
+            ORDER BY a.ts DESC
+            LIMIT ?
+        """, (today_start, limit)).fetchall()
+
+    action_labels = {
+        "assign":             "giao task",
+        "assign_ai":          "giao task (AI)",
+        "done":               "đánh dấu hoàn thành",
+        "block":              "báo blocked",
+        "unblock":            "gỡ blocked",
+        "dashboard_update":   "cập nhật task",
+        "create_task":        "tạo task mới",
+        "approve_user":       "duyệt thành viên",
+        "bulk_metric_update": "cập nhật KPI metrics",
+        "decline":            "từ chối task",
+        "set_role":           "cập nhật vai trò",
+    }
+
+    events = []
+    for r in rows:
+        r = dict(r)
+        ts = r["ts"] or ""
+        try:
+            dt = datetime.fromisoformat(ts)
+            time_str = dt.strftime("%H:%M")
+        except Exception:
+            time_str = ts[:5] if len(ts) >= 5 else ts
+
+        actor_id = r["actor_id"]
+        actor = r.get("actor_name") or ("Dashboard" if actor_id == 0 else f"User {actor_id}")
+        action_label = action_labels.get(r["action"], r["action"])
+        target = None
+        if r["entity_type"] == "task" and r["entity_id"]:
+            target = f"T-{str(r['entity_id']).zfill(5)}"
+
+        events.append({
+            "id":         r["id"],
+            "ts":         time_str,
+            "actor":      actor,
+            "action":     action_label,
+            "target":     target,
+            "raw_action": r["action"],
+        })
+
+    return events
+
 
 
 # ─── Team ─────────────────────────────────────────────────────────────────────
