@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C \"C:\\\\Users\\\\TS-1140\\\\Downloads\\\\ops-tasks\" diff HEAD..refs/heads/master -- web/src/)",
+      "Bash(git -C \"C:\\\\Users\\\\TS-1140\\\\Downloads\\\\ops-tasks\" log --oneline --all)",
+      "Bash(git -C \"C:\\\\Users\\\\TS-1140\\\\Downloads\\\\ops-tasks\" branch -a)",
+      "Bash(git -C \"C:\\\\Users\\\\TS-1140\\\\Downloads\\\\ops-tasks\\\\.claude\\\\worktrees\\\\dreamy-chatelet-3c88d0\" log --oneline -5)",
+      "Bash(npx next *)",
+      "Bash(npx tsc *)",
+      "Bash(ls \"C:\\\\Users\\\\TS-1140\\\\Downloads\\\\ops-tasks\\\\.claude\\\\worktrees\\\\xenodochial-neumann-b1fced\\\\bot\" && echo \"===\" && ls \"C:\\\\Users\\\\TS-1140\\\\Downloads\\\\ops-tasks\\\\bot\")",
+      "Bash(grep -n \"def reassign_task\\\\|def update_task_assignee\" \"C:\\\\Users\\\\TS-1140\\\\Downloads\\\\ops-tasks\\\\.claude\\\\worktrees\\\\jovial-margulis-54a78f\\\\bot\\\\store.py\")"
+    ]
+  }
+}
