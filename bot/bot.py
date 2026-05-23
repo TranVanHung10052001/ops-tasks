@@ -33,6 +33,7 @@ from classifier import (
     route_task, coach_task, nl_intent,
 )
 from roast import get_done_roast, get_snooze_roast
+import templates as tpl
 
 logger = logging.getLogger(__name__)
 
@@ -62,15 +63,15 @@ _last_task: dict[int, int] = {}
 
 # ─── UI constants ─────────────────────────────────────────────────────────────
 
-P_EMOJI = {"P0": "🔴", "P1": "🟠", "P2": "🟡", "P3": "🔵"}
+# Legacy emoji map — chỉ dùng trong _fmt_task (list view)
+# Các message quan trọng đã chuyển sang templates.py
+P_EMOJI = {"P0": "■", "P1": "▪", "P2": "▫", "P3": "□"}
 CAT_EMOJI = {
-    # route_task categories
-    "fill_rate": "📊", "supply": "🚛", "retention": "🤝",
-    "b2b": "🏢", "expansion": "🗺", "cost": "💰", "tech": "⚙️",
-    # classify.md legacy categories
-    "ops": "⚙️", "report": "📝", "meeting": "🗓",
-    "vendor": "🤝", "admin": "🗂", "data": "📊",
-    "other": "📌",
+    "fill_rate": "◈", "supply": "◈", "retention": "◈",
+    "b2b": "◈", "expansion": "◈", "cost": "◈", "tech": "◈",
+    "ops": "◈", "report": "◈", "meeting": "◈",
+    "vendor": "◈", "admin": "◈", "data": "◈",
+    "other": "◈",
 }
 
 EMPLOYEE_KEYBOARD = ReplyKeyboardMarkup(
@@ -120,51 +121,13 @@ def _deadline_str(deadline_iso: str | None) -> str:
 
 
 def _fmt_task(task: dict, show_assignee: bool = False) -> str:
-    """Compact single-line format for lists."""
-    emoji = P_EMOJI.get(task.get("priority", "P3"), "⚪")
-    cat   = CAT_EMOJI.get(task.get("category", "other"), "📌")
-    line  = f"{emoji} #{task['id']} {task['summary'][:65]}"
-    if show_assignee and task.get("assignee_name"):
-        line += f" → {task['assignee_name'].split()[-1]}"
-    dl_str = _deadline_str(task.get("deadline"))
-    if dl_str:
-        line += f"  {cat} {dl_str}"
-    return line
+    """Compact single-line format for lists — delegates to templates."""
+    return tpl.fmt_task_line(task, show_assignee=show_assignee)
 
 
 def _fmt_task_card(task: dict, show_assignee: bool = True) -> str:
-    """Rich 2-line card for notifications and single-task detail views."""
-    p       = task.get("priority", "P3")
-    emoji   = P_EMOJI.get(p, "⚪")
-    cat_key = task.get("category", "other")
-    cat     = CAT_EMOJI.get(cat_key, "📌")
-
-    # Line 1: summary + priority badge
-    line1 = f"{emoji} *#{task['id']}* {task['summary'][:80]}"
-
-    # Line 2: metadata chips
-    chips = []
-    if show_assignee and task.get("assignee_name"):
-        chips.append(f"👤 {task['assignee_name'].split()[-1]}")
-
-    import json as _json
-    meta = task.get("classifier_meta") or {}
-    if isinstance(meta, str):
-        try:
-            meta = _json.loads(meta)
-        except Exception:
-            meta = {}
-    if meta.get("okr_ref"):
-        chips.append(f"🎯 {meta['okr_ref']}")
-
-    chips.append(f"{cat} {cat_key}")
-
-    dl_str = _deadline_str(task.get("deadline"))
-    if dl_str:
-        chips.append(f"📅 {dl_str}")
-
-    line2 = "  ·  ".join(chips) if chips else ""
-    return f"{line1}\n{line2}" if line2 else line1
+    """Rich card — delegates to templates (used for task notifications)."""
+    return tpl.msg_task_new(task, assigned_by_name="")
 
 
 def _task_keyboard(task_id: int) -> InlineKeyboardMarkup:
@@ -485,22 +448,8 @@ async def cmd_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
                datetime.fromisoformat(t["deadline"]).replace(tzinfo=None) < datetime.now()]
     today_tasks = [t for t in tasks if t not in overdue]
 
-    if not tasks:
-        await update.message.reply_text("Không có task nào hôm nay.")
-        return
-
-    lines = [f"*Hôm nay — {user['full_name']}*\n"]
-    if overdue:
-        lines.append(f"⚠️ *Quá hạn ({len(overdue)}):*")
-        for t in overdue:
-            lines.append(_fmt_task(t))
-        lines.append("")
-    if today_tasks:
-        lines.append(f"📋 *Hôm nay ({len(today_tasks)}):*")
-        for t in today_tasks:
-            lines.append(_fmt_task(t))
-
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    msg = tpl.msg_today(user["full_name"], overdue, today_tasks)
+    await update.message.reply_text(msg, parse_mode="Markdown")
 
 
 async def cmd_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -524,27 +473,30 @@ async def cmd_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if mark_done(task_id):
-        roast = get_done_roast()
-        await update.message.reply_text(
-            f"✓ *#{task_id}* done. _{roast}_\n\nMất bao lâu?",
-            parse_mode="Markdown",
-            reply_markup=_duration_keyboard(task_id),
-        )
+        msg = tpl.msg_done_quick(task_id, task.get("summary", ""))
+        await update.message.reply_text(msg, parse_mode="Markdown",
+                                        reply_markup=_duration_keyboard(task_id))
         log_action(user["telegram_id"], "done", "task", task_id)
 
         # Notify assigner if different from doer
         if task.get("assigned_by") and task["assigned_by"] != user["telegram_id"]:
             try:
+                notify = tpl.msg_confirm(
+                    "Task hoàn thành",
+                    f"`{user['full_name']}` vừa xong:\n_{task['summary'][:70]}_",
+                )
                 await context.bot.send_message(
                     chat_id=task["assigned_by"],
-                    text=f"✓ *{user['full_name']}* vừa hoàn thành task:\n"
-                         f"_{task['summary'][:80]}_",
+                    text=notify,
                     parse_mode="Markdown",
                 )
             except Exception:
                 pass
     else:
-        await update.message.reply_text(f"Task #{task_id} không tồn tại hoặc đã xong.")
+        await update.message.reply_text(
+            tpl.msg_error("Không thể đánh dấu xong",
+                          f"Task #{task_id} không tồn tại hoặc đã xong.")
+        )
 
 
 async def cmd_snooze(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -578,9 +530,13 @@ async def cmd_snooze(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     snooze_task(task_id, until.isoformat())
-    roast = get_snooze_roast()
     await update.message.reply_text(
-        f"◷ #{task_id} hoãn đến {until.strftime('%d/%m %H:%M')}. _{roast}_",
+        tpl.msg_confirm(
+            "Đã hoãn",
+            f"`#{task_id}` {task.get('summary','')[:60]}\n"
+            f"◷ Đến {until.strftime('%d/%m %H:%M')}",
+            next_hint=f"`/done {task_id}` khi xong sớm hơn",
+        ),
         parse_mode="Markdown",
     )
     increment_defer(task_id)
@@ -607,9 +563,13 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if cancel_task(task_id):
-        await update.message.reply_text(f"✕ Task #{task_id} đã huỷ.")
+        await update.message.reply_text(
+            tpl.msg_confirm("Đã huỷ", f"`#{task_id}` {task.get('summary','')[:60]}")
+        )
     else:
-        await update.message.reply_text(f"Không thể huỷ task #{task_id}.")
+        await update.message.reply_text(
+            tpl.msg_error("Không thể huỷ", f"Task #{task_id} không tồn tại hoặc đã xong.")
+        )
 
 
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -618,13 +578,20 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     s = get_user_stats(user["telegram_id"])
-    await update.message.reply_text(
-        f"*Thống kê — {user['full_name']}*\n\n"
-        f"Tuần này: {s['done_week']} done\n"
-        f"Đang pending: {s['pending']}\n"
-        f"Overdue: {s['overdue']}",
-        parse_mode="Markdown",
+    done   = s.get("done_week", 0)
+    pend   = s.get("pending", 0)
+    overdue= s.get("overdue", 0)
+    ov_icon = "⚠️ " if overdue > 0 else ""
+    msg = (
+        f"THỐNG KÊ · {user['full_name']}\n"
+        f"{tpl.DIV_LIGHT}\n"
+        f"\n"
+        f"Tuần này\n"
+        f"● {done} task hoàn thành\n"
+        f"○ {pend} đang pending\n"
+        f"{ov_icon}◌ {overdue} quá hạn\n"
     )
+    await update.message.reply_text(msg, parse_mode="Markdown")
 
 
 async def cmd_coach(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1476,62 +1443,27 @@ async def _send_brief(
     context: ContextTypes.DEFAULT_TYPE,
     user: dict,
 ) -> None:
-    """Send AI-structured team brief grouped by OKR category."""
-    members = list_team_by_person()
-    stats   = get_team_stats()
-    now     = datetime.now()
-
-    # Header stats
-    total_overdue = stats.get("overdue", 0)
-    total_active  = stats.get("active", 0)
-    done_today    = stats.get("done_today", 0)
-
-    header = (
-        f"*📊 Brief team — {now.strftime('%d/%m %H:%M')}*\n"
-        f"Active: {total_active}  ·  Done hôm nay: {done_today}  ·  "
-        f"Overdue: {total_overdue}\n"
-    )
-
-    # Per-person status
-    person_lines = []
-    for m in members:
-        active  = m.get("active_count", 0)
-        overdue = m.get("overdue_count", 0)
-        done_t  = m.get("done_today", 0)
-        icon = "🔴" if overdue > 2 else ("🟠" if overdue > 0 else ("🟡" if active > 6 else "🟢"))
-        line = f"{icon} *{m['full_name'].split()[-1]}* {active}t"
-        if overdue:
-            line += f" ⚠️{overdue}"
-        if done_t:
-            line += f" ✓{done_t}"
-        person_lines.append(line)
-
-    # Tasks by category
+    """Send team brief snapshot grouped by member + category + P0 tasks."""
+    members   = list_team_by_person()
+    stats     = get_team_stats()
     all_tasks = list_team_tasks(statuses=["pending"])
+
+    # Category counts
     cat_counts: dict[str, int] = {}
     for t in all_tasks:
         cat = t.get("category", "other")
         cat_counts[cat] = cat_counts.get(cat, 0) + 1
 
-    cat_order = ["fill_rate", "supply", "b2b", "expansion", "cost", "retention", "tech", "other"]
-    cat_lines = []
-    for cat in cat_order:
-        if cat in cat_counts:
-            cat_lines.append(f"  {CAT_EMOJI.get(cat,'📌')} {cat}: {cat_counts[cat]}")
-
-    sections = [header, "  ".join(person_lines)]
-    if cat_lines:
-        sections.append("\n*Theo category:*\n" + "\n".join(cat_lines))
-
-    # P0 tasks warning
+    # P0 tasks
     p0_tasks = [t for t in all_tasks if t.get("priority") == "P0"]
-    if p0_tasks:
-        sections.append(f"\n🔴 *P0 ({len(p0_tasks)}):*")
-        for t in p0_tasks[:4]:
-            sections.append(_fmt_task(t, show_assignee=True))
 
-    sections.append("\n/team · /assign · /pending")
-    await update.message.reply_text("\n".join(sections), parse_mode="Markdown")
+    text = tpl.msg_brief_team(
+        stats=stats,
+        members=members,
+        cat_counts=cat_counts,
+        p0_tasks=p0_tasks,
+    )
+    await update.message.reply_text(text)
 
 
 async def cmd_brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1576,7 +1508,7 @@ async def cmd_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    msg = await update.message.reply_text("🤔 AI đang phân tích…")
+    msg = await update.message.reply_text(tpl.msg_ai_thinking())
     try:
         from smart_agent import ask as smart_ask
         # Run in executor since smart_ask is sync (Gemini SDK is blocking)
@@ -1590,12 +1522,11 @@ async def cmd_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     answer = result.get("answer") or "(không có câu trả lời)"
     tools_used = result.get("tools_used", [])
-    tools_line = f"\n\n_📊 Data từ: {', '.join(tools_used)}_" if tools_used else ""
+    body = tpl.msg_ai_response(answer, tools_used)
 
-    # Telegram message limit is 4096 chars. Truncate if needed.
-    body = answer + tools_line
+    # Telegram limit 4096 chars
     if len(body) > 4000:
-        body = body[:3900] + "\n\n…(rút gọn)" + tools_line
+        body = body[:3900] + "\n…(rút gọn)"
 
     try:
         await msg.edit_text(body, parse_mode="Markdown")

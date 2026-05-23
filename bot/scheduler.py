@@ -19,6 +19,7 @@ from roast import (
     get_morning_roast, get_manager_morning_roast,
     get_overdue_roast, get_eod_roast,
 )
+import templates as tpl
 
 logger = logging.getLogger(__name__)
 
@@ -88,32 +89,9 @@ async def morning_briefing_all(app):
 
 
 async def _send_personal_briefing(app, user_id: int, name: str):
-    overdue  = get_overdue_tasks_for_user(user_id)
-    top3     = get_top_tasks_for_user(user_id, limit=3)
-
-    now = datetime.now()
-    weekday = ["Thứ Hai","Thứ Ba","Thứ Tư","Thứ Năm","Thứ Sáu","Thứ Bảy","Chủ Nhật"][now.weekday()]
-
-    roast = get_morning_roast(len(overdue))
-    msg = f"*{weekday} {now.strftime('%d/%m')} — Xin chào {name}*\n_{roast}_\n\n"
-
-    if overdue:
-        msg += f"⚠️ *Quá hạn ({len(overdue)}):*\n"
-        for t in overdue[:4]:
-            msg += f"  {_fmt(t)}\n"
-        msg += "\n"
-
-    if top3:
-        msg += f"📋 *Ưu tiên hôm nay:*\n"
-        for t in top3:
-            msg += f"  {_fmt(t)}\n"
-        msg += "\n"
-
-    if not overdue and not top3:
-        msg += "Queue sạch. Tốt.\n\n"
-
-    msg += "/mytasks · /done <id> · /snooze <id> 2h"
-
+    overdue = get_overdue_tasks_for_user(user_id)
+    top3    = get_top_tasks_for_user(user_id, limit=3)
+    msg = tpl.msg_morning_member(name, overdue, top3)
     await app.bot.send_message(chat_id=user_id, text=msg, parse_mode="Markdown")
 
 
@@ -124,46 +102,21 @@ async def manager_team_digest(app):
     if _is_quiet() or not MANAGER_ID:
         return
 
-    members = list_team_by_person()
-    stats   = get_team_stats()
+    members     = list_team_by_person()
+    stats       = get_team_stats()
     overdue_all = get_all_overdue_tasks()
 
-    now = datetime.now()
-    roast = get_manager_morning_roast(stats["overdue"], stats["active"])
+    # Build manager name from first approved user with manager role (fallback: "Manager")
+    from store import list_users
+    mgr_users = [u for u in list_users(approved_only=True) if u.get("telegram_id") == MANAGER_ID]
+    mgr_name = mgr_users[0]["full_name"].split()[0] if mgr_users else "Manager"
 
-    msg = (
-        f"*Team digest — {now.strftime('%d/%m %H:%M')}*\n"
-        f"_{roast}_\n\n"
-        f"{stats['active']} active · {stats['done_today']} done · "
-        f"{stats['overdue']} overdue · {stats['blocked']} blocked\n\n"
+    msg = tpl.msg_morning_manager(
+        manager_name=mgr_name,
+        stats=stats,
+        members=members,
+        overdue_tasks=overdue_all,
     )
-
-    for m in members:
-        active  = m.get("active_count", 0)
-        overdue = m.get("overdue_count", 0)
-        blocked = m.get("blocked_count", 0)
-
-        if overdue > 0:
-            ind = "🔴"
-        elif active > 8:
-            ind = "🟡"
-        else:
-            ind = "🟢"
-
-        line = f"{ind} *{m['full_name']}* — {active} task"
-        if overdue:
-            line += f", {overdue} trễ"
-        if blocked:
-            line += f", {blocked} blocked"
-        msg += line + "\n"
-
-    if overdue_all:
-        msg += f"\n⚠️ *Overdue cần chú ý:*\n"
-        for t in overdue_all[:5]:
-            msg += f"  {_fmt(t, show_assignee=True)}\n"
-
-    msg += "\n/team chi tiết · /assign giao việc mới"
-
     try:
         await app.bot.send_message(
             chat_id=MANAGER_ID, text=msg, parse_mode="Markdown"
@@ -206,15 +159,10 @@ async def deadline_check_all(app):
                     should_remind = True
 
                 if should_remind:
-                    # Try smart reminder first, fallback to simple
+                    # Try smart reminder first, fallback to template
                     msg = _build_smart_reminder(task, context="deadline")
                     if not msg:
-                        if 0 <= hours <= 4:
-                            msg = f"🔥 *Hôm nay deadline:*\n  {_fmt(task)}\n\n/done {task['id']} khi xong"
-                        elif hours <= 28:
-                            msg = f"⏰ *Mai phải xong:*\n  {_fmt(task)}"
-                        else:
-                            msg = f"📋 *Còn 3 ngày:*\n  {_fmt(task)}"
+                        msg = tpl.msg_reminder_deadline(task, hours)
                     await app.bot.send_message(
                         chat_id=uid, text=msg, parse_mode="Markdown"
                     )
@@ -241,8 +189,7 @@ async def deadline_check_all(app):
                 if should_ping:
                     msg = _build_smart_reminder(task, context="overdue")
                     if not msg:
-                        roast = get_overdue_roast(hrs_over)
-                        msg = f"⚠️ *Task #{task['id']} overdue*\n  {_fmt(task)}\n\n_{roast}_"
+                        msg = tpl.msg_overdue(task, hrs_over)
                     await app.bot.send_message(
                         chat_id=uid, text=msg, parse_mode="Markdown"
                     )
@@ -404,41 +351,48 @@ async def okr_risk_intel(app):
 
     # Build message
     day_str = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu"][weekday]
-    msg = f"*🎯 OKR Risk Radar — {day_str} {now.strftime('%d/%m')}*\n\n"
+    lines = [
+        f"{tpl.AI_SIG} · OKR Risk Radar",
+        f"{day_str} {now.strftime('%d·%m')}",
+        tpl.DIV_STRONG,
+        "",
+    ]
 
     if at_risk:
-        msg += "🔴 *AT RISK — cần xử lý ngay:*\n"
+        lines.append("■ AT RISK — xử lý ngay")
         for kr_id, label, od, total, crit in at_risk:
-            msg += f"  • {kr_id} {label}: {od}/{total} actions overdue"
+            row = f"  · {kr_id} {label}: {od}/{total} overdue"
             if crit:
-                msg += f", {crit} sắp hết hạn"
-            msg += "\n"
-        msg += "\n"
+                row += f", {crit} sắp hết hạn"
+            lines.append(row)
+        lines.append("")
 
     if watch:
-        msg += "🟡 *WATCH — cần theo dõi:*\n"
+        lines.append("▪ WATCH — theo dõi")
         for kr_id, label, od, total, crit in watch:
-            msg += f"  • {kr_id} {label}: {od}/{total} overdue"
+            row = f"  · {kr_id} {label}: {od}/{total} overdue"
             if crit:
-                msg += f", {crit} sắp hết hạn"
-            msg += "\n"
-        msg += "\n"
+                row += f", {crit} sắp hết hạn"
+            lines.append(row)
+        lines.append("")
 
     if on_track:
-        msg += f"✅ *Đúng track:* " + ", ".join(kr for kr, *_ in on_track) + "\n\n"
+        lines.append("● ON TRACK: " + " · ".join(kr for kr, *_ in on_track))
+        lines.append("")
 
-    # Team capacity suggestions
     if overloaded:
-        msg += "⚠️ *Overload:*\n"
-        for name, active, overdue in overloaded:
-            msg += f"  • {name}: {active} active, {overdue} overdue\n"
-        msg += "\n"
+        lines.append(f"{tpl.DIV_LIGHT}")
+        lines.append("▲ OVERLOAD")
+        for name, active, ov in overloaded:
+            lines.append(f"  · {name}: {active} active, {ov} trễ")
+        lines.append("")
 
     if underloaded and overloaded:
-        msg += "💡 *Suggest:* Xem xét redistribute task từ overload → "
-        msg += ", ".join(n for n, _ in underloaded[:2]) + "\n\n"
+        lines.append(f"Đề xuất: phân lại task sang {', '.join(n for n, _ in underloaded[:2])}")
+        lines.append("")
 
-    msg += "/team chi tiết · /assign giao việc mới"
+    lines.append("/team · /assign")
+    msg = "\n".join(lines)
 
     try:
         await app.bot.send_message(
@@ -467,12 +421,9 @@ async def stall_check_all(app):
             except (ValueError, TypeError):
                 days = "?"
 
-            emoji = P_EMOJI.get(task.get("priority", "P3"), "⚪")
             defers = f" (hoãn {task['defer_count']}x)" if task.get("defer_count", 0) else ""
-            msg = (
-                f"⏸ *Task #{task['id']} — im {days} ngày{defers}*\n"
-                f"{emoji} {task['summary'][:80]}\n\nĐang bị gì vậy?"
-            )
+            base_msg = tpl.msg_stalled(task)
+            msg = base_msg if not defers else base_msg + f"\n_{defers}_"
             kb = InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton("🧾 Chờ chứng từ", callback_data=f"block:{task['id']}:chờ_chứng_từ"),
