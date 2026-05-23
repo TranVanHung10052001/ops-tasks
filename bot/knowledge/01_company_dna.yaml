@@ -35,7 +35,7 @@ market:
   segments_served:
     - C2C (cá nhân gửi cá nhân)
     - SME (doanh nghiệp nhỏ, e-commerce sellers)
-    - Enterprise (Shopee, TikTok Shop, Kingfoodmart/Seedlogs, Lazada)
+    - Enterprise (Shopee, TikTok Shop, Lazada)
 
 # ─── Services portfolio ──────────────────────────────────────────────────────
 services:
@@ -188,15 +188,16 @@ glossary:
   FR: "Fill Rate — % đơn được nhận trong thời gian SLA (driver chấp nhận / tổng đơn)"
   COGS: "Cost of Goods Sold — phần Ahamove trả driver, tính % trên GSV"
   GXT: "Loại đơn Bulky nhỏ (theo kiện/piece) — target COGS 75K VNĐ/kiện"
-  MP: "Mỹ Phước — KCN tại Bình Dương (VSIP II area)"
+  MP: "Market Place — các sàn TMĐT tích hợp API với Ahamove (Shopee, TikTok Shop, Lazada...)"
+  MyPhuoc: "Mỹ Phước — KCN tại Bình Dương, gần VSIP II"
   KCN: "Khu Công Nghiệp — industrial zone (target SME logistics)"
   3PL: "Third-party logistics — service B2B"
   C2C: "Consumer to consumer"
   SME: "Small/Medium Enterprise"
   AOV: "Average Order Value"
   Bulky: "Loại đơn Truck 500kg-2.5T (e-commerce hàng cồng kềnh)"
-  Longhaul: "Đơn Truck liên tỉnh >40km"
-  LH: "Longhaul — đơn liên tỉnh >40km"
+  Longhaul: "Đơn Truck liên tỉnh >30km"
+  LH: "Longhaul — đơn liên tỉnh >30km"
   EXP: "Expansion zones — các tỉnh ngoài HAN/SGN (Bình Dương, Đồng Nai, Hải Phòng...)"
   P0_P1_P2_P3: "Priority levels (P0=urgent crisis, P3=background)"
   G4_G3_G2_G1: "Grade levels — G4=Manager, G3=Team Lead, G2=Senior, G1=Junior"

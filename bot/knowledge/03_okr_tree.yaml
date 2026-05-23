@@ -73,7 +73,7 @@ objectives:
         notes: "Tuần 11/05 đang config. SGN đã xong."
 
       - id: "1.1.2"
-        summary: "Convert Bulky Mỹ Phước (MP) — mở service Bulky zone KCN MP"
+        summary: "Convert Bulky Mỹ Phước — mở service Bulky zone KCN Mỹ Phước (Bình Dương)"
         kr_ref: "O1.2"
         owner: "thonglhn@ahamove.com"       # Thống, support Chiến (LMS)
         support: "chienpd@ahamove.com"
