@@ -348,6 +348,9 @@ def _build_answer_system() -> str:
     okr_yaml_md = kn.okr_context_md(max_chars=3500)
     okr_section = okr_yaml_md if okr_yaml_md != "(OKR tree not loaded)" else okr_md_legacy[:3000]
 
+    # L2 — Conversion factors (impact quantification)
+    cf_section = kn.conversion_impact_md(max_chars=1200)
+
     # L4 — KPI targets compact table
     kpi_section = kn.kpi_context_md(max_chars=2000)
 
@@ -367,6 +370,9 @@ def _build_answer_system() -> str:
     return f"""Bạn là senior ops analyst cho team Truck Ops Ahamove. Trả lời câu hỏi từ manager với
 phân tích chất lượng cao, dựa trên data + business context đầy đủ bên dưới.
 
+Khi câu hỏi về KPI giảm/drop: CẦN nêu probable cause theo xác suất, câu hỏi chẩn đoán,
+và action ngay — không chỉ nói "cần điều tra". Playbook context sẽ được inject vào DATA.
+
 ## L1 — Company DNA
 Ahamove = tech-driven on-demand logistics platform, Vietnam.
 Services Truck: Bulky (500kg-2.5T), Longhaul (>40km), House Moving, Rental (4/8/12h).
@@ -382,6 +388,9 @@ Driver income: Station >1M VNĐ/ngày · Core >750K · Hub >600K
 
 ## ⚡ Priority Alerts (auto-detected from OKR tree)
 {alerts_str}
+
+## L2 — Business Impact (conversion factors)
+{cf_section}
 
 ## L4 — KPI Targets & Thresholds
 {kpi_section}
@@ -611,6 +620,7 @@ def _decompose_system() -> str:
     team_str = "\n".join(team_lines) or "(team chưa load)"
 
     okr_str = kn.okr_context_md(max_chars=2000)
+    cf_str = kn.conversion_impact_md(max_chars=800)
     dna = kn.company_dna()
     ue = dna.get("unit_economics", {})
 
@@ -625,6 +635,9 @@ Manager giao 1 task cấp cao. Nhiệm vụ của bạn:
 - COGS Bulky target: <{ue.get('cogs_targets',{}).get('bulky_pct', 0.30)*100:.0f}%
 - COGS GXT target: {ue.get('cogs_targets',{}).get('gxt_per_order_vnd', 75000):,} VNĐ/kiện
 - Driver tiers: Station >120 · Core >65 · Hub >40 · Mass >30 stop/m
+
+## Business impact (dùng khi set priority cho sub-tasks)
+{cf_str}
 
 ## OKR Q2/2026
 {okr_str}
@@ -804,10 +817,23 @@ def ask(question: str) -> dict:
         except Exception as e:
             tool_results[name] = {"error": str(e)}
 
+    # ── Playbook injection (if KPI symptom detected) ───────────────────────────
+    playbook_context = ""
+    try:
+        pb = kn.playbook_for_symptom(question)
+        if pb:
+            playbook_context = (
+                f"\n\n## 🔍 DIAGNOSTIC PLAYBOOK (auto-matched)\n"
+                f"{kn.format_playbook_md(pb, max_chars=1500)}"
+            )
+    except Exception:
+        pass
+
     # ── Pass 2: reason ─────────────────────────────────────────────────────────
     user_prompt = (
         f"## CÂU HỎI\n{question}\n\n"
-        f"## DATA THU THẬP\n{_format_tool_results(tool_results)}\n\n"
+        f"## DATA THU THẬP\n{_format_tool_results(tool_results)}"
+        f"{playbook_context}\n\n"
         f"Hãy phân tích và trả lời theo style trong system instruction."
     )
     answer_text = call_tier(

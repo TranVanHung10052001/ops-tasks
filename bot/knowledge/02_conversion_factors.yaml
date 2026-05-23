@@ -1,0 +1,147 @@
+# =============================================================================
+# Layer 2 — CONVERSION FACTORS & IMPACT QUANTIFICATION
+# =============================================================================
+# Mục đích: AI biết 1 điểm % improvement = bao nhiêu đơn/tỷ GSV thực tế.
+# Dùng cho: /giao task analysis, /ask "impact của FR tăng 2pp là bao nhiêu?",
+#           smart_reminder context, OKR action prioritization.
+#
+# Methodology: dựa trên Q1/2026 baseline volume + take rate 26%.
+# Filled: 2026-05-23 (session interview + derived from ops plan data)
+# Update: khi có Q2 actuals → re-calibrate.
+# =============================================================================
+
+period: "Q2/2026 reference"
+
+# ─── Baseline volumes (Q1/2026 actuals) ──────────────────────────────────────
+baseline:
+  gsv_daily_b: 1.1                    # tỷ VNĐ/ngày (target Q2)
+  gsv_monthly_b: 33.0                 # tỷ VNĐ/tháng
+  gsv_q2_total_b: 99.0                # tỷ VNĐ (Q2 target — 3 tháng)
+  orders_daily: 1_500                 # total orders/ngày (truck segment estimate)
+  take_rate: 0.26                     # 26%
+  working_days_per_month: 26
+  truck_aov_vnd: 350_000              # VNĐ/đơn — Bulky avg order value
+  gxt_aov_vnd: 180_000                # VNĐ/đơn — GXT (per kiện)
+
+# ─── Fill Rate impact factors ─────────────────────────────────────────────────
+fill_rate:
+  # What is Fill Rate? % đơn driver chấp nhận / tổng đơn giao
+  # 1pp FR increase = more completed orders = more revenue
+  _note: |
+    FR tăng 1pp = ~15 đơn thêm/ngày (base: 1500 orders, FR ~60%)
+    = 15 × 350K AOV × 0.26 take rate = ~1.4M VNĐ revenue/ngày
+    = ~36M VNĐ/tháng = ~108M VNĐ/quý
+
+  per_pp_orders_per_day: 15           # đơn thêm/ngày khi FR +1pp
+  per_pp_revenue_per_day_m: 1.4       # triệu VNĐ revenue/ngày
+  per_pp_revenue_per_month_m: 36      # triệu VNĐ/tháng
+  per_pp_revenue_per_quarter_b: 0.108 # tỷ VNĐ/quý
+
+  # Core FR gap (O1.1): 60.5% → 68% = 7.5pp gap
+  core_gap_pp: 7.5
+  core_gap_orders_per_day: 112        # = 7.5 × 15
+  core_gap_quarterly_b: 0.81          # tỷ VNĐ — what we leave on table
+
+  # SME FR gap (O1.4): 17% → 65% = 48pp gap — massive
+  sme_gap_pp: 48
+  sme_note: "SME 100-300kg segment chỉ ~200 orders/ngày → FR 17% = 170 đơn bị miss/ngày"
+  sme_lost_orders_per_day: 170
+  sme_potential_monthly_b: 0.45       # tỷ VNĐ nếu FR lên 65%
+
+# ─── COGS impact factors ──────────────────────────────────────────────────────
+cogs:
+  # GXT COGS: hiện 80K VNĐ/kiện → target 75K (-5K = -6.25%)
+  gxt_current_per_order_vnd: 80_000
+  gxt_target_per_order_vnd: 75_000
+  gxt_saving_per_order_vnd: 5_000
+
+  # Estimate volume: nếu 40% orders là GXT ≈ 600 orders/ngày
+  gxt_orders_daily_estimate: 600
+  gxt_daily_saving_m: 3.0             # triệu VNĐ/ngày = 600 × 5K
+  gxt_monthly_saving_m: 78            # triệu VNĐ/tháng = 3M × 26 ngày
+  gxt_quarterly_saving_b: 0.234       # tỷ VNĐ/quý
+
+  # COGS % reduction impact:
+  # Bulky COGS target <30% GSV. Nếu COGS xuống 1pp = 1% × GSV monthly
+  bulky_cogs_per_pp_monthly_m: 330    # triệu VNĐ (= 1% × 33 tỷ GSV)
+  _note: "COGS GXT analysis (action 3.2.1) đang P0 URGENT — chưa bắt đầu"
+
+# ─── Driver productivity impact ──────────────────────────────────────────────
+driver_productivity:
+  # 4 tiers: Station (>120 stop/m) > Core (>65) > Hub (>40) > Mass (>30)
+  # Upgrading 1 driver: Mass → Core = +35 stops/month
+  mass_to_core_incremental_stops: 35
+  value_per_stop_vnd: 350_000         # AOV
+  mass_to_core_monthly_gsv_m: 12.25  # triệu VNĐ/driver/tháng (=35×350K)
+  mass_to_core_revenue_m: 3.2        # triệu VNĐ revenue (×26% take rate)
+
+  # If 100 drivers shift Mass→Core:
+  fleet_upgrade_100_monthly_b: 0.32  # tỷ VNĐ revenue incremental
+
+  # Driver retention D30: 65% → 70%
+  # Each retained driver (D31+) ≈ 1 more productive month
+  retention_gap_pp: 5
+  drivers_in_cohort_monthly: 200      # new driver onboard/month (estimate)
+  retention_per_pp_drivers: 10        # 1pp = 10 thêm drivers retained/tháng
+  retention_per_pp_revenue_m: 32      # triệu VNĐ/tháng (10 drivers × 3.2M)
+
+# ─── LAN Hub go-live impact ────────────────────────────────────────────────────
+lan_hub:
+  # O2.1: Go-live target ≥5 orders/ngày, FR ≥50%
+  # Current: OVERDUE — 0 orders
+  target_orders_per_day: 5
+  target_fr_pct: 50
+  aov_lan_vnd: 400_000                # Higher AOV — tỉnh = longer distance
+  daily_gsv_at_target_m: 2.0          # triệu VNĐ/ngày (5 × 400K)
+  monthly_gsv_at_target_m: 52         # triệu VNĐ/tháng
+  # Upside if scales to 20 orders/day:
+  upside_daily_gsv_m: 8.0
+  upside_monthly_b: 0.208
+
+# ─── 1st PU On-Time impact ────────────────────────────────────────────────────
+first_pu_ontime:
+  # O3.1: 47.6% → 80% = 32.4pp gap
+  # Impact: NPS, repeat orders, merchant churn prevention
+  current_pct: 47.6
+  target_pct: 80
+  gap_pp: 32.4
+
+  # Estimated: 1pp PU on-time improvement → ~0.5% reduction in cancellation rate
+  # → conservatively 0.3pp FR recovery (because some cancelled = re-attempt = delayed FR)
+  per_pp_fr_recovery: 0.3
+  per_pp_gsv_impact_m: 0.4            # triệu VNĐ/ngày indirect via FR recovery
+
+  # NPS: hard to quantify — but target 80% PU ontime = industry standard
+  nps_note: "1st PU on-time <50% → high risk of merchant churn + negative rating cascade"
+
+# ─── Quick reference: priority order by quarterly $ impact ──────────────────
+priority_by_impact:
+  - rank: 1
+    initiative: "COGS GXT 80K→75K (action 3.2.1)"
+    quarterly_b: 0.234
+    status: "P0 URGENT — pending, not started"
+    note: "Highest ROI: cost reduction with no volume risk"
+
+  - rank: 2
+    initiative: "FR Core HAN+SGN 60.5%→68% (O1.1)"
+    quarterly_b: 0.81
+    status: "in_progress (SLA config ~70%)"
+    note: "Largest absolute impact — 7.5pp × 1500 daily orders"
+
+  - rank: 3
+    initiative: "FR SME 100-300kg 17%→65% (O1.4)"
+    quarterly_b: 0.45
+    status: "pending — zone + pricing design not started"
+    note: "High ceiling, but needs zone + pricing setup first"
+
+  - rank: 4
+    initiative: "Shift Model 100 drivers (O2.2)"
+    quarterly_b: 0.32
+    status: "pending"
+    note: "Fleet efficiency multiplier effect"
+
+  - rank: 5
+    initiative: "LAN Hub go-live (O2.1)"
+    quarterly_b: 0.156
+    status: "overdue — ký mặt bằng 40%, tuyển driver 30%"
+    note: "Unlock tỉnh Long An — expansion play"

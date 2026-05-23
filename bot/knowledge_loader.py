@@ -2,12 +2,14 @@
 Knowledge Loader — reads seed JSON + YAML files for the AI agent.
 Layers loaded:
   L1  01_company_dna.yaml      — company context, glossary, unit economics
+  L2  02_conversion_factors.yaml — FR/COGS/driver impact quantification
   L2  grade_matrix.json        — grade definitions & delegation principles
   L2  member_scopes.json       — member scopes, red flags
   L3  03_okr_tree.yaml         — OKR objectives, KRs, actions (Q2/2026)
   L4  04_kpi_dictionary.yaml   — KPI definitions, targets, thresholds
   L7  07_operating_rhythm.yaml — cadence, reporting, period definitions
-      playbooks.json           — playbooks library
+  L10 10_playbooks.yaml        — diagnostic playbooks (root cause trees)
+      playbooks.json           — legacy playbooks library (workflow)
 
 Cached at module load; call reload() to refresh all.
 """
@@ -32,9 +34,11 @@ _grade_matrix: dict | None = None
 _playbooks: dict | None = None
 _member_scopes: dict | None = None
 _company_dna: dict | None = None
+_conversion_factors: dict | None = None
 _okr_tree: dict | None = None
 _kpi_dict: dict | None = None
 _operating_rhythm: dict | None = None
+_diagnostic_playbooks: dict | None = None
 
 
 def _load_json(filename: str) -> dict:
@@ -88,6 +92,14 @@ def company_dna() -> dict:
     return _company_dna
 
 
+def conversion_factors() -> dict:
+    """L2 — impact quantification: FR 1pp = X orders/day = Y tỷ GSV, etc."""
+    global _conversion_factors
+    if _conversion_factors is None:
+        _conversion_factors = _load_yaml("02_conversion_factors.yaml")
+    return _conversion_factors
+
+
 def okr_tree() -> dict:
     """L3 — OKR tree: objectives, KRs, actions, dependencies (Q2/2026)."""
     global _okr_tree
@@ -112,16 +124,27 @@ def operating_rhythm() -> dict:
     return _operating_rhythm
 
 
+def diagnostic_playbooks() -> dict:
+    """L10 — Diagnostic playbooks: root cause trees per KPI symptom."""
+    global _diagnostic_playbooks
+    if _diagnostic_playbooks is None:
+        _diagnostic_playbooks = _load_yaml("10_playbooks.yaml")
+    return _diagnostic_playbooks
+
+
 def reload() -> None:
     global _grade_matrix, _playbooks, _member_scopes
-    global _company_dna, _okr_tree, _kpi_dict, _operating_rhythm
+    global _company_dna, _conversion_factors, _okr_tree, _kpi_dict
+    global _operating_rhythm, _diagnostic_playbooks
     _grade_matrix = None
     _playbooks = None
     _member_scopes = None
     _company_dna = None
+    _conversion_factors = None
     _okr_tree = None
     _kpi_dict = None
     _operating_rhythm = None
+    _diagnostic_playbooks = None
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -334,3 +357,107 @@ def list_urgent_actions() -> list[dict]:
             if "P0" in str(a.get("notes", "")) and a.get("status") not in ("done",):
                 results.append({**a, "objective": obj["id"]})
     return results
+
+
+# ─── Conversion Factor Helpers ────────────────────────────────────────────────
+
+def impact_of_initiative(initiative_id: str) -> dict | None:
+    """Lookup a ranked initiative from conversion_factors.priority_by_impact."""
+    for item in conversion_factors().get("priority_by_impact", []):
+        if item.get("initiative", "").startswith(initiative_id):
+            return item
+    return None
+
+
+def conversion_impact_md(max_chars: int = 1500) -> str:
+    """Return compact impact table for system prompt injection."""
+    cf = conversion_factors()
+    if not cf:
+        return "(Conversion factors not loaded)"
+
+    lines = ["**Tác động theo tỷ VNĐ/quý (ước tính Q2/2026):**",
+             "| # | Initiative | Quarterly impact | Status |",
+             "|---|-----------|-----------------|--------|"]
+
+    for item in cf.get("priority_by_impact", []):
+        rank = item.get("rank", "?")
+        name = item.get("initiative", "?")[:50]
+        impact = f"{item.get('quarterly_b', '?')} tỷ"
+        status = item.get("status", "?")[:30]
+        lines.append(f"| {rank} | {name} | {impact} | {status} |")
+
+    # Also add key FR impact per pp
+    fr = cf.get("fill_rate", {})
+    if fr:
+        lines.append("")
+        lines.append(f"**FR +1pp** = ~{fr.get('per_pp_orders_per_day', '?')} orders/ngày = {fr.get('per_pp_revenue_per_month_m', '?')}M VNĐ/tháng")
+
+    cogs = cf.get("cogs", {})
+    if cogs:
+        lines.append(f"**COGS GXT -5K** = {cogs.get('gxt_monthly_saving_m', '?')}M VNĐ tiết kiệm/tháng")
+
+    result = "\n".join(lines)
+    return result[:max_chars] if len(result) > max_chars else result
+
+
+# ─── Diagnostic Playbook Helpers ──────────────────────────────────────────────
+
+def playbook_for_kpi(kpi_key: str) -> dict | None:
+    """Return the best matching diagnostic playbook for a KPI metric key."""
+    for pb in diagnostic_playbooks().get("playbooks", []):
+        if kpi_key in pb.get("kpi_keys", []):
+            return pb
+    return None
+
+
+def playbook_for_symptom(symptom_text: str) -> dict | None:
+    """Fuzzy match a symptom description to a diagnostic playbook."""
+    symptom_lower = symptom_text.lower()
+    # Keyword mapping
+    keyword_map = {
+        ("fill rate", "fr", "fill_rate", "fr drop", "fr thấp"): "PB-01",
+        ("cogs", "cost", "chi phí", "gxt"): "PB-02",
+        ("driver", "retention", "churn", "d30"): "PB-03",
+        ("pick up", "pickup", "pu", "1st pu", "on-time", "ontime"): "PB-04",
+        ("gsv", "revenue", "doanh thu", "orders"): "PB-05",
+    }
+    for keywords, pb_id in keyword_map.items():
+        if any(kw in symptom_lower for kw in keywords):
+            for pb in diagnostic_playbooks().get("playbooks", []):
+                if pb.get("id") == pb_id:
+                    return pb
+    return None
+
+
+def format_playbook_md(pb: dict, max_chars: int = 2000) -> str:
+    """Format a diagnostic playbook as Telegram-friendly markdown."""
+    if not pb:
+        return ""
+    lines = [
+        f"🔍 *Playbook {pb['id']}: {pb['symptom']}*",
+        "",
+        "*Probable causes (theo xác suất):*",
+    ]
+    for c in sorted(pb.get("probable_causes", []), key=lambda x: -x.get("weight", 0)):
+        pct = int(c["weight"] * 100)
+        lines.append(f"  {pct}% — {c['cause']}")
+
+    lines.append("")
+    lines.append("*Câu hỏi chẩn đoán:*")
+    for q in pb.get("diagnosis_questions", [])[:4]:
+        lines.append(f"  ❓ {q}")
+
+    lines.append("")
+    lines.append("*Hành động ngay:*")
+    for step in pb.get("quick_actions", [])[:3]:
+        lines.append(f"  {step['step']}. {step['action']}")
+
+    escalate = pb.get("escalate_if", [])
+    if escalate:
+        lines.append("")
+        lines.append("*Escalate nếu:*")
+        for e in escalate[:2]:
+            lines.append(f"  🚨 {e['condition']} → {e['escalate_to']}")
+
+    result = "\n".join(lines)
+    return result[:max_chars] if len(result) > max_chars else result
