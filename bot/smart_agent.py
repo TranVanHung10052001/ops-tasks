@@ -306,11 +306,19 @@ def _plan_tools(question: str) -> list[dict]:
 # ─── Pass 2: Answer ────────────────────────────────────────────────────────────
 
 def _build_answer_system() -> str:
-    """Compose system prompt with business + OKR + team + grade context."""
+    """Compose system prompt with business + OKR + team + grade context.
+
+    Knowledge layers injected:
+      L1 company_dna  — glossary, unit economics, competitors
+      L3 okr_tree     — objectives, KRs, overdue/P0 actions
+      L4 kpi_dict     — metric targets & thresholds
+      L2 grade_matrix — grade definitions
+    """
+    # Legacy markdown prompts (fallback if YAML not filled)
     try:
-        okr_md = (PROMPTS_DIR / "okr_truck_ops.md").read_text(encoding="utf-8")
+        okr_md_legacy = (PROMPTS_DIR / "okr_truck_ops.md").read_text(encoding="utf-8")
     except FileNotFoundError:
-        okr_md = ""
+        okr_md_legacy = ""
     try:
         team_md = (PROMPTS_DIR / "team_context.md").read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -322,21 +330,61 @@ def _build_answer_system() -> str:
     for g in gm.get("grades", []):
         grades_summary += f"- **{g['id']}** ({g.get('label','')}): {g.get('one_liner','')}\n"
 
+    # L1 — Company DNA
+    dna = kn.company_dna()
+    unit_econ = dna.get("unit_economics", {})
+    ue_summary = ""
+    if unit_econ:
+        ue_summary = (
+            f"Take rate: {unit_econ.get('take_rate_target', '26%')*100:.0f}% | "
+            f"COGS Bulky target: <{unit_econ.get('cogs_targets', {}).get('bulky_pct', 0.30)*100:.0f}% | "
+            f"Incentive budget: {unit_econ.get('incentive_budget_pct_of_gsv', 0.025)*100:.1f}% GSV | "
+            f"COGS GXT target: {unit_econ.get('cogs_targets', {}).get('gxt_per_order_vnd', 75000):,} VNĐ/kiện"
+        )
+
+    glossary = kn.glossary_md(max_terms=25)
+
+    # L3 — OKR tree (structured, prefer YAML; fallback to markdown)
+    okr_yaml_md = kn.okr_context_md(max_chars=3500)
+    okr_section = okr_yaml_md if okr_yaml_md != "(OKR tree not loaded)" else okr_md_legacy[:3000]
+
+    # L4 — KPI targets compact table
+    kpi_section = kn.kpi_context_md(max_chars=2000)
+
+    # Overdue + P0 urgent summary (injected as priority alerts)
+    overdue = kn.list_overdue_actions()
+    urgent = kn.list_urgent_actions()
+    alert_lines = []
+    for a in overdue:
+        alert_lines.append(f"  ⚠️ OVERDUE: [{a['id']}] {a['summary']} (owner: {a.get('owner','?')}, DL: {a.get('deadline_iso','?')})")
+    for a in urgent:
+        if a.get("id") not in {x["id"] for x in overdue}:
+            alert_lines.append(f"  🔴 P0 URGENT: [{a['id']}] {a['summary']} (owner: {a.get('owner','?')})")
+    alerts_str = "\n".join(alert_lines) if alert_lines else "  (không có action P0/overdue)"
+
     today = datetime.now().strftime("%Y-%m-%d (%A)")
 
     return f"""Bạn là senior ops analyst cho team Truck Ops Ahamove. Trả lời câu hỏi từ manager với
-phân tích chất lượng cao, dựa trên data + business context.
+phân tích chất lượng cao, dựa trên data + business context đầy đủ bên dưới.
 
-## Business context
-Ahamove là tech-driven on-demand logistics platform Vietnam. Service Truck:
-- Bulky (500kg-2.5T)
-- Longhaul (>40km), House Moving, Rental (4h/8h/12h)
-- Take rate ~26%, COGS Bulky target <30%, GSV +20% YoY
-- Driver tiers: Station >120 stop/m, Core >65, Hub >40, Mass >30
-- KPI chính: GSV, Fill Rate, COGS, Active Drivers
+## L1 — Company DNA
+Ahamove = tech-driven on-demand logistics platform, Vietnam.
+Services Truck: Bulky (500kg-2.5T), Longhaul (>40km), House Moving, Rental (4/8/12h).
+{ue_summary}
+Driver tiers: Station >120 stop/m · Core >65 · Hub >40 · Mass >30
+Driver income: Station >1M VNĐ/ngày · Core >750K · Hub >600K
 
-## OKR Q2/2026
-{okr_md}
+### Glossary (internal jargon)
+{glossary}
+
+## L3 — OKR Q2/2026
+{okr_section}
+
+## ⚡ Priority Alerts (auto-detected from OKR tree)
+{alerts_str}
+
+## L4 — KPI Targets & Thresholds
+{kpi_section}
 
 ## Team & Org
 {team_md}
@@ -352,6 +400,7 @@ Ahamove là tech-driven on-demand logistics platform Vietnam. Service Truck:
 - **Tiếng Việt**, súc tích, bullet > prose
 - Số liệu kèm context (vd: "FR HAN 60% vs target 70% — dưới chuẩn 10pp")
 - Nếu thiếu data → nói rõ "không đủ data, cần check thêm X"
+- Biết jargon: GXT=đơn Bulky nhỏ/kiện, LAN=Long An, EXP=expansion tỉnh, 1st PU=first pick-up on-time
 
 TODAY = {today}
 """.strip()
@@ -365,6 +414,16 @@ def _answer_system() -> str:
     if _ANSWER_SYSTEM_CACHED is None:
         _ANSWER_SYSTEM_CACHED = _build_answer_system()
     return _ANSWER_SYSTEM_CACHED
+
+
+def reload_knowledge() -> str:
+    """Reload all YAML knowledge files + clear system prompt cache.
+    Call this after filling/updating any knowledge YAML file.
+    """
+    global _ANSWER_SYSTEM_CACHED
+    kn.reload()                          # Clear all YAML + JSON caches
+    _ANSWER_SYSTEM_CACHED = None         # Force system prompt rebuild on next ask()
+    return "Knowledge reloaded. Next ask() will rebuild system prompt."
 
 
 def _format_tool_results(results: dict[str, dict]) -> str:

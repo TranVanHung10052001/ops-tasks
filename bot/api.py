@@ -521,6 +521,21 @@ def api_ask(body: AskBody, token: str = Depends(verify_token)):
         raise HTTPException(status_code=500, detail=f"smart_agent failed: {e}")
 
 
+# ─── Knowledge management ────────────────────────────────────────────────────
+
+@app.post("/api/knowledge/reload")
+def api_knowledge_reload(token: str = Depends(verify_token)):
+    """Reload all YAML knowledge files + reset smart_agent system prompt cache.
+    Call this after editing any bot/knowledge/*.yaml file without restarting bot.
+    """
+    try:
+        from smart_agent import reload_knowledge
+        msg = reload_knowledge()
+        return {"status": "ok", "message": msg}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ─── Health ───────────────────────────────────────────────────────────────────
 
 @app.get("/api/health")

@@ -1,0 +1,214 @@
+# =============================================================================
+# Layer 1 — COMPANY DNA
+# =============================================================================
+# Mục đích: AI hiểu Ahamove là ai, làm gì, ở thị trường nào.
+# AI dùng file này để: giải thích jargon, hiểu market context, biết unit econ.
+#
+# Filled: 2026-05-23 (from CLAUDE.md context + session interview)
+# =============================================================================
+
+company:
+  name: "Ahamove"
+  tagline: "Tech-driven on-demand logistics platform"
+  founded: 2015
+  hq: "TP. Hồ Chí Minh"
+  website: "https://ahamove.com"
+  one_liner: |
+    Nền tảng giao hàng on-demand công nghệ — bike (instant delivery) và truck
+    (bulky, longhaul, moving) — phục vụ C2C, SME, Enterprise tại VN.
+
+# ─── Market position ──────────────────────────────────────────────────────────
+market:
+  geography:
+    primary: ["HCM", "Hà Nội"]
+    tier1: ["Bình Dương", "Đồng Nai", "Hải Phòng", "Đà Nẵng"]
+    expansion: ["14+ tỉnh đang mở rộng"]
+  scale_2025:
+    orders_per_year: 45_500_000     # 45.5M
+    gsv_vnd_billion: 2_139          # 2,139 tỷ VNĐ
+    gsv_yoy_growth: 0.206           # +20.6% YoY
+    bike_drivers: 30_900
+    truck_drivers: 4_400
+  market_share:
+    hcm_pct: 25                     # ~25% SGN (Nov 2025)
+    han_pct: 42                     # ~42% HAN (Nov 2025)
+  segments_served:
+    - C2C (cá nhân gửi cá nhân)
+    - SME (doanh nghiệp nhỏ, e-commerce sellers)
+    - Enterprise (Shopee, TikTok Shop, Kingfoodmart/Seedlogs, Lazada)
+
+# ─── Services portfolio ──────────────────────────────────────────────────────
+services:
+  bike:
+    - name: "Instant"
+      sla: "60 phút"
+      tier: "Premium"
+    - name: "Eco/Pooling"
+      sla: "2-3h"
+      tier: "Mass"
+    - name: "4H"
+      sla: "4 giờ"
+      target: "e-commerce sellers"
+  truck:
+    - name: "Bulky"
+      load: "500kg - 2.5T"
+      growth_yoy: 0.421           # +42.1% YoY — fastest growing
+      target_cogs_pct: 0.30       # COGS target < 30%
+    - name: "Longhaul"
+      distance: ">40km"
+    - name: "House Moving"
+      target: "B2C residential"
+    - name: "Rental"
+      pricing: "4h/8h/12h"
+  enterprise:
+    - "SME Logistics"
+    - "API Integration (Shopee, TikTok Shop)"
+    - "Warehouse"
+  new_2026:
+    - name: "LTL"
+      desc: "Ghép hàng, less-than-truckload"
+    - name: "Installation"
+      desc: "Lắp đặt tại nhà KH"
+    - name: "Saver"
+      desc: "0% commission funnel"
+
+# ─── Revenue model ────────────────────────────────────────────────────────────
+revenue_model:
+  primary_streams:
+    - source: "Commission"
+      take_rate_pct: 0.26                  # ~26% take rate, target stable
+      desc: "% trên giá đơn hàng"
+    - source: "Platform fee"
+      take_rate_pct_range: [0.05, 0.10]    # 5-10%
+      desc: "Fee 3PL B2B clients"
+    - source: "Add-on services"
+      desc: "COD, insurance, packaging"
+    - source: "Subscription"
+      desc: "Driver packages, fleet rental"
+
+# ─── Unit economics targets ──────────────────────────────────────────────────
+unit_economics:
+  take_rate_target: 0.26
+  cogs_targets:
+    bulky_pct: 0.30                        # COGS Bulky < 30%
+    gxt_per_order_vnd: 75_000              # COGS GXT target 75K/kiện (từ 80K)
+  incentive_budget_pct_of_gsv: 0.025       # 2.5% GSV
+  driver_productivity_tiers:
+    station: ">120 stop/month"
+    core:    ">65 stop/month"
+    hub:     ">40 stop/month"
+    mass:    ">30 stop/month"
+  driver_income_tiers:
+    professional_vnd_per_day: 1_000_000   # >1M VNĐ/day
+    core_vnd_per_day:         750_000     # >750K
+    hub_vnd_per_day:          600_000     # >600K
+
+# ─── Competitive landscape (Nov 2025 snapshot) ────────────────────────────────
+competitors:
+  - name: "Ahamove"
+    sgn_share_pct: 25
+    han_share_pct: 42
+    strength: ["Cost efficiency", "Truck dominance", "On-demand tech"]
+
+  - name: "Grab Express"
+    sgn_share_pct: 34
+    han_share_pct: 32
+    strength: ["Driver density", "Brand", "EV-ready"]
+    weakness: ["Low promo → losing share"]
+    threat_level: "HIGH"
+    overlap_segment: ["F&B", "Pharma"]
+
+  - name: "Be Delivery"
+    sgn_share_pct: 32
+    han_share_pct: 25
+    strength: ["Biggest promo spender"]
+    weakness: ["Unsustainable burn"]
+    threat_level: "VERY HIGH"
+    overlap_segment: ["Shopee Instant"]
+
+  - name: "XanhSM"
+    sgn_share_pct: 8
+    han_share_pct: 10
+    strength: ["EV fleet", "Steady growth"]
+    weakness: ["Still small"]
+    threat_level: "HIGH"
+    overlap_segment: ["Key Accounts"]
+
+  - name: "Lalamove"
+    strength: ["Global model (Huolala)", "Diverse services"]
+    threat_level: "HIGH"
+    notes: "Ahamove + Lalamove = ~99% on-demand truck market share"
+    overlap_segment: ["Truck direct — tất cả zones"]
+
+  - name: "GHN"
+    strength: ["67-73% Bulky e-com wallet share"]
+    weakness: ["Thin margins"]
+    threat_level: "HIGH"
+    overlap_segment: ["Bulky e-commerce"]
+
+  - name: "SPX"
+    strength: ["~85% Shopee Instant share"]
+    weakness: ["Ops bottleneck at scale"]
+    threat_level: "MEDIUM"
+
+# ─── Strategic priorities 2026 ────────────────────────────────────────────────
+strategic_priorities_2026:
+  - id: "P1"
+    name: "Vết dầu loang 3 chiều"
+    desc: "Nội thành → Liên tỉnh/KCN | C2C → SME → Corp | FTL → Diversified"
+  - id: "P2"
+    name: "Niche Leadership"
+    desc: "Thống lĩnh Instant, mở rộng Same-day Warehouse, bảo vệ Bulky SLA"
+  - id: "P3"
+    name: "Tái cấu trúc Supply"
+    desc: "Station → Mini-hub → Shift → Crowdsourcing (4-tier driver model)"
+  - id: "P4"
+    name: "AI Automation"
+    desc: "60% chat + 15% calls bằng AI, dynamic pricing, auto-dispatch"
+  - id: "P5"
+    name: "Enterprise push"
+    desc: "Tăng recurring revenue, focus Corporation segment từ 2026"
+
+# ─── Team Truck Ops (đội vận hành AI phục vụ) ───────────────────────────────
+team:
+  manager:
+    id: "m0"
+    name: "Lê Quang Huy"
+    email: "huyle@ahamove.com"
+    grade: "G4"
+    scope: "Manager toàn Network Truck Ops"
+    reports_to: "Lê Hữu Chung (COO)"
+  size: 11                              # 1 manager + 10 members
+  notes: "AI agent phục vụ team này — hiểu scope từ member_scopes.json"
+
+# ─── Internal jargon / acronyms ──────────────────────────────────────────────
+# AI gặp từ này biết ngay nghĩa, không hỏi lại.
+glossary:
+  GSV: "Gross Sales Value — tổng giá trị đơn hàng (tỷ VNĐ)"
+  FR: "Fill Rate — % đơn được nhận trong thời gian SLA (driver chấp nhận / tổng đơn)"
+  COGS: "Cost of Goods Sold — phần Ahamove trả driver, tính % trên GSV"
+  GXT: "Loại đơn Bulky nhỏ (theo kiện/piece) — target COGS 75K VNĐ/kiện"
+  MP: "Mỹ Phước — KCN tại Bình Dương (VSIP II area)"
+  KCN: "Khu Công Nghiệp — industrial zone (target SME logistics)"
+  3PL: "Third-party logistics — service B2B"
+  C2C: "Consumer to consumer"
+  SME: "Small/Medium Enterprise"
+  AOV: "Average Order Value"
+  Bulky: "Loại đơn Truck 500kg-2.5T (e-commerce hàng cồng kềnh)"
+  Longhaul: "Đơn Truck liên tỉnh >40km"
+  LH: "Longhaul — đơn liên tỉnh >40km"
+  EXP: "Expansion zones — các tỉnh ngoài HAN/SGN (Bình Dương, Đồng Nai, Hải Phòng...)"
+  P0_P1_P2_P3: "Priority levels (P0=urgent crisis, P3=background)"
+  G4_G3_G2_G1: "Grade levels — G4=Manager, G3=Team Lead, G2=Senior, G1=Junior"
+  ACT: "Acting (tạm quyền) — e.g. ACT-G3"
+  FTL: "Full Truck Load"
+  LTL: "Less Than Truck Load (ghép hàng)"
+  SLA: "Service Level Agreement"
+  NPS: "Net Promoter Score"
+  KFM: "Kingfoodmart / Seedlogs — key account Enterprise, chuỗi siêu thị/cửa hàng tiện lợi dùng Ahamove Truck"
+  LAN: "Long An — tỉnh đang mở Hub mới (O2 Q2/2026)"
+  1st_PU: "1st Pick-Up On-Time — % đơn được driver pick-up đúng giờ slot đầu tiên"
+  D30: "Driver retention D30 — % driver còn active sau 30 ngày từ khi onboard"
+  WoW: "Week-over-Week — tăng trưởng tuần này so tuần trước"
+  MoM: "Month-over-Month — tăng trưởng tháng này so tháng trước"
+  YoY: "Year-over-Year — tăng trưởng năm này so năm trước"

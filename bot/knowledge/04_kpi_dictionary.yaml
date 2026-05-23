@@ -1,0 +1,348 @@
+# =============================================================================
+# Layer 4 — KPI DICTIONARY
+# =============================================================================
+# Mục đích: AI biết MỖI metric là gì, formula, target, dùng cho OKR nào.
+# Khi hỏi "Vì sao FR HAN giảm" → AI biết FR HAN formula, target 70%,
+# nguồn data, link tới OKR O1.1.
+#
+# Filled: 2026-05-23
+# Source config: Google Sheets (REDASH_URL chưa setup — dùng Sheets fallback)
+# =============================================================================
+
+# ─── Data source config ──────────────────────────────────────────────────────
+data_source:
+  primary: "google_sheets"             # Sheets push via Apps Script (bot/METRICS_SETUP.md)
+  secondary: "manual_curl"             # /metric command hoặc curl POST /api/metrics
+  redash_status: "not_configured"      # Khi có Redash → đổi thành "active"
+  update_frequency: "daily_0800"       # Apps Script chạy 8:00 sáng hàng ngày
+
+metrics:
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # REVENUE METRICS
+  # ══════════════════════════════════════════════════════════════════════════
+
+  - key: "gsv_today_b"
+    label: "GSV hôm nay (tỷ VNĐ)"
+    category: "revenue"
+    formula: "SUM(order_value) WHERE date = today AND status IN ('completed','delivering')"
+    source: "Google Sheets — cột A (gsv_today)"
+    unit: "tỷ VNĐ"
+    target: 1.1                          # 1.1 tỷ VNĐ/ngày target
+    target_notes: "Target toàn platform (bike + truck). ~401 tỷ/quý."
+    threshold_p0_low: 0.77               # < 70% target → P0
+    threshold_p1_low: 0.935              # < 85% target → P1
+    okr_links: []
+    update_freq: "daily 08:00"
+    display_format: "{:.2f} tỷ"
+
+  - key: "gsv_wow_pct"
+    label: "GSV WoW %"
+    category: "revenue"
+    formula: "(GSV_this_week - GSV_last_week) / GSV_last_week * 100"
+    source: "Computed from gsv daily snapshots"
+    unit: "%"
+    target: 5                            # +5% WoW
+    threshold_p0_low: -10               # WoW âm 2 tuần liên tiếp → P0
+    threshold_p1_low: 0                 # WoW âm → P1
+    display_format: "{:+.1f}%"
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # VOLUME METRICS
+  # ══════════════════════════════════════════════════════════════════════════
+
+  - key: "orders_today"
+    label: "Orders hôm nay (tất cả services)"
+    category: "volume"
+    formula: "COUNT(orders) WHERE status='completed' AND date=today"
+    source: "Google Sheets"
+    unit: "đơn"
+    target: 125_000                      # ~45.5M/năm ÷ 365 ≈ 124,700/ngày
+    target_notes: "Tổng bike + truck. Truck chiếm ~12-15% volume."
+    threshold_p0_low: 87_500            # < 70% target
+    threshold_p1_low: 106_250           # < 85% target
+    display_format: "{:,}"
+
+  - key: "orders_wow_pct"
+    label: "Orders WoW %"
+    category: "volume"
+    formula: "(orders_this_week - orders_last_week) / orders_last_week * 100"
+    unit: "%"
+    target: 5
+    display_format: "{:+.1f}%"
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # FILL RATE METRICS
+  # ══════════════════════════════════════════════════════════════════════════
+
+  - key: "fill_rate_core_pct"
+    label: "FR Core (HAN+SGN)"
+    category: "service_quality"
+    formula: "COUNT(accepted_orders) / COUNT(requested_orders) * 100 WHERE zone IN core_zones"
+    source: "Google Sheets"
+    unit: "%"
+    target: 68                           # OKR O1.1 target
+    baseline: 60.5                       # Q1/2026 baseline
+    okr_links: ["O1.1"]
+    threshold_p0_low: 55
+    threshold_p1_low: 62
+    owner: "thonglhn@ahamove.com"
+    notes: "Core = HAN nội thành + SGN nội thành. Excludes longhaul >40km."
+    display_format: "{:.1f}%"
+
+  - key: "fill_rate_han_pct"
+    label: "FR Hà Nội"
+    category: "service_quality"
+    formula: "... WHERE city='HAN'"
+    source: "Google Sheets"
+    unit: "%"
+    target: 70
+    baseline: 58                         # Q1/2026
+    okr_links: ["O1.1"]
+    threshold_p0_low: 55
+    threshold_p1_low: 63
+    owner: "thonglhn@ahamove.com"
+    display_format: "{:.1f}%"
+
+  - key: "fill_rate_sgn_pct"
+    label: "FR Sài Gòn"
+    category: "service_quality"
+    unit: "%"
+    target: 65
+    baseline: 62                         # Q1/2026
+    okr_links: ["O1.1"]
+    threshold_p0_low: 50
+    threshold_p1_low: 58
+    owner: "thanhtq@ahamove.com"
+    display_format: "{:.1f}%"
+
+  - key: "fill_rate_exp_pct"
+    label: "FR EXP (tỉnh — Bình Dương, Đồng Nai, Hải Phòng...)"
+    category: "service_quality"
+    unit: "%"
+    target: 65
+    baseline: 55
+    okr_links: ["O1.2"]
+    threshold_p0_low: 45
+    threshold_p1_low: 58
+    owner: "khanhlv@ahamove.com"
+    display_format: "{:.1f}%"
+
+  - key: "fill_rate_lh_pct"
+    label: "FR Longhaul"
+    category: "service_quality"
+    unit: "%"
+    target: 70
+    okr_links: ["O1.3"]
+    threshold_p0_low: 55
+    threshold_p1_low: 63
+    display_format: "{:.1f}%"
+
+  - key: "fill_rate_sme_small_pct"
+    label: "FR SME 100-300kg"
+    category: "service_quality"
+    unit: "%"
+    target: 65
+    baseline: 17                         # Q1/2026 — gap lớn nhất
+    okr_links: ["O1.4"]
+    threshold_p0_low: 30
+    threshold_p1_low: 50
+    notes: "Segment chưa được phục vụ tốt — cần zone + pricing redesign"
+    display_format: "{:.1f}%"
+
+  - key: "fill_rate_vsip_pct"
+    label: "FR VSIP (Bình Dương)"
+    category: "service_quality"
+    unit: "%"
+    target: 75
+    notes: "Industrial zone — vendor-heavy traffic"
+    display_format: "{:.1f}%"
+
+  - key: "fill_rate_longhau_pct"
+    label: "FR Long Hậu (Long An)"
+    category: "service_quality"
+    unit: "%"
+    target: 50                           # Target go-live LAN Hub
+    notes: "Mới mở Q2/2026 — target khởi điểm 50%"
+    display_format: "{:.1f}%"
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # SERVICE QUALITY METRICS
+  # ══════════════════════════════════════════════════════════════════════════
+
+  - key: "first_pu_ontime_pct"
+    label: "1st PU On-Time Bulky %"
+    category: "service_quality"
+    formula: "COUNT(orders picked up in slot 1) / COUNT(bulky_orders) * 100"
+    source: "Google Sheets"
+    unit: "%"
+    target: 80
+    baseline: 47.6                       # Q1/2026
+    okr_links: ["O3.1"]
+    threshold_p0_low: 40
+    threshold_p1_low: 60
+    owner: "thonglhn@ahamove.com"
+    notes: "SGN đã redesign SLA Q1. HAN đang config tuần 11/05/2026."
+    display_format: "{:.1f}%"
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # COST METRICS
+  # ══════════════════════════════════════════════════════════════════════════
+
+  - key: "cogs_bulky_pct"
+    label: "COGS Bulky % GSV"
+    category: "unit_economics"
+    formula: "driver_payout_bulky / gsv_bulky * 100"
+    source: "Google Sheets"
+    unit: "%"
+    target: 30                           # OKR target <30%
+    threshold_p0_high: 35               # >35% → urgent
+    threshold_p1_high: 32
+    okr_links: ["O2"]
+    owner: "huyle@ahamove.com"
+    display_format: "{:.1f}%"
+
+  - key: "cogs_gxt_per_order_vnd"
+    label: "COGS GXT/kiện (VNĐ)"
+    category: "unit_economics"
+    formula: "total_payout_gxt / count_gxt_orders"
+    source: "Google Sheets"
+    unit: "VNĐ/kiện"
+    target: 75_000                       # OKR O3.2 target
+    baseline: 80_000                     # Q1/2026
+    okr_links: ["O3.2"]
+    threshold_p0_high: 85_000           # > 85K → urgent
+    threshold_p1_high: 80_000           # > 80K → P1 (đang ở level này)
+    owner: "thonglhn@ahamove.com"
+    notes: "⚠️ Analysis chưa bắt đầu 22/05 — P0 urgent cần root cause"
+    display_format: "{:,.0f} VNĐ"
+
+  - key: "cogs_wow_pct"
+    label: "COGS WoW change (pp)"
+    category: "unit_economics"
+    formula: "cogs_this_week_pct - cogs_last_week_pct"
+    unit: "pp"
+    threshold_p0_high: 3                # +3pp WoW → điều tra ngay
+    display_format: "{:+.1f} pp"
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # SUPPLY / DRIVER METRICS
+  # ══════════════════════════════════════════════════════════════════════════
+
+  - key: "active_drivers"
+    label: "Active drivers Truck"
+    category: "supply"
+    formula: "COUNT DISTINCT driver_id WHERE last_order_date > 30 days ago AND vehicle='truck'"
+    source: "Google Sheets"
+    unit: "drivers"
+    target: 4_500
+    baseline: 4_400                      # 2025 snapshot
+    owner: "khanhlv@ahamove.com"
+    display_format: "{:,}"
+
+  - key: "driver_station_pct"
+    label: "% Station tier (>120 stop/month)"
+    category: "supply"
+    formula: "COUNT drivers WHERE monthly_stops > 120 / COUNT all_active_drivers * 100"
+    unit: "%"
+    target: 30
+    notes: "Highest productivity — mục tiêu tăng tỷ lệ này"
+    display_format: "{:.1f}%"
+
+  - key: "driver_core_pct"
+    label: "% Core tier (65-120 stop/month)"
+    category: "supply"
+    unit: "%"
+    target: 25
+    display_format: "{:.1f}%"
+
+  - key: "driver_hub_pct"
+    label: "% Hub tier (40-65 stop/month)"
+    category: "supply"
+    unit: "%"
+    target: 25
+    display_format: "{:.1f}%"
+
+  - key: "driver_mass_pct"
+    label: "% Mass tier (<40 stop/month)"
+    category: "supply"
+    unit: "%"
+    target: 20
+    notes: "Thấp hơn 20% = muốn → đang push Mass lên Hub/Core"
+    threshold_p1_high: 30              # >30% Mass → signal xấu
+    display_format: "{:.1f}%"
+
+  - key: "driver_retention_d30"
+    label: "Driver retention D30"
+    category: "supply"
+    formula: "COUNT drivers active ở D30 / COUNT drivers onboard * 100"
+    unit: "%"
+    target: 70
+    baseline: 65                         # Q1/2026
+    okr_links: ["O2.4"]
+    threshold_p0_low: 55
+    threshold_p1_low: 62
+    display_format: "{:.1f}%"
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # B2B / EXPANSION METRICS
+  # ══════════════════════════════════════════════════════════════════════════
+
+  - key: "lan_hub_orders_per_day"
+    label: "LAN Hub orders/ngày"
+    category: "expansion"
+    unit: "orders"
+    target: 5                            # KR target O2.1 go-live
+    threshold_p1_low: 3
+    okr_links: ["O2.1"]
+    notes: "Mới mở Q2/2026 — go-live KPI"
+    display_format: "{:.0f}"
+
+  - key: "incentive_pct_gsv"
+    label: "Incentive % GSV"
+    category: "unit_economics"
+    formula: "total_driver_incentive / total_gsv * 100"
+    unit: "%"
+    target: 2.5                          # Incentive budget 2.5% GSV
+    threshold_p0_high: 4.0
+    threshold_p1_high: 3.0
+    notes: "Vượt 3% → review ngay, vượt 4% → dừng promo"
+    display_format: "{:.2f}%"
+
+# ─── Threshold-based alert rules ─────────────────────────────────────────────
+alert_rules:
+  - if_metric: "fill_rate_han_pct"
+    if_below: 55
+    severity: "P0"
+    action: "Alert huyle@ahamove.com + thonglhn — đề xuất crisis plan"
+
+  - if_metric: "fill_rate_core_pct"
+    if_below: 62
+    severity: "P1"
+    action: "Alert huyle@ahamove.com + đề xuất review supply HAN/SGN"
+
+  - if_metric: "cogs_gxt_per_order_vnd"
+    if_above: 80_000
+    severity: "P1"
+    action: "Alert thonglhn — nhắc analysis O3.2 chưa bắt đầu"
+
+  - if_metric: "cogs_bulky_pct"
+    if_above: 35
+    severity: "P0"
+    action: "Alert huyle@ahamove.com + đề xuất RCA ngay"
+
+  - if_metric: "gsv_wow_pct"
+    if_below: -10
+    consecutive_periods: 2
+    severity: "P1"
+    action: "Alert manager + review demand signals"
+
+  - if_metric: "first_pu_ontime_pct"
+    if_below: 40
+    severity: "P0"
+    action: "Alert thonglhn — đề xuất emergency SLA review"
+
+  - if_metric: "driver_mass_pct"
+    if_above: 30
+    severity: "P1"
+    action: "Alert khanhlv — review driver tier mix, push Mass→Hub"
