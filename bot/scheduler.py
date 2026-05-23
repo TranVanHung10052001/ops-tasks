@@ -27,7 +27,8 @@ QUIET_START = int(os.getenv("QUIET_HOURS_START", "22"))
 QUIET_END   = int(os.getenv("QUIET_HOURS_END", "6"))
 MANAGER_ID  = int(os.getenv("MANAGER_CHAT_ID", "0"))
 
-P_EMOJI = {"P0": "🔴", "P1": "🟡", "P2": "🟢", "P3": "🔵"}
+# Priority icons — alias from templates (legacy dict removed)
+P_EMOJI = tpl.PRIORITY_ICON
 
 # Lazy import to avoid circular dependency
 def _build_smart_reminder(task: dict, context: str = "deadline") -> str:
@@ -47,25 +48,8 @@ def _is_quiet() -> bool:
 
 
 def _fmt(task: dict, show_assignee: bool = False) -> str:
-    emoji = P_EMOJI.get(task.get("priority", "P3"), "⚪")
-    line = f"{emoji} #{task['id']} {task['summary'][:65]}"
-    if show_assignee and task.get("assignee_name"):
-        line += f" → {task['assignee_name']}"
-    if task.get("deadline"):
-        try:
-            dl = datetime.fromisoformat(task["deadline"]).replace(tzinfo=None)
-            delta = dl - datetime.now()
-            if delta.total_seconds() < 0:
-                line += f" ⚠️ trễ {abs(delta.total_seconds())/3600:.0f}h"
-            elif delta.days == 0:
-                line += f" — {delta.total_seconds()/3600:.0f}h nữa"
-            elif delta.days <= 3:
-                line += f" — {dl.strftime('%d/%m %H:%M')}"
-            else:
-                line += f" — {dl.strftime('%d/%m')}"
-        except (ValueError, TypeError):
-            pass
-    return line
+    """Delegate to templates design system."""
+    return tpl.fmt_task_line(task, show_assignee=show_assignee)
 
 
 # ─── Personal briefings (8:00 for all users) ─────────────────────────────────
@@ -471,54 +455,53 @@ async def weekly_report(app):
     # AI analysis
     ai = ai_summary(done_tasks, pending_tasks, overdue_tasks, period_label)
 
-    # Build report
-    msg = f"📊 *Weekly Report — Tuần {period_label}*\n\n"
+    # Build report — design system
+    lines = [
+        f"{tpl.AI_SIG} · WEEKLY REPORT",
+        f"◷ Tuần {period_label}",
+        tpl.DIV_STRONG,
+        "",
+    ]
 
-    # Headline
     if ai.get("headline"):
-        msg += f"_{ai['headline']}_\n\n"
+        lines += [ai["headline"], ""]
 
-    # Numbers
-    msg += (
-        f"*Tổng kết:*\n"
-        f"  ✅ Done: *{len(done_tasks)}* tasks\n"
-        f"  ⏳ Pending: *{len(pending_tasks)}* tasks\n"
-        f"  🔴 Overdue: *{len(overdue_tasks)}* tasks\n"
-    )
+    lines += [
+        "TỔNG KẾT",
+        f"● {len(done_tasks)} hoàn thành   ○ {len(pending_tasks)} pending",
+    ]
+    if overdue_tasks:
+        lines.append(f"‼ {len(overdue_tasks)} overdue")
 
-    # Team velocity (top doers)
+    # Top contributors
     doer_count: dict[str, int] = {}
     for t in done_tasks:
         name = t.get("assignee_name") or "?"
         doer_count[name] = doer_count.get(name, 0) + 1
     if doer_count:
         top3 = sorted(doer_count.items(), key=lambda x: -x[1])[:3]
-        msg += "\n*🏆 Top contributors:*\n"
-        for name, cnt in top3:
-            msg += f"  • {name}: {cnt} tasks done\n"
+        lines += ["", "TOP CONTRIBUTOR"]
+        for i, (name, cnt) in enumerate(top3, 1):
+            lines.append(f"{i}. {name.split()[-1]}  ● {cnt} tasks")
 
-    # AI highlights
     if ai.get("highlights"):
-        msg += "\n*💡 Highlights:*\n"
+        lines += ["", "ĐIỂM NỔI BẬT"]
         for h in ai["highlights"][:3]:
-            msg += f"  • {h}\n"
+            lines.append(f"· {h}")
 
-    # Risks
     if ai.get("risks"):
-        msg += "\n*⚠️ Cần chú ý:*\n"
+        lines += ["", "▲ CẦN CHÚ Ý"]
         for r in ai["risks"][:2]:
-            msg += f"  • {r}\n"
+            lines.append(f"· {r}")
 
-    # Next week focus
     if ai.get("next_week_focus"):
-        msg += f"\n*📌 Tuần tới:* _{ai['next_week_focus']}_\n"
+        lines += ["", "TUẦN TỚI", f"▸ {ai['next_week_focus']}"]
 
-    msg += "\n/team · /pending · /stats"
+    lines += ["", tpl.DIV_LIGHT, "/brief · /pending · /team"]
 
+    msg = "\n".join(lines)
     try:
-        await app.bot.send_message(
-            chat_id=MANAGER_ID, text=msg, parse_mode="Markdown"
-        )
+        await app.bot.send_message(chat_id=MANAGER_ID, text=msg)
         logger.info("Weekly report sent to manager")
     except Exception as e:
         logger.error(f"weekly_report failed: {e}")
