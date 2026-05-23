@@ -163,6 +163,36 @@ def get_user_by_name(name: str) -> dict | None:
     return None
 
 
+def find_users_by_name(name: str) -> list[dict]:
+    """Return ALL approved users whose name partially matches (for ambiguity detection)."""
+    if not name:
+        return []
+    name_lower = name.lower().strip()
+    with get_db() as conn:
+        rows = conn.execute("SELECT * FROM users WHERE is_approved = 1").fetchall()
+    matches = []
+    for row in rows:
+        full = row["full_name"].lower()
+        parts = full.split()
+        if full == name_lower or any(p == name_lower for p in parts) or name_lower in full:
+            matches.append(dict(row))
+    return matches
+
+
+def reassign_task(task_id: int, new_assignee_id: int) -> bool:
+    """Reassign an active task to a different team member."""
+    new_user = get_user(new_assignee_id)
+    new_name = new_user["full_name"] if new_user else str(new_assignee_id)
+    new_team = new_user.get("team") if new_user else None
+    with get_db() as conn:
+        cur = conn.execute(
+            """UPDATE tasks SET assignee_id = ?, assignee_name = ?, team = ?
+               WHERE id = ? AND status NOT IN ('done', 'cancelled')""",
+            (new_assignee_id, new_name, new_team, task_id),
+        )
+        return cur.rowcount > 0
+
+
 def approve_user(telegram_id: int) -> bool:
     with get_db() as conn:
         cursor = conn.execute(

@@ -7,6 +7,7 @@ Architecture:
   → extracts assignee, OKR ref, scope check, breakdown from a single call
 """
 
+import re as _re
 import warnings
 warnings.simplefilter("ignore", FutureWarning)
 
@@ -72,21 +73,21 @@ SAFETY = [
 
 # Lightweight model — no system context, used for classify + deadline only
 _classify_model = genai.GenerativeModel(
-    model_name="gemini-2.0-flash",
+    model_name="gemini-2.5-flash",
     generation_config=JSON_CONFIG,
     safety_settings=SAFETY,
 )
 
 # Router model — system context loaded once and cached by Gemini API
 _router_model = genai.GenerativeModel(
-    model_name="gemini-2.0-flash",
+    model_name="gemini-2.5-flash",
     generation_config=JSON_CONFIG,
     safety_settings=SAFETY,
     system_instruction=_ROUTER_SYSTEM,
 )
 
 _vision_model = genai.GenerativeModel(
-    model_name="gemini-2.0-flash",
+    model_name="gemini-2.5-flash",
     generation_config=JSON_CONFIG,
     safety_settings=SAFETY,
 )
@@ -323,6 +324,119 @@ Trả về JSON:
         "highlights":      result.get("highlights", []),
         "risks":           result.get("risks", []),
         "next_week_focus": result.get("next_week_focus", ""),
+    }
+
+
+# ─── NL Intent Classification ─────────────────────────────────────────────────
+# Regex fast-paths (zero AI cost) for the most common operator commands.
+
+_RE_NL_DONE = _re.compile(
+    r'(?:xong|done|hoàn\s*thành|đánh\s*dấu\s*xong)\s*(?:task)?\s*#?(\d+)'
+    r'|'
+    r'(?:task)?\s*#?(\d+)\s+(?:xong|done|hoàn\s*thành)',
+    _re.IGNORECASE | _re.UNICODE,
+)
+_RE_NL_DEADLINE = _re.compile(
+    r'task\s+#?(\d+)\s+(?:deadline|hạn|dl)[:\s]+(.+?)$',
+    _re.IGNORECASE | _re.UNICODE,
+)
+_RE_NL_REASSIGN = _re.compile(
+    r'(?:giao|chuyển|move|đổi)\s+task\s+#?(\d+)\s+(?:cho|sang|→|->)\s+(.+)',
+    _re.IGNORECASE | _re.UNICODE,
+)
+_RE_NL_QUERY_PERSON = _re.compile(
+    r'([\w\s]{3,20}?)\s+(?:đang\s+làm\s+gì|có\s+(?:task|việc)\s+gì|đang\s+bận\s+gì)',
+    _re.IGNORECASE | _re.UNICODE,
+)
+_RE_NL_BRIEF = _re.compile(
+    r'\b(?:brief|tổng\s*hợp|status\s+team|báo\s*cáo\s+nhanh|daily\s*brief|check\s+team)\b',
+    _re.IGNORECASE | _re.UNICODE,
+)
+
+_NL_INTENT_PROMPT = """Phân tích câu lệnh tiếng Việt từ manager ops Ahamove.
+
+recent_task_id = {recent_task_id}
+
+Trả về JSON:
+{{
+  "intent": "update_deadline|reassign|mark_done|query_task|query_person|brief|unknown",
+  "task_id": <int hoặc null — dùng recent_task_id nếu text có "cái đó/vừa tạo/task vừa rồi/nó">,
+  "assignee_hint": "tên người để reassign hoặc null",
+  "deadline_raw": "chuỗi deadline thô hoặc null",
+  "person_hint": "tên người cần query hoặc null",
+  "confidence": 0.0-1.0
+}}
+
+Rules:
+- update_deadline: "task X deadline Y", "task X hạn Y", "đổi deadline task X sang Y"
+- reassign: "giao/chuyển task X cho/sang Y"
+- mark_done: "task X xong", "xong task X", "#X done"
+- query_task: "task X là gì", "task X status", "check task X"
+- query_person: "Y đang làm gì", "check Y", "task của Y", "Y bận gì"
+- brief: muốn tổng hợp tình hình team
+- unknown: chitchat, câu hỏi, hoặc tạo task mới
+
+TODAY = {today}
+
+INPUT: """
+
+
+def nl_intent(text: str, recent_task_id: int | None = None) -> dict:
+    """
+    Parse NL command → structured intent. Regex fast-paths first, Gemini fallback.
+
+    Returns dict with keys: intent, task_id?, assignee_hint?, deadline_raw?,
+    person_hint?, confidence.
+    Intents: update_deadline | reassign | mark_done | query_task |
+             query_person | brief | unknown
+    """
+    # ── Regex fast-paths (zero cost) ──────────────────────────────────────────
+    m = _RE_NL_DONE.search(text)
+    if m:
+        tid = m.group(1) or m.group(2)
+        return {"intent": "mark_done", "task_id": int(tid), "confidence": 0.95}
+
+    m = _RE_NL_DEADLINE.search(text)
+    if m:
+        return {
+            "intent":       "update_deadline",
+            "task_id":      int(m.group(1)),
+            "deadline_raw": m.group(2).strip(),
+            "confidence":   0.93,
+        }
+
+    m = _RE_NL_REASSIGN.search(text)
+    if m:
+        return {
+            "intent":        "reassign",
+            "task_id":       int(m.group(1)),
+            "assignee_hint": m.group(2).strip(),
+            "confidence":    0.93,
+        }
+
+    if _RE_NL_BRIEF.search(text):
+        return {"intent": "brief", "confidence": 0.92}
+
+    m = _RE_NL_QUERY_PERSON.search(text)
+    if m:
+        return {"intent": "query_person", "person_hint": m.group(1).strip(), "confidence": 0.87}
+
+    # ── Gemini fallback for ambiguous NL ──────────────────────────────────────
+    today = datetime.now().strftime("%Y-%m-%d (%A)")
+    prompt = _NL_INTENT_PROMPT.format(
+        recent_task_id=recent_task_id if recent_task_id else "null",
+        today=today,
+    ) + text
+    result = _safe_call(_classify_model, prompt)
+    if not result:
+        return {"intent": "unknown", "confidence": 0.0}
+    return {
+        "intent":        result.get("intent", "unknown"),
+        "task_id":       result.get("task_id"),
+        "assignee_hint": result.get("assignee_hint"),
+        "deadline_raw":  result.get("deadline_raw"),
+        "person_hint":   result.get("person_hint"),
+        "confidence":    float(result.get("confidence", 0.5)),
     }
 
 

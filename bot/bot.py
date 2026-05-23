@@ -21,13 +21,17 @@ from store import (
     update_task_deadline, set_actual_minutes, increment_reminder,
     increment_defer, get_overdue_tasks_for_user, get_stalled_tasks_for_user,
     log_action,
+    get_user_by_name, find_users_by_name, reassign_task,
 )
 from roles import (
     MANAGER, TEAM_LEAD, EMPLOYEE, ROLE_LABELS, MANAGER_CHAT_ID,
     is_manager, is_team_lead, can_assign, can_see_team,
     can_approve_users, can_see_task,
 )
-from classifier import full_pipeline, image_pipeline, extract_deadline, route_task, coach_task
+from classifier import (
+    full_pipeline, image_pipeline, extract_deadline,
+    route_task, coach_task, nl_intent,
+)
 from roast import get_done_roast, get_snooze_roast
 
 logger = logging.getLogger(__name__)
@@ -50,12 +54,20 @@ _pending_confirm: dict[int, dict] = {}
 
 DEADLINE_TTL = 300  # 5 minutes
 
+# {chat_id: task_id} — last task touched/created in this session (NL follow-up context)
+_last_task: dict[int, int] = {}
+
 # ─── UI constants ─────────────────────────────────────────────────────────────
 
-P_EMOJI = {"P0": "🔴", "P1": "🟡", "P2": "🟢", "P3": "🔵"}
+P_EMOJI = {"P0": "🔴", "P1": "🟠", "P2": "🟡", "P3": "🔵"}
 CAT_EMOJI = {
+    # route_task categories
+    "fill_rate": "📊", "supply": "🚛", "retention": "🤝",
+    "b2b": "🏢", "expansion": "🗺", "cost": "💰", "tech": "⚙️",
+    # classify.md legacy categories
     "ops": "⚙️", "report": "📝", "meeting": "🗓",
-    "vendor": "🤝", "admin": "🗂", "data": "📊", "other": "📌",
+    "vendor": "🤝", "admin": "🗂", "data": "📊",
+    "other": "📌",
 }
 
 EMPLOYEE_KEYBOARD = ReplyKeyboardMarkup(
@@ -79,31 +91,77 @@ def _get_keyboard(user: dict) -> ReplyKeyboardMarkup:
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
+def _deadline_str(deadline_iso: str | None) -> str:
+    """Return compact deadline string with urgency indicator."""
+    if not deadline_iso:
+        return ""
+    try:
+        dl = datetime.fromisoformat(deadline_iso).replace(tzinfo=None)
+        delta = dl - datetime.now()
+        secs = delta.total_seconds()
+        if secs < 0:
+            days_late = abs(delta.days)
+            hrs_late = abs(secs) / 3600
+            return f"⚠️ trễ {days_late}n" if days_late >= 1 else f"⚠️ trễ {hrs_late:.0f}h"
+        elif delta.days == 0:
+            hrs = secs / 3600
+            return f"⏰ còn {hrs:.0f}h" if hrs < 6 else f"hôm nay {dl.strftime('%H:%M')}"
+        elif delta.days == 1:
+            return f"ngày mai {dl.strftime('%H:%M')}"
+        elif delta.days <= 4:
+            return f"còn {delta.days}n ({dl.strftime('%d/%m')})"
+        else:
+            return dl.strftime('%d/%m')
+    except (ValueError, TypeError):
+        return ""
+
+
 def _fmt_task(task: dict, show_assignee: bool = False) -> str:
+    """Compact single-line format for lists."""
     emoji = P_EMOJI.get(task.get("priority", "P3"), "⚪")
-    line = f"{emoji} #{task['id']} {task['summary'][:70]}"
-
+    cat   = CAT_EMOJI.get(task.get("category", "other"), "📌")
+    line  = f"{emoji} #{task['id']} {task['summary'][:65]}"
     if show_assignee and task.get("assignee_name"):
-        line += f" → {task['assignee_name']}"
-
-    if task.get("deadline"):
-        try:
-            dl = datetime.fromisoformat(task["deadline"]).replace(tzinfo=None)
-            delta = dl - datetime.now()
-            if delta.total_seconds() < 0:
-                hrs = abs(delta.total_seconds()) / 3600
-                line += f" ⚠️ trễ {hrs:.0f}h"
-            elif delta.days == 0:
-                hrs = delta.total_seconds() / 3600
-                line += f" — {hrs:.0f}h nữa"
-            elif delta.days <= 3:
-                line += f" — {dl.strftime('%d/%m %H:%M')}"
-            else:
-                line += f" — {dl.strftime('%d/%m')}"
-        except (ValueError, TypeError):
-            pass
-
+        line += f" → {task['assignee_name'].split()[-1]}"
+    dl_str = _deadline_str(task.get("deadline"))
+    if dl_str:
+        line += f"  {cat} {dl_str}"
     return line
+
+
+def _fmt_task_card(task: dict, show_assignee: bool = True) -> str:
+    """Rich 2-line card for notifications and single-task detail views."""
+    p       = task.get("priority", "P3")
+    emoji   = P_EMOJI.get(p, "⚪")
+    cat_key = task.get("category", "other")
+    cat     = CAT_EMOJI.get(cat_key, "📌")
+
+    # Line 1: summary + priority badge
+    line1 = f"{emoji} *#{task['id']}* {task['summary'][:80]}"
+
+    # Line 2: metadata chips
+    chips = []
+    if show_assignee and task.get("assignee_name"):
+        chips.append(f"👤 {task['assignee_name'].split()[-1]}")
+
+    import json as _json
+    meta = task.get("classifier_meta") or {}
+    if isinstance(meta, str):
+        try:
+            meta = _json.loads(meta)
+        except Exception:
+            meta = {}
+    if meta.get("okr_ref"):
+        chips.append(f"🎯 {meta['okr_ref']}")
+
+    chips.append(f"{cat} {cat_key}")
+
+    dl_str = _deadline_str(task.get("deadline"))
+    if dl_str:
+        chips.append(f"📅 {dl_str}")
+
+    line2 = "  ·  ".join(chips) if chips else ""
+    return f"{line1}\n{line2}" if line2 else line1
 
 
 def _task_keyboard(task_id: int) -> InlineKeyboardMarkup:
@@ -330,9 +388,37 @@ async def cmd_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    result = full_pipeline(text)
+    # Use full route_task (team context) instead of basic classify
+    result = route_task(text)
     uid = user["telegram_id"]
 
+    # High-confidence assignee detected → suggest re-routing to that person
+    assignee_conf = result.get("assignee_confidence", 0)
+    detected_name = result.get("assignee_name")
+    if assignee_conf >= 0.78 and detected_name and can_assign(user):
+        # Store in pending_confirm for manager to confirm or self-keep
+        _pending_confirm[uid] = {"task_text": text, "routed": result, "ts": datetime.now()}
+        emoji   = P_EMOJI.get(result.get("priority", "P2"), "⚪")
+        summary = result.get("summary", text[:80])
+        okr_str = f"\n🎯 OKR {result['okr_ref']}" if result.get("okr_ref") else ""
+        dl_str  = ""
+        if result.get("deadline_iso"):
+            try:
+                dl_str = f"\n📅 {datetime.fromisoformat(result['deadline_iso']).strftime('%d/%m %H:%M')}"
+            except (ValueError, TypeError):
+                pass
+        await update.message.reply_text(
+            f"AI phát hiện task này phù hợp giao *{detected_name}* ({int(assignee_conf*100)}%)\n\n"
+            f"{emoji} _{summary}_{okr_str}{dl_str}",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton(f"✅ Giao {detected_name.split()[-1]}", callback_data="confirm_assign"),
+                InlineKeyboardButton("👤 Giữ cho mình", callback_data="self_keep"),
+            ]]),
+        )
+        return
+
+    # Create for self
     task_id = add_task(
         raw_message=text,
         summary=result.get("summary", text[:100]),
@@ -349,21 +435,23 @@ async def cmd_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
         classifier_meta=result,
         visibility="private" if not can_see_team(user) else "team",
     )
+    _last_task[uid] = task_id
 
-    summary = result.get("summary", text[:100])
-    emoji = P_EMOJI.get(result.get("priority", "P3"), "⚪")
-    msg = f"{emoji} *#{task_id}* {summary}"
+    # Rich confirmation message
+    okr_suffix = f" · 🎯 {result['okr_ref']}" if result.get("okr_ref") else ""
+    cat_suffix  = f" · {CAT_EMOJI.get(result.get('category','other'),'📌')} {result.get('category','')}" if result.get("category") else ""
+    msg = f"{P_EMOJI.get(result.get('priority','P3'),'⚪')} *#{task_id}* {result.get('summary', text[:80])}\n_{okr_suffix}{cat_suffix}_"
 
     if result.get("deadline_iso"):
-        dl = datetime.fromisoformat(result["deadline_iso"])
-        msg += f"\n📅 Deadline: {dl.strftime('%d/%m %H:%M')}"
+        dl_str = _deadline_str(result["deadline_iso"])
+        msg += f"\n📅 {dl_str}"
     else:
         _pending_deadline[update.effective_chat.id] = (task_id, datetime.now())
-        msg += "\n\n📅 Deadline là bao giờ? (Gõ vd: *T6 17h*, *mai 9h*, hoặc /skip)"
+        msg += "\n\n📅 Deadline? (Gõ *T6 17h*, *mai 9h*, hoặc /skip)"
 
     await update.message.reply_text(msg, parse_mode="Markdown",
                                     reply_markup=_task_keyboard(task_id))
-    log_action(uid, "add_task", "task", task_id, summary)
+    log_action(uid, "add_task", "task", task_id, result.get("summary", ""))
 
 
 async def cmd_mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1105,7 +1193,7 @@ async def handle_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Manager forwarding external message → smart route + confirm card / picker
-    if can_assign(user) and (update.message.forward_date or update.message.forward_origin):
+    if can_assign(user) and update.message.forward_origin:
         await update.message.reply_text("⏳ Đang phân tích...")
         routed = route_task(text)
         if routed.get("is_task"):
@@ -1127,6 +1215,12 @@ async def handle_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
 
+    # NL intent: try to parse commands like "task 5 deadline T6", "Thống đang làm gì"
+    # Managers get full NL handling; employees get query_person + mark_done
+    if not update.message.forward_origin:
+        if await _handle_nl_intent(update, context, user, text):
+            return
+
     # Regular text — create task for self
     result = full_pipeline(text)
     if result.get("is_task") and result.get("confidence", 0) >= 0.6:
@@ -1145,15 +1239,25 @@ async def handle_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
             classifier_meta=result,
         )
 
-        emoji = P_EMOJI.get(result.get("priority", "P3"), "⚪")
-        msg = f"{emoji} *#{task_id}* {result['summary']}"
-
-        if result.get("deadline_iso"):
-            dl = datetime.fromisoformat(result["deadline_iso"])
-            msg += f"\n📅 {dl.strftime('%d/%m %H:%M')}"
-        else:
+        _last_task[uid] = task_id
+        dl_str = _deadline_str(result.get("deadline_iso")) if result.get("deadline_iso") else ""
+        cat_key = result.get("category", "other")
+        okr_ref = result.get("okr_ref", "")
+        meta_line = "  ·  ".join(filter(None, [
+            f"{CAT_EMOJI.get(cat_key,'📌')} {cat_key}" if cat_key and cat_key != "other" else "",
+            f"🎯 {okr_ref}" if okr_ref else "",
+        ]))
+        msg = (
+            f"{P_EMOJI.get(result.get('priority','P3'),'⚪')} "
+            f"*#{task_id}* {result['summary'][:80]}"
+        )
+        if meta_line:
+            msg += f"\n_{meta_line}_"
+        if dl_str:
+            msg += f"\n📅 {dl_str}"
+        elif not result.get("deadline_iso"):
             _pending_deadline[uid] = (task_id, datetime.now())
-            msg += "\n\nDeadline? (Gõ vd: *T6 17h*, hoặc /skip)"
+            msg += "\n\nDeadline? (Gõ *T6 17h*, hoặc /skip)"
 
         await update.message.reply_text(
             msg, parse_mode="Markdown",
@@ -1212,6 +1316,230 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(msg, parse_mode="Markdown",
                                     reply_markup=_task_keyboard(task_id))
+
+
+# ─── NL Intent Handler ────────────────────────────────────────────────────────
+
+async def _handle_nl_intent(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    user: dict,
+    text: str,
+) -> bool:
+    """
+    Try to parse text as an NL command. Returns True if handled, False if not.
+    Handles: mark_done | update_deadline | reassign | query_person | brief
+    """
+    uid      = update.effective_chat.id
+    recent   = _last_task.get(uid)
+    parsed   = nl_intent(text, recent_task_id=recent)
+    intent   = parsed.get("intent", "unknown")
+    conf     = parsed.get("confidence", 0.0)
+
+    if intent == "unknown" or conf < 0.70:
+        return False
+
+    # ── mark_done ─────────────────────────────────────────────────────────────
+    if intent == "mark_done":
+        task_id = parsed.get("task_id")
+        if not task_id:
+            return False
+        task = get_task(task_id)
+        if not task or not can_see_task(user, task):
+            await update.message.reply_text(f"Không tìm thấy task #{task_id}.")
+            return True
+        if mark_done(task_id):
+            from roast import get_done_roast
+            await update.message.reply_text(
+                f"✓ *#{task_id}* done. _{get_done_roast()}_\nMất bao lâu?",
+                parse_mode="Markdown",
+                reply_markup=_duration_keyboard(task_id),
+            )
+            log_action(user["telegram_id"], "done_nl", "task", task_id)
+            if task.get("assigned_by") and task["assigned_by"] != user["telegram_id"]:
+                try:
+                    await context.bot.send_message(
+                        chat_id=task["assigned_by"],
+                        text=f"✓ *{user['full_name']}* xong task #{task_id}: _{task['summary'][:60]}_",
+                        parse_mode="Markdown",
+                    )
+                except Exception:
+                    pass
+        return True
+
+    # ── update_deadline ────────────────────────────────────────────────────────
+    if intent == "update_deadline":
+        task_id      = parsed.get("task_id")
+        deadline_raw = parsed.get("deadline_raw", "")
+        if not task_id or not deadline_raw:
+            return False
+        task = get_task(task_id)
+        if not task or not can_see_task(user, task):
+            await update.message.reply_text(f"Không tìm thấy task #{task_id}.")
+            return True
+        dl_data = extract_deadline(deadline_raw)
+        if dl_data.get("deadline_iso"):
+            update_task_deadline(task_id, dl_data["deadline_iso"], "nl")
+            dl_str = _deadline_str(dl_data["deadline_iso"])
+            await update.message.reply_text(
+                f"✓ Task *#{task_id}* deadline: {dl_str}",
+                parse_mode="Markdown",
+            )
+        else:
+            await update.message.reply_text(
+                f"Không hiểu '{deadline_raw}'. Thử: `task {task_id} deadline T6 17h`",
+                parse_mode="Markdown",
+            )
+        return True
+
+    # ── reassign ───────────────────────────────────────────────────────────────
+    if intent == "reassign":
+        task_id = parsed.get("task_id")
+        hint    = (parsed.get("assignee_hint") or "").strip()
+        if not task_id or not hint:
+            return False
+        task = get_task(task_id)
+        if not task or not can_assign(user):
+            await update.message.reply_text("Task không tồn tại hoặc bạn không có quyền giao.")
+            return True
+        candidates = find_users_by_name(hint)
+        if not candidates:
+            await update.message.reply_text(f"Không tìm thấy '{hint}' trong team.")
+            return True
+        if len(candidates) == 1:
+            new_owner = candidates[0]
+            reassign_task(task_id, new_owner["telegram_id"])
+            await update.message.reply_text(
+                f"✓ Task *#{task_id}* chuyển sang *{new_owner['full_name']}*",
+                parse_mode="Markdown",
+            )
+            log_action(user["telegram_id"], "reassign_nl", "task", task_id,
+                       f"→ {new_owner['full_name']}")
+            try:
+                await context.bot.send_message(
+                    chat_id=new_owner["telegram_id"],
+                    text=f"📥 *{user['full_name']}* chuyển task #{task_id} cho bạn:\n"
+                         f"_{task['summary'][:80]}_",
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("✓ Nhận việc", callback_data=f"accept:{task_id}"),
+                    ]]),
+                )
+            except Exception:
+                pass
+        else:
+            names = " / ".join(c["full_name"] for c in candidates[:4])
+            await update.message.reply_text(f"Có nhiều người tên '{hint}': {names}\nGõ họ tên đầy đủ hơn.")
+        return True
+
+    # ── query_person ───────────────────────────────────────────────────────────
+    if intent == "query_person":
+        hint   = (parsed.get("person_hint") or "").strip()
+        person = get_user_by_name(hint) if hint else None
+        if not person:
+            await update.message.reply_text(f"Không tìm thấy '{hint}' trong team.")
+            return True
+        tasks = list_user_tasks(person["telegram_id"], status="pending", limit=8)
+        name  = person["full_name"]
+        if not tasks:
+            await update.message.reply_text(f"*{name}* không có task pending. 🟢", parse_mode="Markdown")
+            return True
+        overdue_cnt = sum(
+            1 for t in tasks if t.get("deadline") and
+            datetime.fromisoformat(t["deadline"]).replace(tzinfo=None) < datetime.now()
+        )
+        header = f"*{name}* — {len(tasks)} pending"
+        if overdue_cnt:
+            header += f", {overdue_cnt} ⚠️ trễ"
+        lines = [header]
+        for t in tasks[:6]:
+            lines.append(_fmt_task(t))
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        return True
+
+    # ── brief ──────────────────────────────────────────────────────────────────
+    if intent == "brief":
+        if can_see_team(user):
+            await _send_brief(update, context, user)
+        else:
+            await update.message.reply_text("Brief chỉ dành cho Manager/TL.")
+        return True
+
+    return False
+
+
+async def _send_brief(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    user: dict,
+) -> None:
+    """Send AI-structured team brief grouped by OKR category."""
+    members = list_team_by_person()
+    stats   = get_team_stats()
+    now     = datetime.now()
+
+    # Header stats
+    total_overdue = stats.get("overdue", 0)
+    total_active  = stats.get("active", 0)
+    done_today    = stats.get("done_today", 0)
+
+    header = (
+        f"*📊 Brief team — {now.strftime('%d/%m %H:%M')}*\n"
+        f"Active: {total_active}  ·  Done hôm nay: {done_today}  ·  "
+        f"Overdue: {total_overdue}\n"
+    )
+
+    # Per-person status
+    person_lines = []
+    for m in members:
+        active  = m.get("active_count", 0)
+        overdue = m.get("overdue_count", 0)
+        done_t  = m.get("done_today", 0)
+        icon = "🔴" if overdue > 2 else ("🟠" if overdue > 0 else ("🟡" if active > 6 else "🟢"))
+        line = f"{icon} *{m['full_name'].split()[-1]}* {active}t"
+        if overdue:
+            line += f" ⚠️{overdue}"
+        if done_t:
+            line += f" ✓{done_t}"
+        person_lines.append(line)
+
+    # Tasks by category
+    all_tasks = list_team_tasks(statuses=["pending"])
+    cat_counts: dict[str, int] = {}
+    for t in all_tasks:
+        cat = t.get("category", "other")
+        cat_counts[cat] = cat_counts.get(cat, 0) + 1
+
+    cat_order = ["fill_rate", "supply", "b2b", "expansion", "cost", "retention", "tech", "other"]
+    cat_lines = []
+    for cat in cat_order:
+        if cat in cat_counts:
+            cat_lines.append(f"  {CAT_EMOJI.get(cat,'📌')} {cat}: {cat_counts[cat]}")
+
+    sections = [header, "  ".join(person_lines)]
+    if cat_lines:
+        sections.append("\n*Theo category:*\n" + "\n".join(cat_lines))
+
+    # P0 tasks warning
+    p0_tasks = [t for t in all_tasks if t.get("priority") == "P0"]
+    if p0_tasks:
+        sections.append(f"\n🔴 *P0 ({len(p0_tasks)}):*")
+        for t in p0_tasks[:4]:
+            sections.append(_fmt_task(t, show_assignee=True))
+
+    sections.append("\n/team · /assign · /pending")
+    await update.message.reply_text("\n".join(sections), parse_mode="Markdown")
+
+
+async def cmd_brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/brief — AI-structured team brief for manager/TL."""
+    user = await _require_approved(update)
+    if not user:
+        return
+    if not can_see_team(user):
+        await update.message.reply_text("Brief chỉ dành cho Manager/TL.")
+        return
+    await _send_brief(update, context, user)
 
 
 # ─── Keyboard text routing ────────────────────────────────────────────────────
@@ -1551,6 +1879,38 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _pending_confirm.pop(uid, None)
         _pending_assign_who.pop(uid, None)
         await query.edit_message_text("❌ Đã huỷ.")
+
+    # ── self_keep — /add suggested assignee but user chose to keep for self ──
+    elif data == "self_keep":
+        state = _pending_confirm.pop(uid, None)
+        if not state:
+            await query.edit_message_text("Phiên đã hết hạn.")
+            return
+        routed   = state["routed"]
+        task_txt = state["task_text"]
+        task_id  = add_task(
+            raw_message=task_txt,
+            summary=routed.get("summary", task_txt[:100]),
+            assignee_id=uid,
+            assigned_by=uid,
+            team=user.get("team") if user else None,
+            source="manual",
+            sender=user["full_name"] if user else "?",
+            deadline=routed.get("deadline_iso"),
+            priority=routed.get("priority", "P3"),
+            category=routed.get("category", "other"),
+            estimated_minutes=routed.get("estimated_minutes", 30),
+            classifier_meta=routed,
+            visibility="team",
+        )
+        _last_task[uid] = task_id
+        emoji   = P_EMOJI.get(routed.get("priority", "P3"), "⚪")
+        summary = routed.get("summary", task_txt[:80])
+        await query.edit_message_text(
+            f"✓ Giữ cho mình. {emoji} *#{task_id}* {summary}",
+            parse_mode="Markdown",
+            reply_markup=_task_keyboard(task_id),
+        )
 
     # ── ignore ──
     elif data == "ignore":
