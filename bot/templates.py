@@ -212,6 +212,103 @@ def msg_task_transferred(task: dict, from_name: str, to_name: str, reason: str =
     )
 
 
+# ─── 2.7  Assigner xác nhận giao task ───────────────────────────────────────
+
+def msg_assign_confirm(task_id: int, assignee_name: str, result: dict) -> str:
+    """
+    Gửi lại cho người giao sau khi task được tạo thành công.
+    result = classifier/router output dict.
+    """
+    p      = result.get("priority", "P2")
+    icon   = PRIORITY_ICON.get(p, "□")
+    label  = PRIORITY_LABEL.get(p, "")
+    cat    = CAT_LABEL.get(result.get("category", "other"), "Khác")
+    summary = result.get("summary", "")
+    dl     = _deadline_line(result.get("deadline_iso"))
+    okr    = result.get("okr_ref", "")
+    conf   = result.get("assignee_confidence", result.get("confidence", 0))
+    conf_s = f"· AI {int(conf*100)}%" if conf else ""
+
+    # breakdown steps
+    steps = result.get("breakdown", [])
+    step_block = ""
+    if steps:
+        step_block = "\nGỢI Ý THỰC HIỆN\n" + "\n".join(
+            f"{i}. {s}" for i, s in enumerate(steps[:3], 1)
+        ) + "\n"
+
+    lines = [
+        f"● Đã giao `#{task_id}` → {assignee_name}",
+        DIV_LIGHT,
+        "",
+        f"NỘI DUNG",
+        summary or "(chưa có summary)",
+        "",
+        f"PHÂN LOẠI",
+        f"{icon} {p} · {label}  ◈ {cat}",
+    ]
+    if dl:
+        lines.append(dl)
+    if okr:
+        lines.append(f"◈ OKR · {okr}  {conf_s}")
+    elif conf_s:
+        lines.append(conf_s)
+    if step_block:
+        lines.append("")
+        lines.append(step_block.strip())
+
+    return "\n".join(lines)
+
+
+def msg_ai_route_card(result: dict, assigner_name: str = "") -> str:
+    """
+    Text cho confirm card khi AI đề xuất người nhận — kèm inline keyboard bên ngoài.
+    result = route_task() output.
+    """
+    p          = result.get("priority", "P2")
+    icon       = PRIORITY_ICON.get(p, "□")
+    label      = PRIORITY_LABEL.get(p, "")
+    cat        = CAT_LABEL.get(result.get("category", "other"), "Khác")
+    summary    = result.get("summary", "")
+    assignee   = result.get("assignee_name", "?")
+    dl         = _deadline_line(result.get("deadline_iso"))
+    okr        = result.get("okr_ref", "")
+    in_scope   = result.get("in_scope", True)
+    scope_note = result.get("scope_note", "")
+    conf       = int(result.get("assignee_confidence", 0) * 100)
+    steps      = result.get("breakdown", [])
+
+    scope_icon = "●" if in_scope else "▲"
+    scope_text = scope_note or ("Đúng scope" if in_scope else "Ngoài scope")
+
+    lines = [
+        f"⊙ AI ĐỀ XUẤT · {conf}% tin cậy",
+        DIV_LIGHT,
+        "",
+        "NỘI DUNG",
+        summary or "(chưa có summary)",
+        "",
+        "GIAO CHO",
+        f"{assignee}  ·  {icon} {p} · {label}",
+    ]
+    if dl:
+        lines.append(dl)
+    lines += ["", "PHÂN LOẠI"]
+    cat_line = f"◈ {cat}"
+    if okr:
+        cat_line += f"  ·  OKR {okr}"
+    lines.append(cat_line)
+    lines.append(f"{scope_icon} {scope_text}")
+
+    if steps:
+        lines.append("")
+        lines.append("GỢI Ý THỰC HIỆN")
+        for i, s in enumerate(steps[:3], 1):
+            lines.append(f"{i}. {s}")
+
+    return "\n".join(lines)
+
+
 # ─── 2.8  Tạo task nhanh ─────────────────────────────────────────────────────
 
 def msg_task_created(task_id: int, result: dict, text: str) -> str:
@@ -523,6 +620,67 @@ def msg_evening_member(
         f"{tomorrow_block}\n"
         f"Chúc anh nghỉ ngơi."
     )
+
+
+# ─── 4.4  EOD Team (Manager) ─────────────────────────────────────────────────
+
+def msg_eod_manager(
+    stats: dict,
+    members: list[dict],
+    overdue_tasks: list[dict],
+) -> str:
+    """
+    Manager nhận cuối ngày — member breakdown + overdue list.
+    stats        = get_team_stats()
+    members      = list_team_by_person()
+    overdue_tasks= list of overdue task dicts (all team)
+    """
+    now        = datetime.now()
+    done_today = stats.get("done_today", 0)
+    active     = stats.get("active", 0)
+    overdue    = stats.get("overdue", 0)
+
+    lines = [
+        f"{AI_SIG} · EOD TEAM",
+        f"◷ {now.strftime('%H:%M')}  ⊡ {now.strftime('%d/%m')}",
+        DIV_LIGHT,
+        "",
+        "HÔM NAY",
+        f"● {done_today} hoàn thành   ○ {active} đang chạy"
+        + (f"   ‼ {overdue} trễ" if overdue else ""),
+        "",
+        "THÀNH VIÊN",
+    ]
+
+    # compact 2-col grid
+    member_rows = []
+    for m in members:
+        a  = m.get("active_count", 0)
+        od = m.get("overdue_count", 0)
+        dt = m.get("done_today", 0)
+        last = m.get("full_name", "?").split()[-1]
+        icon = "■" if od > 2 else ("▪" if od > 0 else ("▫" if a > 6 else "○"))
+        cell = f"{icon} {last}  {a}t"
+        if od:
+            cell += f" ‼{od}"
+        if dt:
+            cell += f" ●{dt}"
+        member_rows.append(cell)
+
+    for i in range(0, len(member_rows), 2):
+        left  = member_rows[i]
+        right = member_rows[i + 1] if i + 1 < len(member_rows) else ""
+        lines.append(f"{left:<28}{right}")
+
+    # overdue section
+    if overdue_tasks:
+        lines += ["", "CẦN XỬ LÝ SÁNG MAI"]
+        for t in overdue_tasks[:5]:
+            lines.append(fmt_task_line(t, show_assignee=True))
+
+    lines += ["", DIV_LIGHT, "/brief chi tiết · /team · /pending"]
+
+    return "\n".join(lines)
 
 
 # ─── 6.1  /today ──────────────────────────────────────────────────────────────

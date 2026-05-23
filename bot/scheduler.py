@@ -224,45 +224,43 @@ async def eod_recap_all(app):
     if _is_quiet():
         return
 
+    from store import get_user_stats, list_team_tasks
     users = list_users(approved_only=True)
     for u in users:
         uid = u["telegram_id"]
+        # skip manager — gets separate team digest
+        if uid == MANAGER_ID:
+            continue
         try:
-            from store import get_user_stats
             s = get_user_stats(uid)
             overdue = get_overdue_tasks_for_user(uid)
+            top_pending = get_top_tasks_for_user(uid, limit=3)
 
             if s["pending"] == 0 and not overdue:
                 continue  # Nothing to report
 
-            roast = get_eod_roast(s["done_week"], s["pending"], s["overdue"])
-            msg = (
-                f"*EOD — {u['full_name']}*\n_{roast}_\n\n"
-                f"✓ {s['done_week']} done tuần này · ⏳ {s['pending']} pending"
+            msg = tpl.msg_evening_member(
+                name=u["full_name"],
+                done_count=s.get("done_today", 0),
+                total_count=s.get("done_today", 0) + s.get("pending", 0),
+                pending_tomorrow=top_pending,
             )
-            if overdue:
-                msg += f"\n\n⚠️ *Cần xử lý sáng mai:*\n"
-                for t in overdue[:3]:
-                    msg += f"  {_fmt(t)}\n"
-
-            await app.bot.send_message(chat_id=uid, text=msg, parse_mode="Markdown")
+            await app.bot.send_message(chat_id=uid, text=msg)
         except Exception as e:
             logger.error(f"eod_recap failed for {uid}: {e}")
 
-    # Manager gets team EOD
+    # Manager gets richer team EOD
     if MANAGER_ID:
         try:
-            stats = get_team_stats()
-            msg = (
-                f"*EOD Team — {datetime.now().strftime('%d/%m')}*\n\n"
-                f"✓ {stats['done_today']} done hôm nay · "
-                f"⏳ {stats['active']} active · "
-                f"⚠️ {stats['overdue']} overdue\n\n"
-                f"/team để xem chi tiết"
+            stats   = get_team_stats()
+            members = list_team_by_person()
+            all_ov  = get_all_overdue_tasks()
+            msg = tpl.msg_eod_manager(
+                stats=stats,
+                members=members,
+                overdue_tasks=all_ov,
             )
-            await app.bot.send_message(
-                chat_id=MANAGER_ID, text=msg, parse_mode="Markdown"
-            )
+            await app.bot.send_message(chat_id=MANAGER_ID, text=msg)
         except Exception as e:
             logger.error(f"manager eod digest failed: {e}")
 

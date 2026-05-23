@@ -774,34 +774,28 @@ async def _do_assign_with_text(
         classifier_meta=result,
     )
 
-    emoji = P_EMOJI.get(result.get("priority", "P2"), "⚪")
-    summary = result.get("summary", task_text[:100])
+    # Confirm to assigner — rich card
+    await update.message.reply_text(
+        tpl.msg_assign_confirm(task_id, assignee["full_name"], result)
+    )
 
-    # Confirm to assigner
-    msg = f"✓ Đã giao *#{task_id}* cho {assignee['full_name']}\n{emoji} _{summary}_"
-    if result.get("deadline_iso"):
-        dl = datetime.fromisoformat(result["deadline_iso"])
-        msg += f"\n📅 {dl.strftime('%d/%m %H:%M')}"
-    await update.message.reply_text(msg, parse_mode="Markdown")
-
-    # DM to assignee
+    # DM to assignee — task_new card
     accept_kb = InlineKeyboardMarkup([[
         InlineKeyboardButton("✓ Nhận việc", callback_data=f"accept:{task_id}"),
         InlineKeyboardButton("✗ Từ chối", callback_data=f"decline:{task_id}"),
     ]])
-    assignee_msg = (
-        f"📥 *{assigner['full_name']}* giao việc cho bạn:\n\n"
-        f"{emoji} _{summary}_"
-    )
-    if result.get("deadline_iso"):
-        dl = datetime.fromisoformat(result["deadline_iso"])
-        assignee_msg += f"\n📅 Deadline: *{dl.strftime('%d/%m %H:%M')}*"
-
+    task_dict = {
+        "id":       task_id,
+        "summary":  result.get("summary", task_text[:100]),
+        "priority": result.get("priority", "P2"),
+        "deadline": result.get("deadline_iso"),
+        "category": result.get("category", "other"),
+        "classifier_meta": result,
+    }
     try:
         await context.bot.send_message(
             chat_id=assignee["telegram_id"],
-            text=assignee_msg,
-            parse_mode="Markdown",
+            text=tpl.msg_task_new(task_dict, assigned_by_name=assigner["full_name"]),
             reply_markup=accept_kb,
         )
     except Exception as e:
@@ -837,41 +831,17 @@ async def _show_confirm_card(
     breakdown = routed.get("breakdown", [])
     confidence = int(routed.get("assignee_confidence", 0) * 100)
 
-    # Build message
-    lines = [f"📋 *{summary}*\n"]
-    detail = f"👤 *{assignee_name}*  ·  {emoji} {priority}"
-    if deadline_iso:
-        try:
-            dl = datetime.fromisoformat(deadline_iso)
-            detail += f"  ·  📅 {dl.strftime('%d/%m')}"
-        except (ValueError, TypeError):
-            pass
-    lines.append(detail)
-
-    if okr_ref:
-        lines.append(f"🎯 OKR {okr_ref}")
-
-    scope_icon = "✅" if in_scope else "⚠️"
-    lines.append(f"{scope_icon} {scope_note or ('Đúng scope' if in_scope else 'Ngoài scope')}"
-                 f"  ·  AI {confidence}%")
-
-    if breakdown:
-        lines.append("\n*Gợi ý thực hiện:*")
-        for i, step in enumerate(breakdown[:4], 1):
-            lines.append(f"{i}. {step}")
-
     confirm_kb = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton(f"✅ Assign cho {assignee_name.split()[-1]}",
+            InlineKeyboardButton(f"● Assign {assignee_name.split()[-1]}",
                                  callback_data="confirm_assign"),
-            InlineKeyboardButton("✏️ Đổi người", callback_data="change_assignee"),
+            InlineKeyboardButton("↗ Đổi người", callback_data="change_assignee"),
         ],
-        [InlineKeyboardButton("❌ Huỷ", callback_data="cancel_assign")],
+        [InlineKeyboardButton("⊘ Huỷ", callback_data="cancel_assign")],
     ])
 
     await update.message.reply_text(
-        "\n".join(lines),
-        parse_mode="Markdown",
+        tpl.msg_ai_route_card(routed, assigner_name=user.get("full_name", "")),
         reply_markup=confirm_kb,
     )
 
@@ -2003,43 +1973,31 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             classifier_meta=routed,
         )
 
-        emoji = P_EMOJI.get(routed.get("priority", "P2"), "⚪")
-        summary = routed.get("summary", task_text[:80])
-        okr_str = f" | 🎯 {routed['okr_ref']}" if routed.get("okr_ref") else ""
+        # Confirm to manager — replace card text
         await query.edit_message_text(
-            f"✅ *#{task_id}* giao cho *{assignee['full_name']}*\n"
-            f"{emoji} _{summary}_{okr_str}",
-            parse_mode="Markdown",
+            tpl.msg_assign_confirm(task_id, assignee["full_name"], routed)
         )
         log_action(uid, "assign_ai", "task", task_id, f"→ {assignee['full_name']}")
 
-        # DM to assignee with OKR context
+        # DM to assignee
         accept_kb = InlineKeyboardMarkup([[
             InlineKeyboardButton("✓ Nhận việc", callback_data=f"accept:{task_id}"),
             InlineKeyboardButton("✗ Từ chối", callback_data=f"decline:{task_id}"),
         ]])
-        dm_msg = (
-            f"📥 *{user['full_name'] if user else 'Manager'}* giao việc cho bạn:\n\n"
-            f"{emoji} *{summary}*"
-        )
-        if routed.get("deadline_iso"):
-            try:
-                dl = datetime.fromisoformat(routed["deadline_iso"])
-                dm_msg += f"\n📅 Deadline: *{dl.strftime('%d/%m')}*"
-            except (ValueError, TypeError):
-                pass
-        if routed.get("okr_ref"):
-            dm_msg += f"\n🎯 OKR: {routed['okr_ref']}"
-        if routed.get("scope_note"):
-            dm_msg += f"\n💡 _{routed['scope_note']}_"
-        if routed.get("breakdown"):
-            dm_msg += "\n\n*Gợi ý thực hiện:*\n" + "\n".join(
-                f"{i}. {s}" for i, s in enumerate(routed["breakdown"][:4], 1)
-            )
+        task_dict = {
+            "id":       task_id,
+            "summary":  routed.get("summary", task_text[:100]),
+            "priority": routed.get("priority", "P2"),
+            "deadline": routed.get("deadline_iso"),
+            "category": routed.get("category", "other"),
+            "classifier_meta": routed,
+        }
+        sender_name = user["full_name"] if user else "Manager"
         try:
             await context.bot.send_message(
                 chat_id=assignee["telegram_id"],
-                text=dm_msg, parse_mode="Markdown", reply_markup=accept_kb,
+                text=tpl.msg_task_new(task_dict, assigned_by_name=sender_name),
+                reply_markup=accept_kb,
             )
         except Exception as e:
             logger.error(f"DM to assignee failed: {e}")
