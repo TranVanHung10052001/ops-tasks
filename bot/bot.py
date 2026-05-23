@@ -1542,6 +1542,70 @@ async def cmd_brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _send_brief(update, context, user)
 
 
+async def cmd_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /ask <câu hỏi> — Smart AI reasoning over team workload + OKR + metrics + scope.
+    Examples:
+      /ask Vì sao FR HAN giảm tuần này?
+      /ask Task #5 nên giao ai phù hợp nhất?
+      /ask Tuần này ai đang overload?
+      /ask OKR O1.1 đang thế nào?
+    """
+    user = await _require_approved(update)
+    if not user:
+        return
+    if not can_see_team(user):
+        await update.message.reply_text("Tính năng AI Ask dành cho Manager/TL.")
+        return
+
+    question = " ".join(context.args) if context.args else ""
+    if not question:
+        await update.message.reply_text(
+            "*Hỏi AI:*\n"
+            "`/ask <câu hỏi>`\n\n"
+            "*Ví dụ:*\n"
+            "• `/ask Vì sao FR HAN tuần này giảm?`\n"
+            "• `/ask Task này nên giao ai?`\n"
+            "• `/ask Ai đang overload?`\n"
+            "• `/ask OKR O1.1 status?`\n"
+            "• `/ask Tôi giữ task G4 nào không nên?`",
+            parse_mode="Markdown",
+        )
+        return
+
+    msg = await update.message.reply_text("🤔 AI đang phân tích…")
+    try:
+        from smart_agent import ask as smart_ask
+        # Run in executor since smart_ask is sync (Gemini SDK is blocking)
+        import asyncio
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, smart_ask, question)
+    except Exception as e:
+        logger.error(f"cmd_ask failed: {e}", exc_info=True)
+        await msg.edit_text(f"❌ AI lỗi: {str(e)[:200]}")
+        return
+
+    answer = result.get("answer") or "(không có câu trả lời)"
+    tools_used = result.get("tools_used", [])
+    tools_line = f"\n\n_📊 Data từ: {', '.join(tools_used)}_" if tools_used else ""
+
+    # Telegram message limit is 4096 chars. Truncate if needed.
+    body = answer + tools_line
+    if len(body) > 4000:
+        body = body[:3900] + "\n\n…(rút gọn)" + tools_line
+
+    try:
+        await msg.edit_text(body, parse_mode="Markdown")
+    except Exception:
+        # Markdown parse may fail on weird AI output — fall back to plain text
+        try:
+            await msg.edit_text(body)
+        except Exception as e:
+            logger.error(f"cmd_ask edit failed: {e}")
+            await msg.edit_text("Không gửi được câu trả lời. Check log.")
+    log_action(user["telegram_id"], "ask", "smart", 0, question[:80])
+
+
 # ─── Keyboard text routing ────────────────────────────────────────────────────
 
 KEYBOARD_ROUTES = {
