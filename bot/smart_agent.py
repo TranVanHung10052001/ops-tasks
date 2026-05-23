@@ -426,6 +426,329 @@ def reload_knowledge() -> str:
     return "Knowledge reloaded. Next ask() will rebuild system prompt."
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# TASK DECOMPOSITION — Manager sends high-level task → AI breaks into steps
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Concrete next-step templates per category — used in smart reminders
+# Keys must match category values in store.tasks.category
+_REMINDER_STEPS: dict[str, list[str]] = {
+    "fill_rate": [
+        "Pull FR breakdown theo zone + giờ cao điểm (Redash/dashboard)",
+        "So sánh current FR vs baseline + xác định zone bottom 3",
+        "Root cause: driver supply thiếu, SLA config sai, hay routing issue?",
+    ],
+    "supply": [
+        "Kiểm tra headcount driver active vs target theo zone",
+        "Review onboard pipeline tháng này — bao nhiêu đã active?",
+        "Identify zone thiếu supply nhất + propose action (thêm driver/shift incentive)",
+    ],
+    "cost": [
+        "Pull data COGS breakdown theo zone/driver tier (Redash)",
+        "Phân tích payout structure: Station vs Core vs Hub vs Mass",
+        "Xác định top 3 cost driver + propose mitigation action",
+    ],
+    "b2b": [
+        "Review SLA commitment vs actual performance tuần này",
+        "Kiểm tra contract terms + điều khoản phạt/thưởng",
+        "Đề xuất resolution hoặc re-negotiate timeline",
+    ],
+    "expansion": [
+        "Confirm địa điểm/mặt bằng + điều kiện pháp lý",
+        "Lập kế hoạch recruit driver local (target số lượng + timeline)",
+        "Set go-live KPI + define success metric đo lường",
+    ],
+    "retention": [
+        "Phân tích cohort driver churn: D7/D14/D30 retention",
+        "Identify nhóm driver churn cao nhất (tier, zone, onboard period)",
+        "Propose intervention: incentive/training/assignment adjustment",
+    ],
+    "tech": [
+        "Define requirements + acceptance criteria rõ ràng",
+        "Tạo ticket + assign BA/tech team + agree timeline",
+        "Review và validate output trước khi deploy",
+    ],
+    "report": [
+        "Collect data cần thiết từ các nguồn (Redash, Sheets, ops team)",
+        "Draft report structure: headline → evidence → recommendation",
+        "Review với manager trước khi gửi",
+    ],
+    "vendor": [
+        "Liên hệ vendor theo contact list (xem 06_vendors.yaml)",
+        "Document vấn đề: timeline, impact, evidence",
+        "Escalate nếu SLA breach 2 tháng liên tiếp",
+    ],
+    "other": [
+        "Xác định rõ định nghĩa done (definition of done)",
+        "Break down thành milestones nhỏ hơn nếu >3 ngày",
+        "Update status sau mỗi milestone",
+    ],
+}
+
+
+def _steps_for_task(task: dict) -> list[str]:
+    """Return category-appropriate next steps for a task."""
+    # Check if steps are stored in classifier_meta
+    try:
+        import json as _j
+        meta = _j.loads(task.get("classifier_meta") or "{}")
+        if meta.get("steps"):
+            return meta["steps"][:3]
+    except Exception:
+        pass
+    cat = task.get("category", "other")
+    return _REMINDER_STEPS.get(cat, _REMINDER_STEPS["other"])
+
+
+def build_smart_reminder(task: dict, context: str = "deadline") -> str:
+    """Build a focused, business-context-aware reminder message.
+
+    context: "deadline" | "overdue" | "stall"
+    Returns: Telegram-ready Markdown string.
+    """
+    tid = task.get("id", "?")
+    summary = task.get("summary", "?")[:80]
+    priority = task.get("priority", "P3")
+    category = task.get("category", "other")
+    deadline = task.get("deadline")
+    assignee = task.get("assignee_name", "")
+    p_emoji = {"P0": "🔴", "P1": "🟠", "P2": "🟡", "P3": "🔵"}.get(priority, "⚪")
+    cat_emoji = {
+        "fill_rate": "📊", "supply": "🚛", "cost": "💰",
+        "b2b": "🏢", "expansion": "🗺", "retention": "🤝",
+        "tech": "⚙️", "report": "📝", "vendor": "🤝", "other": "📌",
+    }.get(category, "📌")
+
+    # ── Deadline/overdue string ──
+    dl_str = ""
+    urgency_prefix = ""
+    if deadline:
+        try:
+            dl = datetime.fromisoformat(deadline).replace(tzinfo=None)
+            delta = dl - datetime.now()
+            hours = delta.total_seconds() / 3600
+            if hours < 0:
+                days_over = abs(delta.days)
+                h_over = abs(int(delta.total_seconds() / 3600))
+                dl_str = f"⚠️ Quá hạn {h_over}h" if h_over < 48 else f"⚠️ Quá hạn {days_over} ngày"
+                urgency_prefix = "🔴 " if priority in ("P0","P1") else "⚠️ "
+            elif hours <= 4:
+                dl_str = f"⏰ Còn {int(hours)}h"
+                urgency_prefix = "🔥 " if priority == "P0" else "⏰ "
+            elif hours <= 28:
+                dl_str = f"📅 Còn {int(hours)}h ({dl.strftime('%d/%m %H:%M')})"
+            else:
+                dl_str = f"📅 {dl.strftime('%d/%m/%Y')}"
+        except (ValueError, TypeError):
+            dl_str = ""
+
+    # ── OKR context ──
+    okr_line = ""
+    try:
+        meta = {}
+        import json as _j
+        if task.get("classifier_meta"):
+            meta = _j.loads(task["classifier_meta"])
+        okr_tag = meta.get("okr_tag") or task.get("okr_tag", "")
+        if okr_tag:
+            for obj in kn.okr_tree().get("objectives", []):
+                for kr in obj.get("krs", []):
+                    if kr["id"] == okr_tag:
+                        okr_line = f"📌 *OKR {kr['id']}:* {kr['label']} (target: {kr.get('target','?')})"
+                        break
+                # Check action ID too
+                for a in obj.get("actions", []):
+                    if a.get("id") == okr_tag or a.get("kr_ref") == okr_tag:
+                        okr_line = f"📌 *OKR {obj['id']}:* {obj['label']}"
+                        break
+    except Exception:
+        pass
+
+    # ── Next steps ──
+    steps = _steps_for_task(task)
+
+    # ── Build message ──
+    # Don't double-print emoji if urgency_prefix already has priority emoji
+    p_part = "" if urgency_prefix.strip() in (p_emoji, "⚠️", "🔥") else f"{p_emoji} "
+    header = f"{urgency_prefix}{p_part}*Task #{tid} — {cat_emoji} {summary}*"
+    lines = [header]
+
+    if dl_str:
+        lines.append(dl_str)
+    if okr_line:
+        lines.append(okr_line)
+
+    if steps:
+        lines.append("\n💡 *Bước tiếp theo:*")
+        numbers = ["1️⃣", "2️⃣", "3️⃣"]
+        for i, step in enumerate(steps[:3]):
+            lines.append(f"  {numbers[i]} {step}")
+
+    # Footer
+    if context == "overdue":
+        lines.append(f"\n`/done {tid}` xong · `Reply` nếu blocked")
+    elif context == "stall":
+        lines.append(f"\nTask im lặng. Cần gì không? Reply hoặc `/block {tid} <lý do>`")
+    else:
+        lines.append(f"\n`/done {tid}` khi xong · `/snooze {tid} 2h` nếu cần")
+
+    return "\n".join(lines)
+
+
+# ─── Decomposition AI prompt ──────────────────────────────────────────────────
+
+def _decompose_system() -> str:
+    """System prompt for task decomposition — injected with team + OKR context."""
+    # Build team roster from member_scopes
+    scopes = kn.member_scopes()
+    team_lines = []
+    for m in scopes.get("members", []):
+        email = m.get("email", "")
+        short = m.get("short_name", "")
+        grade = m.get("grade", "")
+        owns = ", ".join(m.get("owns", [])[:4])
+        team_lines.append(f"- {email} ({short}, {grade}): {owns}")
+    team_str = "\n".join(team_lines) or "(team chưa load)"
+
+    okr_str = kn.okr_context_md(max_chars=2000)
+    dna = kn.company_dna()
+    ue = dna.get("unit_economics", {})
+
+    return f"""Bạn là senior ops analyst cho Truck Ops Ahamove.
+Manager giao 1 task cấp cao. Nhiệm vụ của bạn:
+1. Hiểu task → xác định OKR nào liên quan + tại sao quan trọng
+2. Đề xuất 2-4 sub-tasks cụ thể, actionable, assign đúng người
+3. Với mỗi sub-task: đề xuất 3 bước cụ thể để làm
+
+## Unit economics context
+- Take rate target: {ue.get('take_rate_target', 0.26)*100:.0f}%
+- COGS Bulky target: <{ue.get('cogs_targets',{}).get('bulky_pct', 0.30)*100:.0f}%
+- COGS GXT target: {ue.get('cogs_targets',{}).get('gxt_per_order_vnd', 75000):,} VNĐ/kiện
+- Driver tiers: Station >120 · Core >65 · Hub >40 · Mass >30 stop/m
+
+## OKR Q2/2026
+{okr_str}
+
+## Team members (assign đúng scope)
+{team_str}
+
+## Rules
+- owner_email phải là email thật trong danh sách trên
+- summary phải actionable (bắt đầu bằng động từ: Phân tích, Tổng hợp, Implement...)
+- steps phải cụ thể (tool/data nào, output là gì)
+- deadline_days: tính từ hôm nay, realistic với scope
+- priority: P0 (crisis), P1 (KR at-risk), P2 (normal), P3 (nice-to-have)
+
+Return JSON object hợp lệ (không giải thích thêm).
+""".strip()
+
+
+_DECOMPOSE_SCHEMA = """{
+  "understood_as": "1 câu diễn giải task theo business context",
+  "okr_link": "O1.2",
+  "why_urgent": "1 câu tại sao task này quan trọng với OKR",
+  "priority": "P1",
+  "category": "fill_rate",
+  "sub_tasks": [
+    {
+      "summary": "Tên task ngắn gọn actionable",
+      "owner_email": "thonglhn@ahamove.com",
+      "owner_short": "Thống",
+      "priority": "P1",
+      "deadline_days": 3,
+      "okr_tag": "O1.2",
+      "steps": ["bước 1 cụ thể", "bước 2 cụ thể", "bước 3 cụ thể"]
+    }
+  ]
+}"""
+
+
+def decompose_task(task_text: str) -> dict:
+    """Manager sends high-level task → AI decomposes into sub-tasks with owners + steps.
+
+    Returns dict with keys:
+      understood_as, okr_link, why_urgent, priority, category, sub_tasks
+    Each sub_task: summary, owner_email, owner_short, priority, deadline_days, okr_tag, steps
+    """
+    if not task_text or not task_text.strip():
+        return {"error": "task_text is required"}
+
+    prompt = (
+        f"Manager giao việc:\n\"{task_text.strip()}\"\n\n"
+        f"Return JSON theo schema này (KHÔNG giải thích):\n{_DECOMPOSE_SCHEMA}"
+    )
+
+    try:
+        raw = call_tier("balanced", prompt, system=_decompose_system(), json_mode=True)
+        # call_tier returns str; parse JSON
+        import json as _j
+        if isinstance(raw, str):
+            # Strip markdown code fences if present
+            raw_clean = raw.strip()
+            if raw_clean.startswith("```"):
+                raw_clean = raw_clean.split("```")[1]
+                if raw_clean.startswith("json"):
+                    raw_clean = raw_clean[4:]
+            result = _j.loads(raw_clean)
+        elif isinstance(raw, dict):
+            result = raw
+        else:
+            result = {}
+
+        # Validate required keys
+        if "sub_tasks" not in result:
+            return {"error": "AI did not return sub_tasks", "raw": str(raw)[:300]}
+
+        # Ensure deadline_iso is set
+        from datetime import timedelta
+        today = datetime.now()
+        for st in result.get("sub_tasks", []):
+            days = st.get("deadline_days", 3)
+            st["deadline_iso"] = (today + timedelta(days=days)).strftime("%Y-%m-%dT17:00:00")
+
+        return result
+
+    except Exception as e:
+        logger.error(f"decompose_task failed: {e}")
+        return {"error": str(e)}
+
+
+def format_decompose_preview(decompose_result: dict) -> str:
+    """Format decompose result as Telegram Markdown for manager to review."""
+    if decompose_result.get("error"):
+        return f"❌ Lỗi: {decompose_result['error']}"
+
+    understood = decompose_result.get("understood_as", "?")
+    okr_link = decompose_result.get("okr_link", "")
+    why = decompose_result.get("why_urgent", "")
+    sub_tasks = decompose_result.get("sub_tasks", [])
+
+    lines = [
+        "🧠 *Đã phân tích task:*\n",
+        f"📎 _{understood}_",
+    ]
+    if okr_link:
+        lines.append(f"📌 OKR: *{okr_link}*")
+    if why:
+        lines.append(f"⚡ _{why}_")
+
+    lines.append(f"\n*Đề xuất {len(sub_tasks)} sub-tasks:*")
+
+    nums = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"]
+    for i, st in enumerate(sub_tasks[:4]):
+        dl_days = st.get("deadline_days", 3)
+        deadline_label = f"{dl_days} ngày" if dl_days > 1 else "ngày mai"
+        p_emoji = {"P0": "🔴", "P1": "🟠", "P2": "🟡", "P3": "🔵"}.get(st.get("priority","P2"), "⚪")
+        lines.append(f"\n{nums[i]} {p_emoji} *[{st.get('owner_short','?')}]* {st['summary']}")
+        lines.append(f"   ⏱ {deadline_label}")
+        steps = st.get("steps", [])
+        if steps:
+            lines.append("   💡 " + " → ".join(s[:35] for s in steps[:2]))
+
+    lines.append("\n✅ /ok để tạo tất cả · ❌ /huy để bỏ")
+    return "\n".join(lines)
+
+
 def _format_tool_results(results: dict[str, dict]) -> str:
     chunks = []
     for name, data in results.items():

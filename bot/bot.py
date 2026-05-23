@@ -52,6 +52,9 @@ _pending_deadline: dict[int, tuple] = {}
 # {manager_chat_id: {routed task data}} — waiting for manager to confirm AI routing
 _pending_confirm: dict[int, dict] = {}
 
+# {manager_chat_id: decompose_result dict} — waiting for /ok to create decomposed tasks
+_pending_decompose: dict[int, dict] = {}
+
 DEADLINE_TTL = 300  # 5 minutes
 
 # {chat_id: task_id} — last task touched/created in this session (NL follow-up context)
@@ -77,9 +80,9 @@ EMPLOYEE_KEYBOARD = ReplyKeyboardMarkup(
 )
 
 MANAGER_KEYBOARD = ReplyKeyboardMarkup(
-    [["▸ Team", "▸ Task của tôi"], ["▸ Giao việc", "▸ Thống kê"]],
+    [["▸ Team", "▸ Task của tôi"], ["▸ Giao việc AI", "▸ Thống kê"]],
     resize_keyboard=True,
-    input_field_placeholder="Forward tin nhắn để giao · /assign · /team",
+    input_field_placeholder="Forward tin nhắn để giao · /giao · /ask",
 )
 
 
@@ -1606,6 +1609,197 @@ async def cmd_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
     log_action(user["telegram_id"], "ask", "smart", 0, question[:80])
 
 
+# ─── /giao — AI Task Decomposition ───────────────────────────────────────────
+
+async def cmd_giao(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /giao <mô tả việc> — Manager giao việc cấp cao, AI phân tích + chia sub-tasks.
+
+    Examples:
+      /giao Giải quyết FR HAN đang trend giảm
+      /giao Phân tích COGS GXT đang cao hơn target
+      /giao Chuẩn bị kế hoạch mở hub Long An
+    """
+    user = await _require_approved(update)
+    if not user:
+        return
+    if not can_assign(user):
+        await update.message.reply_text(
+            "Chỉ Manager/TL mới dùng được /giao.\n"
+            "Để tự thêm task: /add <mô tả>"
+        )
+        return
+
+    task_text = " ".join(context.args) if context.args else ""
+    if not task_text.strip():
+        await update.message.reply_text(
+            "*Giao việc AI-assisted:*\n"
+            "`/giao <mô tả việc cần làm>`\n\n"
+            "*Ví dụ:*\n"
+            "• `/giao Giải quyết FR HAN đang trend giảm`\n"
+            "• `/giao Phân tích COGS GXT tại sao cao hơn 75K`\n"
+            "• `/giao Chuẩn bị plan mở Hub Long An`\n"
+            "• `/giao Review driver retention D30 đang giảm`\n\n"
+            "AI sẽ hiểu OKR liên quan + đề xuất sub-tasks với owner cụ thể.",
+            parse_mode="Markdown",
+        )
+        return
+
+    cid = update.effective_chat.id
+    msg = await update.message.reply_text("🧠 AI đang phân tích…")
+
+    try:
+        import asyncio
+        from smart_agent import decompose_task, format_decompose_preview
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, decompose_task, task_text)
+    except Exception as e:
+        logger.error(f"cmd_giao decompose failed: {e}", exc_info=True)
+        await msg.edit_text(f"❌ AI lỗi: {str(e)[:200]}")
+        return
+
+    if result.get("error"):
+        await msg.edit_text(f"❌ {result['error']}")
+        return
+
+    # Store pending decompose result for /ok confirmation
+    _pending_decompose[cid] = {
+        "decompose": result,
+        "original_text": task_text,
+        "requester_id": user["telegram_id"],
+        "ts": datetime.now().isoformat(),
+    }
+
+    preview = format_decompose_preview(result)
+    try:
+        await msg.edit_text(preview, parse_mode="Markdown")
+    except Exception:
+        await msg.edit_text(preview)
+
+    log_action(user["telegram_id"], "giao", "decompose", 0, task_text[:80])
+
+
+async def cmd_ok(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /ok — Confirm AI decomposition plan from /giao → create all sub-tasks + notify owners.
+    """
+    user = await _require_approved(update)
+    if not user:
+        return
+
+    cid = update.effective_chat.id
+    pending = _pending_decompose.pop(cid, None)
+
+    if not pending:
+        # Check if there's a pending_confirm (older flow)
+        if cid in _pending_confirm:
+            # Delegate to old confirm handler
+            await update.message.reply_text("Dùng nút inline để xác nhận nhé.")
+            return
+        await update.message.reply_text("Không có plan nào đang chờ xác nhận. Dùng /giao trước.")
+        return
+
+    decompose = pending["decompose"]
+    sub_tasks = decompose.get("sub_tasks", [])
+    if not sub_tasks:
+        await update.message.reply_text("Không có sub-tasks để tạo.")
+        return
+
+    created_ids = []
+    notify_tasks = []  # (user_telegram_id, task_dict)
+
+    import json as _json
+    from store import get_user_by_email
+
+    for st in sub_tasks:
+        owner_email = st.get("owner_email", "")
+        # Look up owner in DB
+        assignee = None
+        if owner_email:
+            assignee = get_user_by_email(owner_email) if hasattr(__import__("store"), "get_user_by_email") else None
+            if not assignee:
+                from store import get_user_by_name
+                assignee = get_user_by_name(st.get("owner_short", ""))
+
+        meta = _json.dumps({
+            "okr_tag": st.get("okr_tag", decompose.get("okr_link", "")),
+            "steps": st.get("steps", []),
+            "source": "decompose",
+            "decomposed_from": pending.get("original_text", "")[:80],
+        }, ensure_ascii=False)
+
+        task_id = add_task(
+            assignee_id=assignee["telegram_id"] if assignee else user["telegram_id"],
+            assigned_by=user["telegram_id"],
+            raw_message=st["summary"],
+            summary=st["summary"],
+            deadline=st.get("deadline_iso"),
+            deadline_confidence="high",
+            priority=st.get("priority", decompose.get("priority", "P1")),
+            category=decompose.get("category", "other"),
+            source="giao",
+            sender=user.get("full_name", "Manager"),
+            classifier_meta=meta,
+        )
+        created_ids.append(task_id)
+
+        if assignee:
+            notify_tasks.append((assignee["telegram_id"], assignee.get("full_name","?"), task_id, st))
+
+    # Confirm to manager
+    task_list = "\n".join(
+        f"  ✅ #{tid} — {st['summary'][:50]}"
+        for tid, st in zip(created_ids, sub_tasks)
+    )
+    confirm_msg = (
+        f"*Đã tạo {len(created_ids)} task:*\n{task_list}\n\n"
+        f"Chủ nhân task sẽ nhận thông báo ngay."
+    )
+    await update.message.reply_text(confirm_msg, parse_mode="Markdown")
+
+    # Notify each assignee
+    from smart_agent import build_smart_reminder
+    for (assignee_telegram_id, assignee_name, task_id, st) in notify_tasks:
+        task_obj = get_task(task_id)
+        if not task_obj:
+            continue
+        okr_link = st.get("okr_tag") or decompose.get("okr_link", "")
+        assign_msg = (
+            f"📋 *Task mới giao cho bạn — #{task_id}*\n\n"
+            f"*{st['summary']}*\n\n"
+            f"📌 OKR: {okr_link or '—'}\n"
+            f"⚡ {decompose.get('why_urgent','')[:100]}\n\n"
+        )
+        # Add steps
+        steps = st.get("steps", [])
+        if steps:
+            assign_msg += "*💡 Bước thực hiện:*\n"
+            nums = ["1️⃣", "2️⃣", "3️⃣"]
+            for i, step in enumerate(steps[:3]):
+                assign_msg += f"  {nums[i]} {step}\n"
+        assign_msg += f"\n`/done {task_id}` khi xong · `/block {task_id} <lý do>` nếu blocked"
+
+        try:
+            await context.bot.send_message(
+                chat_id=assignee_telegram_id,
+                text=assign_msg,
+                parse_mode="Markdown",
+            )
+        except Exception as e:
+            logger.error(f"notify assignee {assignee_telegram_id} failed: {e}")
+
+    log_action(user["telegram_id"], "giao", "confirm", 0, f"created {created_ids}")
+
+
+async def cmd_huy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/huy — Cancel pending /giao decomposition."""
+    cid = update.effective_chat.id
+    if _pending_decompose.pop(cid, None):
+        await update.message.reply_text("❌ Đã huỷ plan. Dùng /giao để tạo lại.")
+    else:
+        await update.message.reply_text("Không có gì đang chờ xác nhận.")
+
+
 # ─── Keyboard text routing ────────────────────────────────────────────────────
 
 KEYBOARD_ROUTES = {
@@ -1614,6 +1808,7 @@ KEYBOARD_ROUTES = {
     "▸ Thống kê":     cmd_stats,
     "▸ Team":         cmd_team,
     "▸ Giao việc":    cmd_assign,
+    "▸ Giao việc AI": cmd_giao,     # New AI-assisted assignment
 }
 
 

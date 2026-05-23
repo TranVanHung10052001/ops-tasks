@@ -28,6 +28,15 @@ MANAGER_ID  = int(os.getenv("MANAGER_CHAT_ID", "0"))
 
 P_EMOJI = {"P0": "🔴", "P1": "🟡", "P2": "🟢", "P3": "🔵"}
 
+# Lazy import to avoid circular dependency
+def _build_smart_reminder(task: dict, context: str = "deadline") -> str:
+    try:
+        from smart_agent import build_smart_reminder
+        return build_smart_reminder(task, context=context)
+    except Exception as e:
+        logger.warning(f"smart_reminder fallback: {e}")
+        return None  # Caller falls back to simple _fmt()
+
 
 def _is_quiet() -> bool:
     h = datetime.now().hour
@@ -188,23 +197,34 @@ async def deadline_check_all(app):
                 rc = task.get("reminder_count", 0)
                 msg = None
 
+                should_remind = False
                 if 0 <= hours <= 4 and rc < 3:
-                    msg = f"🔥 *Hôm nay deadline:*\n  {_fmt(task)}\n\n/done {task['id']} khi xong"
+                    should_remind = True
                 elif 20 <= hours <= 28 and rc < 2:
-                    msg = f"⏰ *Mai phải xong:*\n  {_fmt(task)}"
+                    should_remind = True
                 elif 68 <= hours <= 76 and rc < 1:
-                    msg = f"📋 *Còn 3 ngày:*\n  {_fmt(task)}"
+                    should_remind = True
 
-                if msg:
+                if should_remind:
+                    # Try smart reminder first, fallback to simple
+                    msg = _build_smart_reminder(task, context="deadline")
+                    if not msg:
+                        if 0 <= hours <= 4:
+                            msg = f"🔥 *Hôm nay deadline:*\n  {_fmt(task)}\n\n/done {task['id']} khi xong"
+                        elif hours <= 28:
+                            msg = f"⏰ *Mai phải xong:*\n  {_fmt(task)}"
+                        else:
+                            msg = f"📋 *Còn 3 ngày:*\n  {_fmt(task)}"
                     await app.bot.send_message(
                         chat_id=uid, text=msg, parse_mode="Markdown"
                     )
                     increment_reminder(task["id"])
 
-            # Overdue check
+            # Overdue check — smart reminder + P0 escalation
             overdue = get_overdue_tasks_for_user(uid)
             for task in overdue:
-                if task.get("reminder_count", 0) >= 5:
+                rc_task = task.get("reminder_count", 0)
+                if rc_task >= 6:
                     continue
                 try:
                     dl = datetime.fromisoformat(task["deadline"]).replace(tzinfo=None)
@@ -212,14 +232,40 @@ async def deadline_check_all(app):
                 except (ValueError, TypeError):
                     continue
 
-                if hrs_over % 4 < 0.5:
-                    roast = get_overdue_roast(hrs_over)
+                # Remind frequency: first 3 times every 4h, after that every 24h
+                if rc_task < 3:
+                    should_ping = hrs_over % 4 < 0.5
+                else:
+                    should_ping = hrs_over % 24 < 0.5
+
+                if should_ping:
+                    msg = _build_smart_reminder(task, context="overdue")
+                    if not msg:
+                        roast = get_overdue_roast(hrs_over)
+                        msg = f"⚠️ *Task #{task['id']} overdue*\n  {_fmt(task)}\n\n_{roast}_"
                     await app.bot.send_message(
-                        chat_id=uid,
-                        text=f"⚠️ *Task #{task['id']} overdue*\n  {_fmt(task)}\n\n_{roast}_",
-                        parse_mode="Markdown",
+                        chat_id=uid, text=msg, parse_mode="Markdown"
                     )
                     increment_reminder(task["id"])
+
+                    # P0 escalation: after 24h overdue + rc>=2 → alert manager too
+                    if (task.get("priority") == "P0" and hrs_over >= 24
+                            and rc_task == 2 and MANAGER_ID and uid != MANAGER_ID):
+                        escalate_msg = (
+                            f"🚨 *P0 Escalation:*\n"
+                            f"Task #{task['id']} của *{task.get('assignee_name','?')}* "
+                            f"đã quá hạn {int(hrs_over)}h và chưa có update.\n\n"
+                            f"_{task.get('summary','')[:80]}_\n\n"
+                            f"Cần can thiệp không?"
+                        )
+                        try:
+                            await app.bot.send_message(
+                                chat_id=MANAGER_ID,
+                                text=escalate_msg,
+                                parse_mode="Markdown",
+                            )
+                        except Exception as esc_e:
+                            logger.error(f"P0 escalation failed: {esc_e}")
 
         except Exception as e:
             logger.error(f"deadline_check_all failed for {uid}: {e}")

@@ -22,6 +22,7 @@ from bot import (
     cmd_start, cmd_help, cmd_add, cmd_mytasks, cmd_today,
     cmd_done, cmd_snooze, cmd_cancel, cmd_stats, cmd_skip,
     cmd_assign, cmd_team, cmd_pending, cmd_brief, cmd_ask,
+    cmd_giao, cmd_ok, cmd_huy,
     cmd_approve, cmd_users, cmd_setrole, cmd_coach,
     handle_forward, handle_photo, handle_callback,
     handle_keyboard_text, KEYBOARD_ROUTES,
@@ -87,6 +88,9 @@ async def main():
         ("coach",    cmd_coach),
         ("brief",    cmd_brief),
         ("ask",      cmd_ask),
+        ("giao",     cmd_giao),
+        ("ok",       cmd_ok),
+        ("huy",      cmd_huy),
     ]:
         app.add_handler(CommandHandler(cmd, handler))
 
