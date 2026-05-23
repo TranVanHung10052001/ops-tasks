@@ -1,0 +1,996 @@
+{
+  "version": "2026-Q2",
+  "updated_at": "2026-05-17",
+  "categories": [
+    { "id": "daily_ops", "label": "Daily Ops" },
+    { "id": "planning", "label": "Planning & Forecast" },
+    { "id": "vendor", "label": "Vendor B2B" },
+    { "id": "recruitment", "label": "Driver Supply" },
+    { "id": "analysis", "label": "Analysis & Insight" },
+    { "id": "crisis", "label": "Crisis Response" },
+    { "id": "expansion", "label": "Hub / Expansion" }
+  ],
+  "playbooks": [
+    {
+      "id": "PB01",
+      "name": "Daily FR Report (N-1 + MTD)",
+      "category": "daily_ops",
+      "owner_grade": "G2",
+      "support_grade": "G1",
+      "frequency": "Mỗi ngày 9:00",
+      "estimated_minutes": 25,
+      "okr_links": ["O1.1", "O1.2", "O1.3"],
+      "inputs": [
+        "Data warehouse: order_status, FR raw",
+        "Mini-hub status report N-1",
+        "Backlog count cuối ngày N-1"
+      ],
+      "outputs": [
+        "Báo cáo FR N-1: Core / LH / SME / Bulky theo HAN-SGN-EXP",
+        "MTD vs target (≥68%)",
+        "Top 5 region/driver-pool có FR drop >5pp"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "title": "Pull data FR raw từ data warehouse",
+          "owner_grade": "G1",
+          "expected_output": "File raw .csv chứa: order_id, region, service, status, driver_id",
+          "watch_out": "Check timezone GMT+7; loại order test/internal"
+        },
+        {
+          "n": 2,
+          "title": "Tính FR theo lát cắt: region × service × driver_pool",
+          "owner_grade": "G1",
+          "expected_output": "Pivot table FR% N-1 và MTD",
+          "watch_out": "FR = success / (success+fail+cancel-by-driver), KHÔNG tính cancel-by-customer"
+        },
+        {
+          "n": 3,
+          "title": "So sánh vs target + week-over-week",
+          "owner_grade": "G2",
+          "expected_output": "Heatmap: cell màu đỏ nếu < target -5pp",
+          "watch_out": "Loại noise: ngày lễ, sự kiện đặc biệt → flag riêng"
+        },
+        {
+          "n": 4,
+          "title": "Drill insight: top 3 lý do Fail dominant",
+          "owner_grade": "G2",
+          "expected_output": "Bảng: lý do Fail × count × % share × driver pool",
+          "watch_out": "Phân biệt 'driver fault' vs 'system fault' vs 'customer fault'"
+        },
+        {
+          "n": 5,
+          "title": "Gửi báo cáo trên kênh Truck Ops daily + flag escalation",
+          "owner_grade": "G2",
+          "expected_output": "Telegram message: TLDR + 3 actions cần làm hôm nay",
+          "watch_out": "Nếu FR drop >7pp 2 ngày liên tiếp → escalate G3 ngay 9:30"
+        }
+      ],
+      "escalation": "G3 nếu FR drop >5pp 2 ngày liên tiếp; G4 nếu drop >10pp hoặc affect KR weekly"
+    },
+    {
+      "id": "PB02",
+      "name": "Weekly Capacity Forecast",
+      "category": "planning",
+      "owner_grade": "G2",
+      "support_grade": "G1",
+      "frequency": "Thứ 6 hàng tuần (T-2 trước tuần mới)",
+      "estimated_minutes": 90,
+      "okr_links": ["O1.1", "O2.4"],
+      "inputs": [
+        "Active driver count theo tập (Pro/Core/Hub/Mass)",
+        "Avg productivity (stop/driver/day) theo tier",
+        "Volume forecast từ BD/Growth",
+        "Inactive trend 4 tuần gần nhất"
+      ],
+      "outputs": [
+        "Capacity ước tính theo region × service × pool tuần T+1",
+        "Gap analysis: capacity − forecast volume",
+        "Plan action: recruit / reactivate / shift policy"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "title": "Lấy active driver count tuần T (Mon-Sun) theo pool",
+          "owner_grade": "G1",
+          "expected_output": "Bảng: pool × region × active count",
+          "watch_out": "Active = chạy ≥3 đơn trong 7 ngày; exclude xe đang sửa"
+        },
+        {
+          "n": 2,
+          "title": "Áp productivity tier benchmark",
+          "owner_grade": "G2",
+          "expected_output": "Capacity ước tính (orders/day)",
+          "watch_out": "Station >120/m, Core >65, Hub >40, Mass >30 — KHÔNG dùng avg đơn"
+        },
+        {
+          "n": 3,
+          "title": "So với volume forecast (BD/Growth) tuần T+1",
+          "owner_grade": "G2",
+          "expected_output": "Gap = capacity − forecast (+/−)",
+          "watch_out": "Hỏi BD/Growth update bằng số forecast LATEST, không stale"
+        },
+        {
+          "n": 4,
+          "title": "Đề xuất action: recruit/reactivate/policy",
+          "owner_grade": "G2",
+          "expected_output": "Action list với cost ước tính + owner",
+          "watch_out": "Action cost > 200M → escalate G3 trước commit"
+        },
+        {
+          "n": 5,
+          "title": "Trình G3 weekly meeting thứ 6 PM",
+          "owner_grade": "G2",
+          "expected_output": "Slide 1 trang: gap/plan/cost",
+          "watch_out": "G3 quyết action; G2 KHÔNG tự commit ngân sách"
+        }
+      ],
+      "escalation": "G3 cho action >200M; G4 nếu gap >30% volume forecast"
+    },
+    {
+      "id": "PB03",
+      "name": "Backlog Clearance (Backlog 4h)",
+      "category": "daily_ops",
+      "owner_grade": "G2",
+      "support_grade": "G1",
+      "frequency": "Mỗi ngày 8:00, 14:00, 18:00",
+      "estimated_minutes": 45,
+      "okr_links": ["O1.1", "O3.1"],
+      "inputs": [
+        "Backlog queue 4h theo zone",
+        "Active driver available trong zone",
+        "Pricing/incentive boost current"
+      ],
+      "outputs": [
+        "Backlog clear ≥90% trong 4h window",
+        "Action log: driver assigned / fall-back",
+        "Trend backlog daily for G3 review"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "title": "Pull backlog real-time theo zone, sort by age",
+          "owner_grade": "G2",
+          "expected_output": "List order_id × age × zone × pickup_lat/lng",
+          "watch_out": "Order >3h: priority cao; >4h: alert + auto-bonus check"
+        },
+        {
+          "n": 2,
+          "title": "Match driver available trong zone (driver app status)",
+          "owner_grade": "G2",
+          "expected_output": "Pair order ↔ driver_id candidate",
+          "watch_out": "Driver đã reject 2 lần → skip, đẩy zone khác"
+        },
+        {
+          "n": 3,
+          "title": "Gán đơn manual (nếu auto-dispatch fail) hoặc đẩy noti boost",
+          "owner_grade": "G2",
+          "expected_output": "Đơn được accept",
+          "watch_out": "Manual assign chỉ khi giá > base; log cost"
+        },
+        {
+          "n": 4,
+          "title": "Fall-back: nếu sau 30 phút vẫn fail → contact S/O hoặc reschedule",
+          "owner_grade": "G2",
+          "expected_output": "Decision: cancel / reschedule / refund partial",
+          "watch_out": "Refund >100K/order → log để G3 review weekly"
+        }
+      ],
+      "escalation": "G3 nếu backlog rate >10% 2 ngày; G4 nếu KR FR weekly impact"
+    },
+    {
+      "id": "PB04",
+      "name": "Daily Driver Productivity & Retention Update",
+      "category": "daily_ops",
+      "owner_grade": "G1",
+      "support_grade": "G2",
+      "frequency": "Mỗi ngày 17:30",
+      "estimated_minutes": 20,
+      "okr_links": ["O2.4", "O2.5"],
+      "inputs": [
+        "Driver app session log",
+        "Order completion log N",
+        "Target capacity tuần đã set thứ 2"
+      ],
+      "outputs": [
+        "Productivity actual N vs target (theo pool)",
+        "Retention: active today / total active tuần trước",
+        "Trend tăng/giảm theo region"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "title": "Pull driver active list hôm nay theo pool",
+          "owner_grade": "G1",
+          "expected_output": "Count theo region × pool",
+          "watch_out": "'Active' = login + có ≥1 đơn accept, KHÔNG chỉ login"
+        },
+        {
+          "n": 2,
+          "title": "Tính productivity = orders/driver/day",
+          "owner_grade": "G1",
+          "expected_output": "Avg + median + bottom decile",
+          "watch_out": "Loại driver mới <7 ngày (productivity chưa stable)"
+        },
+        {
+          "n": 3,
+          "title": "Retention rate = active today / active 7 ngày trước",
+          "owner_grade": "G1",
+          "expected_output": "Retention % theo pool",
+          "watch_out": "Phân biệt D1/D7/D30 retention"
+        },
+        {
+          "n": 4,
+          "title": "Update dashboard + post brief lên Telegram team channel",
+          "owner_grade": "G1",
+          "expected_output": "3 dòng: actual vs target, top drop pool, action gợi ý",
+          "watch_out": "Drop >10pp → flag G2 để dive deeper trong ngày"
+        }
+      ],
+      "escalation": "G2 nếu retention drop >10pp 1 tuần; G3 nếu kéo dài 2 tuần"
+    },
+    {
+      "id": "PB05",
+      "name": "Inactive Driver Recovery Campaign",
+      "category": "recruitment",
+      "owner_grade": "G2",
+      "support_grade": "G1",
+      "frequency": "Hàng tuần (chạy thứ 2-3)",
+      "estimated_minutes": 180,
+      "okr_links": ["O2.4"],
+      "inputs": [
+        "Inactive list 7-14 ngày",
+        "Lý do inactive (survey/CRM tag)",
+        "Budget incentive recovery"
+      ],
+      "outputs": [
+        "Số driver reactivate trong tuần",
+        "Cost per reactivation",
+        "Insight lý do inactive dominant"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "title": "Segment inactive list theo lý do (cost, app issue, alt income)",
+          "owner_grade": "G2",
+          "expected_output": "List theo 4-5 segment",
+          "watch_out": "Đừng spam tất cả; segment trước, tailor message sau"
+        },
+        {
+          "n": 2,
+          "title": "Tailor message + incentive theo segment",
+          "owner_grade": "G2",
+          "expected_output": "Template noti + boost incentive cụ thể",
+          "watch_out": "Boost > base income tier hiện tại → no-go; cost out of band"
+        },
+        {
+          "n": 3,
+          "title": "Gửi noti push qua CRM + follow-up call (CTV / G1)",
+          "owner_grade": "G1",
+          "expected_output": "Tracking log: reached / accepted / activated",
+          "watch_out": "Call within 24h sau noti; quá 48h → conversion drop >50%"
+        },
+        {
+          "n": 4,
+          "title": "Đo cost per reactivation + retention 7 ngày sau",
+          "owner_grade": "G2",
+          "expected_output": "ROI campaign",
+          "watch_out": "Reactivate chỉ value nếu retention 7+ ngày; flush bounce cao"
+        },
+        {
+          "n": 5,
+          "title": "Lessons-learned + propose tweak chính sách",
+          "owner_grade": "G2",
+          "expected_output": "1-pager cho G3 weekly review",
+          "watch_out": "Propose policy tweak nếu cost > 50K/driver → cần G3 sign-off"
+        }
+      ],
+      "escalation": "G3 nếu cost recovery >100K/driver; G4 nếu policy thay đổi >2% budget"
+    },
+    {
+      "id": "PB06",
+      "name": "Driver Recruitment Pipeline (Đội nhóm)",
+      "category": "recruitment",
+      "owner_grade": "G1",
+      "support_grade": "G2",
+      "frequency": "Continuous, weekly review thứ 6",
+      "estimated_minutes": 300,
+      "okr_links": ["O2.2", "O2.5", "O1.2"],
+      "inputs": [
+        "Recruitment target tuần (từ capacity forecast)",
+        "Channel performance previous tuần",
+        "Onboarding capacity (training slots)"
+      ],
+      "outputs": [
+        "Số driver join + active D7",
+        "Cost per acquired driver (CAC)",
+        "Funnel: lead → onboard → active → retain D30"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "title": "Map nguồn (team Growth, đội nhóm leader, referral, social)",
+          "owner_grade": "G1",
+          "expected_output": "Channel × target × actual",
+          "watch_out": "Đội nhóm leader convert cao hơn social 3x"
+        },
+        {
+          "n": 2,
+          "title": "Set up onboarding session (training, decal, app)",
+          "owner_grade": "G1",
+          "expected_output": "Calendar slot + checklist onboarding",
+          "watch_out": "Onboard <48h sau apply; quá thì drop-off >40%"
+        },
+        {
+          "n": 3,
+          "title": "Decal + app activation check",
+          "owner_grade": "G1",
+          "expected_output": "Decal verified count cho O2.5",
+          "watch_out": "Decal phải verified ảnh; chấp nhận quan sát onsite"
+        },
+        {
+          "n": 4,
+          "title": "Theo dõi D7 active rate",
+          "owner_grade": "G1",
+          "expected_output": "Funnel rate joined → D7 active",
+          "watch_out": "D7 <50% → channel kém; thử test channel mới"
+        },
+        {
+          "n": 5,
+          "title": "Weekly review CAC với G2/G3",
+          "owner_grade": "G2",
+          "expected_output": "Insight cost/channel + propose adjust",
+          "watch_out": "CAC > target 30% → halt channel; reassess"
+        }
+      ],
+      "escalation": "G3 cho budget adjust; G4 cho expansion sang channel mới (paid acquisition)"
+    },
+    {
+      "id": "PB07",
+      "name": "Vendor B2B Daily Dispatch",
+      "category": "vendor",
+      "owner_grade": "G1",
+      "support_grade": "G3",
+      "frequency": "Mỗi ngày 7:30 + 13:30",
+      "estimated_minutes": 90,
+      "okr_links": ["O3.3", "O3.4"],
+      "inputs": [
+        "Đơn B2B từ KH (Shopee/TikTok/Corporate)",
+        "Vendor available list + capacity",
+        "SLA commit theo KH"
+      ],
+      "outputs": [
+        "Đơn assigned vendor",
+        "Bảng kê chi phí daily",
+        "SLA actual vs commit"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "title": "Pull đơn B2B queue + vendor capacity",
+          "owner_grade": "G1",
+          "expected_output": "Pair order × vendor candidate",
+          "watch_out": "Check SLA window: missed SLA → cost penalty"
+        },
+        {
+          "n": 2,
+          "title": "Assign vendor theo rule (cost/SLA/capacity)",
+          "owner_grade": "G1",
+          "expected_output": "Vendor confirmed accept",
+          "watch_out": "Vendor reject 3x/tuần → flag G3 review"
+        },
+        {
+          "n": 3,
+          "title": "Lập bảng kê chi phí daily theo dự án",
+          "owner_grade": "G1",
+          "expected_output": "Bảng kê: order × vendor × cost × project code",
+          "watch_out": "Cost match phụ lục giá; mismatch → flag Legal/G3"
+        },
+        {
+          "n": 4,
+          "title": "Tracking SLA realtime + escalate khi miss",
+          "owner_grade": "G1",
+          "expected_output": "SLA alert log",
+          "watch_out": "Miss SLA > 5%/ngày → G3 review vendor performance"
+        }
+      ],
+      "escalation": "G3 cho vendor performance; G4 cho contract dispute >100M"
+    },
+    {
+      "id": "PB08",
+      "name": "Vendor B2B Onboarding (New Vendor)",
+      "category": "vendor",
+      "owner_grade": "G3",
+      "support_grade": "G2",
+      "frequency": "Ad-hoc, ~1-2 vendor/quarter",
+      "estimated_minutes": 720,
+      "okr_links": ["O3.3"],
+      "inputs": [
+        "Vendor landscape map",
+        "Vol forecast cần thêm capacity",
+        "Pricing benchmark internal"
+      ],
+      "outputs": [
+        "Vendor contract signed",
+        "Operational SOP integrated",
+        "Vendor live trong system"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "title": "Source vendor candidates (3-5 options)",
+          "owner_grade": "G2",
+          "expected_output": "Shortlist với pricing + capacity + region",
+          "watch_out": "Diverse region/service để giảm dependency"
+        },
+        {
+          "n": 2,
+          "title": "RFP + negotiation pricing",
+          "owner_grade": "G3",
+          "expected_output": "Final pricing sheet + commercial terms",
+          "watch_out": "Term payment 30-45 ngày; uptime/SLA penalty clause"
+        },
+        {
+          "n": 3,
+          "title": "Legal review + sign contract",
+          "owner_grade": "G3",
+          "expected_output": "Contract executed",
+          "watch_out": "Legal review ≥3 ngày; KHÔNG sign without legal sign-off"
+        },
+        {
+          "n": 4,
+          "title": "Tech integration: vendor account, system access, dispatch flow",
+          "owner_grade": "G2",
+          "expected_output": "Vendor có thể nhận đơn qua system",
+          "watch_out": "Test dispatch 5 đơn pilot trước go-live full"
+        },
+        {
+          "n": 5,
+          "title": "Pilot 2 tuần + review KPI",
+          "owner_grade": "G2",
+          "expected_output": "Decision: scale / pause / kill",
+          "watch_out": "Define KPI go/no-go từ ngày 1: accept rate ≥85%, SLA ≥90%"
+        }
+      ],
+      "escalation": "G4 cho contract >500M VNĐ/năm; Legal cho clause non-standard"
+    },
+    {
+      "id": "PB09",
+      "name": "Monthly Cost & Policy Planning",
+      "category": "planning",
+      "owner_grade": "G2",
+      "support_grade": "G3",
+      "frequency": "Tuần cuối tháng",
+      "estimated_minutes": 480,
+      "okr_links": ["O3.2", "O2.4"],
+      "inputs": [
+        "Cost actuals N (theo line item)",
+        "Policy effectiveness (incentive ROI)",
+        "Volume forecast N+1"
+      ],
+      "outputs": [
+        "Cost plan N+1 theo region/service",
+        "Policy adjust proposal",
+        "Risk register"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "title": "Cost breakdown N: incentive / vendor / hub / ops",
+          "owner_grade": "G2",
+          "expected_output": "Cost line × actual × budget × variance",
+          "watch_out": "Variance >5% → root cause analysis bắt buộc"
+        },
+        {
+          "n": 2,
+          "title": "Policy ROI review: incentive vs activation gain",
+          "owner_grade": "G2",
+          "expected_output": "ROI per policy bucket",
+          "watch_out": "ROI <1.5x → kill hoặc redesign policy"
+        },
+        {
+          "n": 3,
+          "title": "Forecast cost N+1 dựa vol expected + policy mới",
+          "owner_grade": "G2",
+          "expected_output": "Cost plan với scenario Bear/Base/Bull",
+          "watch_out": "Base case dùng vol forecast confirmed; Bull/Bear chỉ sensitivity"
+        },
+        {
+          "n": 4,
+          "title": "Trình G3 + adjust → G4 review monthly",
+          "owner_grade": "G3",
+          "expected_output": "Cost plan approved",
+          "watch_out": "G4 KHÔNG nên approve line item; review macro KPI"
+        }
+      ],
+      "escalation": "G4 nếu cost plan >5% budget AOP; CFO nếu impact P&L"
+    },
+    {
+      "id": "PB10",
+      "name": "Monthly FR Insight Analysis (Fail KPI Deep-dive)",
+      "category": "analysis",
+      "owner_grade": "G2",
+      "support_grade": "G1",
+      "frequency": "Tuần 1 mỗi tháng (cho tháng N-1)",
+      "estimated_minutes": 360,
+      "okr_links": ["O1.1", "O1.2", "O1.3"],
+      "inputs": [
+        "FR data 4 tuần",
+        "Fail reason taxonomy",
+        "Driver pool segmentation"
+      ],
+      "outputs": [
+        "Top 5 lý do Fail dominant",
+        "Pattern theo driver pool × region × service",
+        "Recommendation cho G3"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "title": "Aggregate Fail data 4 tuần",
+          "owner_grade": "G1",
+          "expected_output": "Raw data cleaned",
+          "watch_out": "Cleanse: bỏ test order, manual override"
+        },
+        {
+          "n": 2,
+          "title": "Phân loại theo cause: driver / system / customer",
+          "owner_grade": "G2",
+          "expected_output": "% share per cause",
+          "watch_out": "Cause 'other' phải <10%; quá → fix taxonomy"
+        },
+        {
+          "n": 3,
+          "title": "Drill driver pool × cause: ai fail nhiều và tại sao",
+          "owner_grade": "G2",
+          "expected_output": "Heatmap pool × cause",
+          "watch_out": "Bottom 10% driver = 30-40% fail; target action vào nhóm này"
+        },
+        {
+          "n": 4,
+          "title": "Đề xuất 3 action cho tháng N+1",
+          "owner_grade": "G2",
+          "expected_output": "Action plan + ownership + cost",
+          "watch_out": "Action phải đo lường được; KHÔNG vague"
+        },
+        {
+          "n": 5,
+          "title": "Present G3 weekly + G4 monthly business review",
+          "owner_grade": "G2",
+          "expected_output": "Slide 5 trang",
+          "watch_out": "Pyramid principle: conclusion first, supporting data sau"
+        }
+      ],
+      "escalation": "G3 cho action plan; G4 nếu cần investment >100M"
+    },
+    {
+      "id": "PB11",
+      "name": "QM Case Resolution (Mở khoá / Huỷ đơn)",
+      "category": "daily_ops",
+      "owner_grade": "G2",
+      "support_grade": "G1",
+      "frequency": "Continuous (intake từ G1)",
+      "estimated_minutes": 30,
+      "okr_links": ["O2.4"],
+      "inputs": [
+        "Driver case từ G1 / S/O",
+        "Driver history / penalty log",
+        "Policy current"
+      ],
+      "outputs": [
+        "Decision: unlock / cancel / penalty / coaching",
+        "Log audit cho compliance"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "title": "Intake case từ G1: driver_id + reason + evidence",
+          "owner_grade": "G2",
+          "expected_output": "Case file 1-pager",
+          "watch_out": "Yêu cầu evidence (screenshot/log); reject nếu thiếu"
+        },
+        {
+          "n": 2,
+          "title": "Review driver history + policy applicable",
+          "owner_grade": "G2",
+          "expected_output": "Policy match: case A/B/C",
+          "watch_out": "Driver repeat offender → escalate G3 trước decide"
+        },
+        {
+          "n": 3,
+          "title": "Decide + log via QM tool",
+          "owner_grade": "G2",
+          "expected_output": "Decision recorded",
+          "watch_out": "SLA decision <4h; quá → driver complaint"
+        },
+        {
+          "n": 4,
+          "title": "Communicate driver + S/O",
+          "owner_grade": "G1",
+          "expected_output": "Driver acknowledged",
+          "watch_out": "Driver dispute → 24h cooldown + G3 review"
+        }
+      ],
+      "escalation": "G3 cho case có legal/PR risk; G4 cho case dispute > 2 lần"
+    },
+    {
+      "id": "PB12",
+      "name": "Cross-team Feature/Data Request",
+      "category": "analysis",
+      "owner_grade": "G2",
+      "support_grade": "G3",
+      "frequency": "Ad-hoc, 2-4/tháng",
+      "estimated_minutes": 240,
+      "okr_links": ["O4.2", "O4.3"],
+      "inputs": [
+        "Pain point từ G1/G2 ops",
+        "Data/feature gap",
+        "Tech/Product roadmap"
+      ],
+      "outputs": [
+        "Feature spec draft",
+        "Buy-in từ Tech/Product/Data",
+        "Tracking implementation"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "title": "Articulate problem: who/what/impact",
+          "owner_grade": "G2",
+          "expected_output": "1-pager problem statement với data evidence",
+          "watch_out": "Không build feature wishlist; mỗi feature phải có impact metric"
+        },
+        {
+          "n": 2,
+          "title": "Draft solution spec + acceptance criteria",
+          "owner_grade": "G2",
+          "expected_output": "Spec 2-3 trang",
+          "watch_out": "Acceptance criteria phải đo lường được"
+        },
+        {
+          "n": 3,
+          "title": "Pitch Tech/Product PM trong sprint planning",
+          "owner_grade": "G2",
+          "expected_output": "Ticket trong backlog Tech",
+          "watch_out": "Priority phải sort theo ROI; pitch top 3 thôi, đừng spam"
+        },
+        {
+          "n": 4,
+          "title": "Theo dõi implementation + UAT khi deliver",
+          "owner_grade": "G2",
+          "expected_output": "Feature live + retrospective",
+          "watch_out": "UAT trong 5 ngày sau deploy; bug critical → escalate ngay"
+        }
+      ],
+      "escalation": "G3 cho priority dispute; G4 cho roadmap mới quarter+"
+    },
+    {
+      "id": "PB13",
+      "name": "Hub / KCN Go-live Checklist",
+      "category": "expansion",
+      "owner_grade": "G3",
+      "support_grade": "G2",
+      "frequency": "Ad-hoc per hub launch",
+      "estimated_minutes": 1440,
+      "okr_links": ["O2.1"],
+      "inputs": [
+        "Hub location confirmed",
+        "Lease signed",
+        "Supply target driver count"
+      ],
+      "outputs": [
+        "Hub operational + first đơn live",
+        "Supply ramp plan 30/60/90 ngày",
+        "Cost actual vs plan"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "title": "Site survey: location, access, vendor proximity",
+          "owner_grade": "G2",
+          "expected_output": "Site report",
+          "watch_out": "Check competitor presence; if Grab/Be có hub gần → cost driver acq sẽ cao"
+        },
+        {
+          "n": 2,
+          "title": "Lease + setup physical (decal station, signage, training room)",
+          "owner_grade": "G3",
+          "expected_output": "Hub physically ready",
+          "watch_out": "Lease ≥12 tháng; clause sublease nếu pilot fail"
+        },
+        {
+          "n": 3,
+          "title": "Driver recruitment campaign onsite",
+          "owner_grade": "G1",
+          "expected_output": "100+ driver onboarded D30",
+          "watch_out": "Channel local (đội nhóm leader địa phương) > paid acq"
+        },
+        {
+          "n": 4,
+          "title": "Tech integration: hub zone, dispatch rule, pricing",
+          "owner_grade": "G2",
+          "expected_output": "Hub live trong system",
+          "watch_out": "Test dispatch 50 đơn pilot trước public launch"
+        },
+        {
+          "n": 5,
+          "title": "Soft launch 2 tuần + KPI review",
+          "owner_grade": "G3",
+          "expected_output": "Decision: scale / pause",
+          "watch_out": "KPI go/no-go: 50+ active driver, FR ≥60%, COGS within band"
+        }
+      ],
+      "escalation": "G4 cho budget >500M, hub mới chưa precedent; CFO cho lease >12 tháng"
+    },
+    {
+      "id": "PB14",
+      "name": "SLA Crisis Response (FR Drop / On-time Drop)",
+      "category": "crisis",
+      "owner_grade": "G3",
+      "support_grade": "G2",
+      "frequency": "Trigger-based (FR drop >7pp 2 ngày)",
+      "estimated_minutes": 240,
+      "okr_links": ["O1.1", "O3.1"],
+      "inputs": [
+        "FR/SLA real-time data",
+        "Supply available",
+        "Customer impact (key accounts)"
+      ],
+      "outputs": [
+        "Root cause identified",
+        "Action immediate (24h) + structural (1 tuần)",
+        "Communication: KH + driver + internal"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "title": "Confirm crisis: FR drop pattern 2+ ngày, exclude noise",
+          "owner_grade": "G3",
+          "expected_output": "Crisis declared formal",
+          "watch_out": "Đừng react theo 1 ngày data; check ngày lễ/event"
+        },
+        {
+          "n": 2,
+          "title": "Form crisis room: G3 lead, G2 data, G1 driver outreach",
+          "owner_grade": "G3",
+          "expected_output": "War room daily 9AM + 5PM check-in",
+          "watch_out": "Limit war room 3-5 người; quá đông slow decision"
+        },
+        {
+          "n": 3,
+          "title": "Diagnose RCA: supply / demand / system / external",
+          "owner_grade": "G2",
+          "expected_output": "RCA 1-pager",
+          "watch_out": "5 Whys; root cause phải có evidence, không guess"
+        },
+        {
+          "n": 4,
+          "title": "Action immediate: boost incentive / shift supply / pause cohort",
+          "owner_grade": "G3",
+          "expected_output": "FR recovery within 24-48h",
+          "watch_out": "Boost cost out-of-band → notify G4 same day"
+        },
+        {
+          "n": 5,
+          "title": "Action structural: fix policy / system / vendor",
+          "owner_grade": "G3",
+          "expected_output": "Structural fix shipped trong 1 tuần",
+          "watch_out": "Crisis chưa kết thúc tới khi structural fix live 5 ngày"
+        },
+        {
+          "n": 6,
+          "title": "Post-mortem + update playbook",
+          "owner_grade": "G3",
+          "expected_output": "Post-mortem doc + playbook update",
+          "watch_out": "Post-mortem trong 7 ngày sau resolve; blameless"
+        }
+      ],
+      "escalation": "G4 same day; CFO nếu cost impact >300M; PR nếu media risk"
+    },
+    {
+      "id": "PB15",
+      "name": "Weekly Contribution Report (Đội nhóm)",
+      "category": "analysis",
+      "owner_grade": "G1",
+      "support_grade": "G2",
+      "frequency": "Thứ 2 hàng tuần",
+      "estimated_minutes": 60,
+      "okr_links": ["O2.4", "O2.5"],
+      "inputs": [
+        "Order data tuần qua",
+        "Driver pool tag (đội nhóm / mass)",
+        "Service split (bulky / 4h / instant)"
+      ],
+      "outputs": [
+        "% contribution đội nhóm vs mass theo service",
+        "Trend WoW",
+        "Top 5 đội nhóm performer / dropper"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "title": "Tag order theo driver pool",
+          "owner_grade": "G1",
+          "expected_output": "Order × pool × service",
+          "watch_out": "Pool tag stable; nếu driver chuyển pool tuần đó → flag manual"
+        },
+        {
+          "n": 2,
+          "title": "Tính % contribution per pool per service",
+          "owner_grade": "G1",
+          "expected_output": "% share theo service",
+          "watch_out": "Bulky đội nhóm thường >70%; nếu drop <60% → flag"
+        },
+        {
+          "n": 3,
+          "title": "Trend WoW + top performer/dropper",
+          "owner_grade": "G1",
+          "expected_output": "Top 5 list",
+          "watch_out": "Dropper >3 tuần liên tiếp → escalate G2 dive"
+        },
+        {
+          "n": 4,
+          "title": "Brief G3 + post lên team channel thứ 2 sáng",
+          "owner_grade": "G1",
+          "expected_output": "Slide 2 trang + brief 5 dòng",
+          "watch_out": "Brief đầu tuần → G3 set action cho tuần mới"
+        }
+      ],
+      "escalation": "G2 nếu pool đội nhóm drop >10pp; G3 nếu structural issue"
+    },
+    {
+      "id": "PB16",
+      "name": "Shift Pilot Cohort Onboarding",
+      "category": "expansion",
+      "owner_grade": "G2",
+      "support_grade": "G1",
+      "frequency": "Per cohort launch",
+      "estimated_minutes": 360,
+      "okr_links": ["O2.2"],
+      "inputs": [
+        "Shift schedule design",
+        "Cohort size target",
+        "Incentive scheme shift"
+      ],
+      "outputs": [
+        "100+ shift drivers live theo OKR",
+        "Shift compliance rate",
+        "Income uplift vs baseline"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "title": "Recruit cohort (mix existing core + new sign-up)",
+          "owner_grade": "G1",
+          "expected_output": "Cohort list signed waiver",
+          "watch_out": "Existing core driver phù hợp shift hơn newbie"
+        },
+        {
+          "n": 2,
+          "title": "Training shift policy + app config",
+          "owner_grade": "G1",
+          "expected_output": "Training complete + quiz pass",
+          "watch_out": "Quiz pass ≥80% trước go-live; quá thấp → retrain"
+        },
+        {
+          "n": 3,
+          "title": "Live pilot 4 tuần + daily monitoring",
+          "owner_grade": "G2",
+          "expected_output": "Compliance ≥85%, income uplift ≥15%",
+          "watch_out": "Compliance check daily; rollback nếu <70% 1 tuần"
+        },
+        {
+          "n": 4,
+          "title": "Retro + scale decision",
+          "owner_grade": "G2",
+          "expected_output": "Decision: scale / iterate / kill",
+          "watch_out": "Scale chỉ khi income uplift + retention proven 4 tuần"
+        }
+      ],
+      "escalation": "G3 cho scale decision; G4 cho cohort >500 drivers"
+    },
+    {
+      "id": "PB17",
+      "name": "Decal Verification Campaign",
+      "category": "recruitment",
+      "owner_grade": "G1",
+      "support_grade": "G2",
+      "frequency": "Continuous, monthly push",
+      "estimated_minutes": 240,
+      "okr_links": ["O2.5"],
+      "inputs": [
+        "Target decal count (per OKR: 1,900)",
+        "Existing verified count",
+        "Driver list chưa decal"
+      ],
+      "outputs": [
+        "Số decal verified tăng tuần",
+        "Cost per decal verified",
+        "Compliance rate"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "title": "List driver chưa decal active 14 ngày",
+          "owner_grade": "G1",
+          "expected_output": "Target list",
+          "watch_out": "Active 14 ngày = đáng đầu tư decal; inactive → skip"
+        },
+        {
+          "n": 2,
+          "title": "Schedule decal session theo region",
+          "owner_grade": "G1",
+          "expected_output": "Calendar session + driver booking",
+          "watch_out": "Session theo cụm địa lý để giảm travel time"
+        },
+        {
+          "n": 3,
+          "title": "Onsite decal + verify photo",
+          "owner_grade": "G1",
+          "expected_output": "Decal photo + driver_id log",
+          "watch_out": "Photo phải rõ biển số + decal; mờ → re-do"
+        },
+        {
+          "n": 4,
+          "title": "Update system + report weekly",
+          "owner_grade": "G1",
+          "expected_output": "Decal count update + KR2.5 progress",
+          "watch_out": "Update trong ngày; lag dữ liệu làm KR sai"
+        }
+      ],
+      "escalation": "G2 nếu cost > target 30%; G3 nếu vendor decal issue"
+    },
+    {
+      "id": "PB18",
+      "name": "OKR Weekly Cascade Sync",
+      "category": "planning",
+      "owner_grade": "G3",
+      "support_grade": "G2",
+      "frequency": "Thứ 2 mỗi tuần",
+      "estimated_minutes": 60,
+      "okr_links": ["all"],
+      "inputs": [
+        "OKR action status N-1",
+        "Risk flag từ G2/G1",
+        "Blocker từ cross-team"
+      ],
+      "outputs": [
+        "OKR L2 status update",
+        "Action plan tuần mới",
+        "Escalation list cho G4"
+      ],
+      "steps": [
+        {
+          "n": 1,
+          "title": "Pull OKR action status (on-track / at-risk / blocked)",
+          "owner_grade": "G2",
+          "expected_output": "Status board",
+          "watch_out": "At-risk định nghĩa: deadline trong 7 ngày + <50% progress"
+        },
+        {
+          "n": 2,
+          "title": "1:1 mini với G2/G1: blocker + need help",
+          "owner_grade": "G3",
+          "expected_output": "Blocker list resolved hoặc escalation plan",
+          "watch_out": "Không lecture; G3 listen + unblock"
+        },
+        {
+          "n": 3,
+          "title": "Set top 3 priority tuần",
+          "owner_grade": "G3",
+          "expected_output": "Top 3 list assigned",
+          "watch_out": "Top 3 thôi; quá → diluted focus"
+        },
+        {
+          "n": 4,
+          "title": "Brief G4 trong manager sync thứ 2 PM",
+          "owner_grade": "G3",
+          "expected_output": "1-pager: status + asks",
+          "watch_out": "G4 KHÔNG cần daily; weekly + escalation real-time"
+        }
+      ],
+      "escalation": "G4 cho cross-team blocker, action at-risk >2 tuần"
+    }
+  ]
+}

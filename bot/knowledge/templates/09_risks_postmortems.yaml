@@ -1,0 +1,173 @@
+# =============================================================================
+# Layer 8/9 — RISK CATALOG + POSTMORTEM LIBRARY
+# =============================================================================
+# Mục đích: AI biết top risks đang theo dõi, mitigation plan, owner.
+# Postmortem: AI biết failures cũ để không gợi ý lặp lại sai lầm.
+#
+# Update: monthly (Manager review), sau mỗi incident (postmortem)
+# =============================================================================
+
+# ─── Top 10 risks (tracked monthly) ──────────────────────────────────────────
+risks:
+
+  - id: "R001"
+    name: "FR HAN drop dưới target"
+    category: "service_quality"
+    probability: "medium"        # low | medium | high
+    impact: "high"
+    severity_score: 6            # P × I scale 1-9
+    description: |
+      Hà Nội FR đang trend giảm 3 quarter liên tiếp, nguy cơ < 60% Q2.
+      Cause: driver pool aging, Grab tăng promo, traffic ngày càng tệ.
+    early_warning_signals:
+      - "FR weekly drop > 3pp"
+      - "Active drivers HAN MoM growth < 0%"
+      - "Complaint count HAN > 50/week"
+    mitigation_actions:
+      - "Onboard 200 driver Core mới HAN (action 1.1.2)"
+      - "Shift incentive 6-9PM peak (action 1.1.1)"
+      - "Negotiate promo budget tăng Q3"
+    owner: "thong@ahamove.com"
+    linked_okr: "O1.2"
+    review_date: "2026-05-15"
+
+  - id: "R002"
+    name: "COGS Bulky tăng do driver tier mix xấu"
+    category: "unit_economics"
+    probability: "high"
+    impact: "high"
+    severity_score: 8
+    description: |
+      % Mass tier tăng → density per route giảm → driver payout / GSV tăng.
+    early_warning_signals:
+      - "driver_mass_pct > 30%"
+      - "cogs_bulky_pct > 32%"
+    mitigation_actions:
+      - "Promote 100 Mass → Hub Q2"
+      - "Reduce Mass intake new"
+    owner: "(email)"
+    linked_okr: "O2.1"
+
+  - id: "R003"
+    name: "Be Delivery promo war Shopee Instant"
+    category: "competitive"
+    probability: "high"
+    impact: "medium"
+    severity_score: 6
+    description: |
+      Be Delivery burn rate cao, lấy share Shopee Instant. Risk: Shopee giảm
+      orders gửi Ahamove → drop revenue.
+    early_warning_signals:
+      - "Shopee orders MoM drop > 10%"
+      - "Be Delivery promo announcement > 1x/month"
+    mitigation_actions:
+      - "Negotiate exclusive bulky lane với Shopee"
+      - "Accelerate SPX overflow capture"
+    owner: "(BD lead email)"
+
+  - id: "R004"
+    name: "Driver retention Q3 hậu Tết"
+    category: "supply"
+    probability: "medium"
+    impact: "medium"
+    severity_score: 4
+    description: "Quý 1 hậu Tết driver thường drop 15-20%"
+
+  # (Add R005-R010...)
+
+# ─── Postmortem library ──────────────────────────────────────────────────────
+# Failures đã xảy ra + lesson learned.
+# AI dùng để: trả lời "đã xảy ra issue như này chưa", "lesson nào áp dụng".
+
+postmortems:
+
+  - id: "PM-2025-12-001"
+    date: "2025-12-15"
+    severity: "P0"
+    title: "FR HAN drop 25pp trong 3 ngày — vendor truck vendor V001 down"
+    duration: "72 hours"
+    impact:
+      orders_lost: 8_500
+      revenue_lost_vnd: 2_100_000_000
+      customer_complaints: 142
+    root_cause: |
+      Vendor V001 (truck rental HCM nam) bãi xe bị flooding, 60% fleet down.
+      Không có backup vendor agreement → không thể spin up backup nhanh.
+    contributing_factors:
+      - "Backup vendor contract chưa active"
+      - "Monitoring vendor health rate lacking — chỉ check monthly"
+      - "Alert system không catch real-time"
+    timeline:
+      - "Day 1 8AM: Vendor báo flooding"
+      - "Day 1 11AM: Ops team rà flow → confirm impact"
+      - "Day 1 6PM: Manager escalate, find backup"
+      - "Day 3 9PM: Backup vendor V002 ramp up"
+    resolution:
+      - "Backup vendor V002 ramp 40% in 24h"
+      - "Customer comms via account manager"
+      - "Refund + credit cho 142 KH"
+    lessons_learned:
+      - "Always have backup vendor agreement pre-signed"
+      - "Vendor health check should be daily, not monthly"
+      - "Need real-time alert if vendor fleet utilization > 90%"
+    action_items:
+      - id: "PM-001-A1"
+        action: "Sign backup vendor agreement Q1/2026"
+        owner: "khanh@ahamove.com"
+        deadline: "2026-03-01"
+        status: "done"
+      - id: "PM-001-A2"
+        action: "Build vendor health dashboard real-time"
+        owner: "tech_lead@ahamove.com"
+        status: "in_progress"
+
+  - id: "PM-2025-09-001"
+    date: "2025-09-22"
+    severity: "P1"
+    title: "(điền postmortem ví dụ 2)"
+    impact: {}
+    root_cause: "(điền)"
+    lessons_learned: []
+
+  # (Add more postmortems...)
+
+# ─── Decision log (key decisions made — searchable history) ──────────────────
+# AI dùng để: trả lời "đã quyết định gì về X chưa", tránh re-debate.
+decisions:
+
+  - id: "D-2026-01-001"
+    date: "2026-01-15"
+    title: "Switch primary Bulky vendor HCM Nam V001 → V002"
+    decision: "Promote V002 to primary, V001 demote to backup"
+    rationale: "V001 SLA breach 3 tháng liên tiếp + flooding incident"
+    decided_by: "Manager + COO"
+    affected_areas: ["HCM south", "Bulky service"]
+    review_date: "2026-04-15"     # 3 months review
+
+  - id: "D-2026-02-001"
+    date: "2026-02-08"
+    title: "Approve 200 driver Core onboard HAN Q2"
+    decision: "Budget 800M VNĐ approved cho hiring 200 driver Core"
+    rationale: "FR HAN trend → cần supply boost"
+    decided_by: "Manager + Finance"
+    linked_okr: "O1.2"
+    review_date: "2026-05-08"
+
+  # (Add more decisions...)
+
+# ─── Known failure modes (recurring issues, AI auto-detect) ──────────────────
+failure_modes:
+
+  - id: "FM-001"
+    name: "Vendor fleet flooding monsoon (T6-T10)"
+    pattern: "Mưa lớn HCM → vendor bãi xe flooding → fleet down 30-60%"
+    detection: "Weather API + vendor health check"
+    standard_response_playbook: "PB-vendor-emergency"
+    last_occurred: "2025-12-15"
+
+  - id: "FM-002"
+    name: "Tết driver churn"
+    pattern: "Tháng 1-2 driver về quê → pool drop 40%"
+    detection: "Calendar trigger + active_drivers MoM"
+    standard_response_playbook: "PB-tet-prep"
+    last_occurred: "2026-01"

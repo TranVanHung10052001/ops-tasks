@@ -1,0 +1,173 @@
+# =============================================================================
+# Layer 7 — OPERATING RHYTHM
+# =============================================================================
+# Mục đích: AI biết cadence — daily 8AM brief, weekly Friday review, monthly
+# All-hands, quarterly OKR set. Biết câu "tuần này" = từ thứ 2 đến chủ nhật.
+#
+# AI dùng để: timing alerts, suggest agenda, detect "missed cadence".
+# =============================================================================
+
+# ─── Daily cadence ────────────────────────────────────────────────────────────
+daily:
+  - id: "morning_brief"
+    time: "08:00"
+    audience: "All team"
+    duration_min: 10
+    format: "Async (bot DM mỗi member)"
+    content: ["Yesterday done", "Today top 3 priorities", "Blocker?"]
+    owner: "Self (bot auto-send)"
+    bot_command: "/today"
+
+  - id: "manager_digest"
+    time: "08:30"
+    audience: "Manager only"
+    duration_min: 5
+    format: "Bot DM"
+    content: ["Team status overview", "P0 tasks", "At-risk OKR"]
+    bot_command: "/brief"
+
+  - id: "deadline_check"
+    time: "every 15 min"
+    type: "auto-check"
+    rule: "If task deadline < 2h and not done → ping owner"
+
+  - id: "eod_recap"
+    time: "18:00"
+    audience: "All"
+    format: "Bot DM"
+    content: ["Done today", "Carry-over tomorrow"]
+    bot_command: "(auto)"
+
+# ─── Weekly cadence ──────────────────────────────────────────────────────────
+weekly:
+  - id: "mon_planning"
+    day: "Monday"
+    time: "09:30"
+    duration_min: 60
+    audience: "TL+, in-person/zoom"
+    agenda:
+      - "Recap last week (OKR + KPI)"
+      - "This week priorities (top 5 per person)"
+      - "Blocker resolution"
+      - "Action items review"
+    decision_authority: "Manager"
+
+  - id: "wed_mid_check"
+    day: "Wednesday"
+    time: "16:00"
+    duration_min: 30
+    audience: "Manager + TL"
+    purpose: "Mid-week pulse check on OKR/KPI"
+
+  - id: "fri_review"
+    day: "Friday"
+    time: "17:00"
+    duration_min: 90
+    audience: "All TL+ + Manager"
+    agenda:
+      - "Week metrics review (vs target)"
+      - "OKR action status update"
+      - "Key wins + key risks"
+      - "Decisions log"
+    output: "Weekly report → manager → CEO"
+    bot_support: "/weekly_report Friday 17:00"
+
+# ─── Monthly cadence ─────────────────────────────────────────────────────────
+monthly:
+  - id: "month_close"
+    day: "1st business day of month"
+    audience: "Manager + Finance"
+    agenda:
+      - "P&L close previous month"
+      - "Driver tier audit"
+      - "Customer health review"
+      - "Vendor SLA scorecard"
+
+  - id: "all_hands"
+    day: "3rd Thursday"
+    duration_min: 120
+    audience: "All Truck Ops team (11 people)"
+    agenda:
+      - "Company update from Manager"
+      - "OKR progress"
+      - "Q&A open floor"
+
+  - id: "kpi_re_allocate"
+    day: "Mid-month"
+    cadence: "Every 6 months (half-year)"
+    audience: "Manager"
+    purpose: "Re-distribute KPI weights theo team capacity changes"
+
+# ─── Quarterly cadence ───────────────────────────────────────────────────────
+quarterly:
+  - id: "okr_set"
+    timing: "1 week before quarter start"
+    audience: "Manager + TL + CEO review"
+    output: "okr_tree.yaml updated"
+    decision_authority: "CEO approve, Manager set"
+
+  - id: "okr_review"
+    timing: "Last week of quarter"
+    audience: "All TL+"
+    agenda:
+      - "Each OKR: % done, learning, next-Q implication"
+    output: "Postmortem doc per OKR"
+
+  - id: "compensation_review"
+    timing: "End of Q2 + Q4"
+    audience: "Manager + HR"
+
+# ─── Reporting deliverables ──────────────────────────────────────────────────
+deliverables:
+  - id: "daily_dashboard"
+    audience: "Manager + TL"
+    medium: "Web /ask + telegram /brief"
+    delivery_time: "08:30"
+
+  - id: "weekly_report"
+    audience: "CEO + COO"
+    medium: "PDF + Slack"
+    delivery_time: "Friday 18:00"
+    template: "(link to template doc)"
+
+  - id: "monthly_review_deck"
+    audience: "Board + CEO"
+    medium: "Google Slides"
+    delivery_time: "5th of month"
+    owner: "Manager"
+
+  - id: "quarterly_board_pack"
+    audience: "Board"
+    medium: "PDF + presentation"
+    timing: "2 weeks before board meeting"
+
+# ─── External calendar (peak / off-peak) ─────────────────────────────────────
+external_events:
+  - name: "Tết Nguyên Đán"
+    timing: "Jan-Feb"
+    impact: "Driver pool drop 40%, FR risk P0, GSV +30% pre-Tet"
+    action: "Surge pricing + bonus incentive 2 weeks before"
+
+  - name: "11.11 / 12.12 / Black Friday"
+    timing: "Nov-Dec"
+    impact: "Order volume +200% peak day"
+    action: "Pre-warm driver pool, freeze deploy 1 week before"
+
+  - name: "Mid-Autumn (Trung Thu)"
+    timing: "September"
+    impact: "Bulky orders peak (mooncake)"
+
+  - name: "Quý 1 hậu Tết slow"
+    timing: "March-April"
+    impact: "Demand drop, driver churn risk"
+    action: "Retention focus"
+
+# ─── Definition of "this week", "this month" etc ─────────────────────────────
+# AI cần biết để parse câu hỏi đúng.
+period_definitions:
+  this_week: "Monday 00:00 → Sunday 23:59 (current week)"
+  last_week: "Previous Monday → Sunday"
+  this_month: "1st → last day current month"
+  this_quarter: "Apr/Jul/Oct/Jan first day → next quarter -1 day"
+  ytd: "Year to date — Jan 1 → today"
+  today: "00:00 → 23:59 today GMT+7"

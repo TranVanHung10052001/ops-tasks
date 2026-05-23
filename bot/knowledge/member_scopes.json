@@ -1,0 +1,457 @@
+{
+  "version": "2026-Q2",
+  "updated_at": "2026-05-17",
+  "members": [
+    {
+      "email": "huyle@ahamove.com",
+      "name": "Lê Quang Huy",
+      "short_name": "Huy",
+      "grade": "G4",
+      "title": "Manager — Truck Ops",
+      "team": "Truck Ops",
+      "reports_to": "Lê Hữu Chung (C-level Ops)",
+      "direct_reports": ["Thống", "Thành (ACT)", "Khánh"],
+      "owns": [
+        "P&L toàn bộ Truck Ops (Bulky / GXT / LH / B2B)",
+        "OKR L1 quarterly + cascade xuống 3 nhánh",
+        "Hire/dev G3, perf review G3",
+        "Network expansion (KCN, hub, EV partner)",
+        "Stakeholder C-level: BD, CFO, Tech, Legal"
+      ],
+      "do_more": [
+        "Set OKR L1 + weekly review with 3 G3s",
+        "Stakeholder mgmt cấp C: 30%+ time",
+        "1:1 G3 hàng tuần — focus growth, không micromanage",
+        "Strategic bets: LTL pilot, Installation, AI Bot ops automation",
+        "Network design: KCN expansion roadmap, vendor strategy >500M"
+      ],
+      "do_less": [
+        "Tự update FR/productivity data hàng ngày (G1 task)",
+        "Approve từng promo <50M (set band, G3 quyết)",
+        "Truyền thông policy đến từng đội nhóm driver",
+        "Tự đàm phán giá vendor B2B <100M/tháng",
+        "Drafting hợp đồng B2B (G1 Coordinator)",
+        "Review từng case mở khoá/huỷ đơn (G2 + QM)",
+        "Tự đi tuyển driver theo campaign"
+      ],
+      "delegate_to": {
+        "Strategic FR HAN, Bulky/GXT planning HAN": "Thống (G3)",
+        "Strategic FR SGN, SLA SGN": "Thành (ACT-G3)",
+        "B2B vendor strategy, GSV B2B": "Khánh (G3)",
+        "Expansion KCN/tỉnh, driver supply EXP": "Khâm (G2)",
+        "Daily FR data + insight monthly": "Thương / Phú (G2 region)",
+        "Vendor B2B daily dispatch + bảng kê": "Ngân (G1 Coordinator)",
+        "Driver recruit + retention daily": "Toàn (HAN G1) / Chiến (SGN G2)"
+      },
+      "owns_okr": ["O1, O2, O3, O4, O5 (oversight)", "P&L Truck Ops"],
+      "playbooks_to_supervise": ["PB09", "PB13", "PB14", "PB18"],
+      "red_flags": [
+        ">30% time vào daily ops tasks (target <15%)",
+        "Review từng FR data file thay vì trend macro",
+        "Personally negotiating <100M VNĐ vendor contracts",
+        "Approve từng decision policy <50M (bottleneck team)",
+        "Trong inbox >100 daily ops messages (delegate channel cho G3)",
+        "Không có 1:1 với 1 G3 nào trong 2 tuần"
+      ]
+    },
+    {
+      "email": "thonglhn@ahamove.com",
+      "name": "Lê Hoàng Nhất Thống",
+      "short_name": "Thống",
+      "grade": "G3",
+      "title": "Team Lead HAN",
+      "team": "HAN",
+      "reports_to": "Lê Quang Huy",
+      "direct_reports": ["Thương (G2)", "Toàn (G1)"],
+      "owns": [
+        "OKR L2 HAN: FR Core HAN, COGS GXT, Shift HAN",
+        "P&L region HAN: cost, performance, SLA",
+        "Service & Supply planning Bulky/GXT toàn khu vực",
+        "Cross-team escalation HAN: Tech, Data, QM, Growth",
+        "Vendor negotiation HAN <500M",
+        "Hire G1/G2 HAN, 1:1 weekly"
+      ],
+      "do_more": [
+        "1:1 weekly với Thương (G2) + Toàn (G1) — focus growth",
+        "Monthly cost/policy plan HAN review + sign-off",
+        "Cross-region coordination với Thành (SGN)",
+        "GHN 9 tỉnh execution (O5.1) — primary owner",
+        "Process redesign HAN region (workflow automation)"
+      ],
+      "do_less": [
+        "Tự update productivity/retention HAN (Toàn G1)",
+        "Tự gọi từng driver inactive (Thương G2)",
+        "Lập bảng kê chi phí daily HAN (G1 task)",
+        "Drafting full insight report (Thương G2 draft, Thống review)"
+      ],
+      "delegate_to": {
+        "FR data + insight HAN": "Thương (G2)",
+        "Driver recruit + decal HAN": "Toàn (G1)",
+        "Capacity forecast HAN": "Thương (G2)",
+        "Backlog clear HAN": "Thương (G2)"
+      },
+      "owns_okr": ["O1.1 (FR HAN)", "O2.2 (Shift HAN)", "O3.2 (COGS GXT)", "O5.1 (GHN 9 tỉnh)"],
+      "playbooks_to_supervise": ["PB02", "PB05", "PB14", "PB18"],
+      "red_flags": [
+        ">40% time vào daily data update (target <15%)",
+        "Personally approving decal cho từng driver",
+        "Không có monthly plan submit cho G4 đầu tháng",
+        "Backlog HAN >10% 3 ngày mà chưa surface lên G4"
+      ]
+    },
+    {
+      "email": "thuonglth@ahamove.com",
+      "name": "Lưu Thị Hoài Thương",
+      "short_name": "Thương",
+      "grade": "G2",
+      "title": "Specialist HAN",
+      "team": "HAN",
+      "reports_to": "Thống",
+      "direct_reports": [],
+      "owns": [
+        "Forecast capacity HAN weekly",
+        "FR data update + insight analysis HAN",
+        "Monthly cost/policy proposal HAN (draft → Thống approve)",
+        "Cross-team feature request (Tech Ops Driver, Data, Map)",
+        "Backlog management HAN",
+        "Vehicle classification data (O4.2)"
+      ],
+      "do_more": [
+        "Insight analysis Fail KPI weekly (PB10)",
+        "Cross-team feature pitch (PB12) — không chờ Thống nhắc",
+        "Mentor Toàn về data quality",
+        "Forecast precision review weekly (actual vs forecast)"
+      ],
+      "do_less": [
+        "Tự pull raw data hàng ngày (Toàn G1)",
+        "Tự gửi báo cáo daily mà không insight (G1 task)",
+        "Approve policy budget (escalate Thống)",
+        "Drafting OKR L2 cho Thống"
+      ],
+      "delegate_to": {
+        "Daily data pull + dashboard update HAN": "Toàn (G1)",
+        "Driver communication mass": "Toàn (G1)"
+      },
+      "owns_okr": ["O1.1 (FR data HAN)", "O4.2 (Vehicle classification)"],
+      "playbooks_to_supervise": ["PB01", "PB02", "PB03", "PB10", "PB12"],
+      "red_flags": [
+        ">60% time vào data pulling thay vì insight",
+        "Báo cáo daily không có 'so what' insight",
+        "Không có cost/policy proposal monthly cho Thống",
+        "Tech ticket pending >2 tuần chưa follow-up"
+      ]
+    },
+    {
+      "email": "toanpt@ahamove.com",
+      "name": "Phạm Phú Toàn",
+      "short_name": "Toàn",
+      "grade": "G1",
+      "title": "Executive HAN",
+      "team": "HAN",
+      "reports_to": "Thống",
+      "direct_reports": [],
+      "owns": [
+        "Daily productivity + retention update HAN",
+        "Decal verification campaign HAN",
+        "Driver recruitment outreach + onboarding HAN",
+        "Weekly contribution report (đội nhóm) HAN",
+        "Driver mass communication HAN",
+        "Coordination với S/O HAN"
+      ],
+      "do_more": [
+        "Update data đúng giờ + đúng format (9:00 + 17:30)",
+        "Surface anomaly trong ngày, không đợi tuần",
+        "Decal verify ảnh chuẩn, không re-do",
+        "Đề xuất pain point lên Thương (không sợ nói)"
+      ],
+      "do_less": [
+        "Tự decide policy/cost (escalate Thương)",
+        "Tự approve case mở khoá driver",
+        "Drafting insight analysis (Thương G2 owns)"
+      ],
+      "delegate_to": {},
+      "owns_okr": ["O2.4 (Retention HAN)", "O2.5 (Decal HAN)"],
+      "playbooks_to_supervise": ["PB04", "PB06", "PB15", "PB17"],
+      "red_flags": [
+        "Data update trễ >30 phút deadline",
+        "Decal photo mờ phải re-do >10%",
+        "Không follow-up driver onboard trong 48h",
+        "Surface vấn đề muộn (>3 ngày sau happen)"
+      ]
+    },
+    {
+      "email": "thanhtq@ahamove.com",
+      "name": "Trần Quốc Thành",
+      "short_name": "Thành",
+      "grade": "ACT-G3",
+      "title": "Acting Team Lead SGN",
+      "team": "SGN",
+      "reports_to": "Lê Quang Huy",
+      "direct_reports": ["Phú (G1)", "Chiến (G2)"],
+      "owns": [
+        "OKR L2 SGN: FR SGN, SLA SGN, Shift SGN",
+        "P&L region SGN: cost, performance",
+        "Hire G1/G2 SGN, 1:1 weekly",
+        "Cross-team escalation SGN",
+        "Driver supply quality SGN",
+        "Moving Crew SGN (O2.3)"
+      ],
+      "do_more": [
+        "Earn full G3 — chứng minh strategic thinking",
+        "Monthly plan SGN submit đầu tháng",
+        "1:1 với Phú + Chiến mỗi tuần",
+        "Cross-region sync với Thống weekly"
+      ],
+      "do_less": [
+        "Tự làm task của G1 (Phú) — over-execute",
+        "Skip strategic planning để fix daily issue",
+        "Approve hết case mở khoá thay vì Chiến (G2)"
+      ],
+      "delegate_to": {
+        "FR data + capacity forecast SGN": "Phú (G1) raw + Chiến (G2) insight",
+        "Backlog clear SGN": "Chiến (G2)",
+        "Driver recruit + decal SGN": "Phú (G1) + Chiến (G2)",
+        "Inactive driver recovery SGN": "Chiến (G2)"
+      },
+      "owns_okr": ["O1.1 (FR SGN)", "O2.2 (Shift SGN)", "O3.1 (SLA SGN)"],
+      "playbooks_to_supervise": ["PB02", "PB05", "PB14", "PB18"],
+      "red_flags": [
+        "Vẫn dùng style G1: tự làm everything",
+        "Không có monthly plan SGN submit",
+        "Không có 1:1 với Phú/Chiến >2 tuần",
+        "SLA SGN drop mà chưa propose recovery plan"
+      ]
+    },
+    {
+      "email": "phutn@ahamove.com",
+      "name": "Trần Ngọc Phú",
+      "short_name": "Phú",
+      "grade": "G1",
+      "title": "Executive SGN",
+      "team": "SGN",
+      "reports_to": "Thành",
+      "direct_reports": [],
+      "owns": [
+        "Forecast + capacity update SGN (raw data + draft)",
+        "Order Creation/Vol Success/Backlog data SGN",
+        "FR N-1 + MTD report SGN",
+        "Fail KPI raw analysis SGN",
+        "Driver mass communication SGN",
+        "Cost/policy raw data prep SGN"
+      ],
+      "do_more": [
+        "Data quality cao — số chính xác, format chuẩn",
+        "Báo cáo on-time + propose 1 insight mỗi báo cáo",
+        "Mentor học việc lên G2"
+      ],
+      "do_less": [
+        "Tự decide policy (lên Chiến G2 + Thành G3)",
+        "Drafting insight full (Chiến G2)"
+      ],
+      "delegate_to": {},
+      "owns_okr": ["O1.1 (FR data SGN)"],
+      "playbooks_to_supervise": ["PB01", "PB04", "PB15"],
+      "red_flags": [
+        "Data sai >2 lần/tháng",
+        "Báo cáo trễ >30 phút",
+        "Không có insight, chỉ dump data"
+      ]
+    },
+    {
+      "email": "chienpd@ahamove.com",
+      "name": "Phạm Đình Chiến",
+      "short_name": "Chiến",
+      "grade": "G2",
+      "title": "Specialist SGN",
+      "team": "SGN",
+      "reports_to": "Thành",
+      "direct_reports": [],
+      "owns": [
+        "Inactive driver recovery SGN (PB05)",
+        "Backlog clear daily SGN (PB03)",
+        "QM case resolution SGN (PB11)",
+        "Productivity + Retention insight SGN",
+        "Đề xuất cải thiện tính năng vận hành",
+        "Vehicle classification data SGN (O4.2 support)"
+      ],
+      "do_more": [
+        "Inactive recovery weekly campaign (PB05)",
+        "Backlog clear 3 cycles/day (PB03)",
+        "Feature request → Tech Ops Driver weekly"
+      ],
+      "do_less": [
+        "Tự pull raw data hàng ngày (Phú G1)",
+        "Tự gọi driver mass (Phú G1)",
+        "Drafting hợp đồng (không trong scope)"
+      ],
+      "delegate_to": {
+        "Daily data pull": "Phú (G1)",
+        "Driver mass call": "Phú (G1)"
+      },
+      "owns_okr": ["O2.4 (Retention SGN)", "O2.5 (Decal SGN)"],
+      "playbooks_to_supervise": ["PB03", "PB05", "PB11", "PB12"],
+      "red_flags": [
+        ">50% time vào backlog manual (cần auto)",
+        "QM case SLA decision >4h",
+        "Không có feature pitch quý"
+      ]
+    },
+    {
+      "email": "khanhlv@ahamove.com",
+      "name": "Lê Văn Khánh",
+      "short_name": "Khánh",
+      "grade": "G3",
+      "title": "Team Lead B2B",
+      "team": "B2B",
+      "reports_to": "Lê Quang Huy",
+      "direct_reports": ["Ngân (G1)", "Khâm (G2)", "Hùng (G1)"],
+      "owns": [
+        "OKR L2 B2B: Vendor 11 (O3.3), Distribution GSV (O3.4)",
+        "P&L B2B: cost, performance, contract margin",
+        "Vendor strategy + RFP + negotiation B2B",
+        "Cross-team với BD, Legal, Finance",
+        "Hire G1/G2 B2B",
+        "GHN 9 tỉnh (O5.1 với Thống)"
+      ],
+      "do_more": [
+        "Vendor onboarding playbook (PB08) chạy theo quarter",
+        "Pricing strategy B2B per project segment",
+        "1:1 weekly với Ngân + Khâm + Hùng",
+        "BD Corp pipeline review monthly"
+      ],
+      "do_less": [
+        "Tự làm bảng kê + hợp đồng từng dự án (Ngân G1)",
+        "Tự gọi từng vendor daily (Ngân + Hùng G1)",
+        "Tự dispatch B2B từng đơn (G1 task)"
+      ],
+      "delegate_to": {
+        "Vendor B2B daily dispatch + bảng kê": "Ngân (G1 Coordinator)",
+        "Vendor B2B search + onboarding ops": "Hùng (G1) + Khâm (G2)",
+        "Expansion KCN/tỉnh supply": "Khâm (G2)",
+        "Contract drafting + payment": "Ngân (G1) + Legal"
+      },
+      "owns_okr": ["O3.3 (Vendor 11)", "O3.4 (Distribution GSV)", "O5.1 (GHN 9 tỉnh)", "O2.6 (EV Van)"],
+      "playbooks_to_supervise": ["PB07", "PB08", "PB13", "PB18"],
+      "red_flags": [
+        ">30% time vào daily B2B dispatch",
+        "Tự ký hợp đồng <100M (Legal approval ok cho range này)",
+        "BD pipeline ≤3 corp clients quarter (target 3+)",
+        "Vendor count stuck ở 8 (target 11)"
+      ]
+    },
+    {
+      "email": "Nganntk1@ahamove.com",
+      "name": "Nguyễn Thị Kim Ngân",
+      "short_name": "Ngân",
+      "grade": "G1",
+      "title": "Coordinator B2B",
+      "team": "B2B",
+      "reports_to": "Khánh",
+      "direct_reports": [],
+      "owns": [
+        "Vendor B2B daily dispatch coordination (PB07)",
+        "Bảng kê chi phí daily B2B",
+        "Hợp đồng dự án B2B + vendor B2C drafting",
+        "Phụ lục giá update",
+        "Payment cycle với team kế toán"
+      ],
+      "do_more": [
+        "Bảng kê accurate + on-time",
+        "Contract template chuẩn — không skip Legal review",
+        "Surface vendor performance issue weekly",
+        "Track payment cycle, alert chậm thanh toán"
+      ],
+      "do_less": [
+        "Tự decide pricing (Khánh G3)",
+        "Tự ký contract (G3 + Legal)"
+      ],
+      "delegate_to": {},
+      "owns_okr": ["O3.3 (Vendor B2B coord)"],
+      "playbooks_to_supervise": ["PB07"],
+      "red_flags": [
+        "Bảng kê sai >5%",
+        "Hợp đồng miss clause critical",
+        "Payment cycle chậm >5 ngày"
+      ]
+    },
+    {
+      "email": "khamnd@ahamove.com",
+      "name": "Nguyễn Duy Khâm",
+      "short_name": "Khâm",
+      "grade": "G2",
+      "title": "Specialist Expansion",
+      "team": "EXP",
+      "reports_to": "Khánh",
+      "direct_reports": [],
+      "owns": [
+        "Driver supply EXP (tỉnh + KCN)",
+        "Productivity + Retention EXP",
+        "Driver recruit + decal EXP",
+        "KCN BDG + Mini-hub LAN go-live (O2.1)",
+        "LH driver pool analysis (O1.2)",
+        "Supply activation 9 tỉnh GHN (O5.1)"
+      ],
+      "do_more": [
+        "KCN BDG + LAN execution per PB13",
+        "Long Haul driver pool deep-dive (O1.2)",
+        "Cross-team với Growth cho recruit channel"
+      ],
+      "do_less": [
+        "Tự làm hợp đồng vendor (Ngân G1)",
+        "Tự decide budget recruit (Khánh G3)"
+      ],
+      "delegate_to": {},
+      "owns_okr": ["O2.1 (KCN BDG + LAN)", "O1.2 (LH supply EXP)", "O5.1 (Supply 9 tỉnh)", "O2.5 (Decal EXP)"],
+      "playbooks_to_supervise": ["PB05", "PB06", "PB13", "PB16"],
+      "red_flags": [
+        "Hub launch slip >2 tuần deadline",
+        "Driver D7 active <40% EXP",
+        "Không có weekly progress brief Khánh"
+      ]
+    },
+    {
+      "email": "hungtv@ahamove.com",
+      "name": "Trần Văn Hùng",
+      "short_name": "Hùng",
+      "grade": "G1",
+      "title": "Executive B2B",
+      "team": "B2B",
+      "reports_to": "Khánh",
+      "direct_reports": [],
+      "owns": [
+        "Vendor B2B daily coordination support",
+        "Vendor search ops (O3.3 support)",
+        "Bảng kê chi phí B2B + vendor reconciliation",
+        "Dispatch B2C / Project ad-hoc"
+      ],
+      "do_more": [
+        "Surface vendor candidate weekly",
+        "Bảng kê reconciliation accurate",
+        "Track project B2C ad-hoc với SLA"
+      ],
+      "do_less": [
+        "Tự negotiate vendor pricing (Khánh G3)",
+        "Drafting contract (Ngân G1 Coordinator)"
+      ],
+      "delegate_to": {},
+      "owns_okr": ["O3.3 (Vendor search support)"],
+      "playbooks_to_supervise": ["PB07"],
+      "red_flags": [
+        "Bảng kê mismatch >5%",
+        "Không có vendor candidate quý",
+        "B2C project SLA miss"
+      ]
+    }
+  ],
+  "delegation_health_targets": {
+    "G4_strategic_time_pct": { "target": 60, "warning": 45 },
+    "G4_daily_ops_time_pct": { "target_max": 15, "warning_max": 30 },
+    "G3_tactical_time_pct": { "target": 50, "warning": 35 },
+    "G3_operational_time_pct": { "target_max": 25, "warning_max": 45 },
+    "G2_analysis_time_pct": { "target": 60, "warning": 40 },
+    "G1_execution_time_pct": { "target": 80, "warning_max": 95 },
+    "tasks_with_playbook_pct": { "target": 70, "warning": 40 },
+    "escalation_to_G4_per_week_max": { "target": 5, "warning_max": 15 },
+    "playbook_coverage_recurring_tasks_pct": { "target": 80 }
+  }
+}

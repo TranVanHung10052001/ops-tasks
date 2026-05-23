@@ -1,0 +1,158 @@
+# =============================================================================
+# Layer 6 — NETWORK / HUBS / STATIONS / KCN
+# =============================================================================
+# Mục đích: AI biết physical infrastructure — hub nào ở đâu, capacity, ai
+# manage. Khi anh hỏi "mở rộng KCN Bình Dương" → AI biết hub gần nhất.
+#
+# Update: monthly (Ops + Expansion lead)
+# =============================================================================
+
+# ─── Cities ──────────────────────────────────────────────────────────────────
+cities:
+  - id: "HCM"
+    name: "TP. Hồ Chí Minh (Saigon)"
+    population_million: 9.0
+    market_share_pct: 25                  # Ahamove SGN share
+    primary_competitor: "Be Delivery (32%)"
+    services_active: ["bike Instant", "bike 4H", "truck Bulky", "truck Longhaul"]
+    ahamove_zone_count: 19                # vd: 19 zone trong SGN
+
+  - id: "HAN"
+    name: "Hà Nội"
+    population_million: 8.0
+    market_share_pct: 42
+    primary_competitor: "Grab Express (32%)"
+    services_active: ["bike Instant", "bike 4H", "truck Bulky"]
+    ahamove_zone_count: 14
+
+  - id: "BD"
+    name: "Bình Dương"
+    population_million: 2.7
+    market_share_pct: "(điền)"
+    notes: "KCN heavy — VSIP, Mỹ Phước, Sóng Thần"
+    services_active: ["truck Bulky", "truck Longhaul"]
+
+  - id: "DN"
+    name: "Đồng Nai"
+    services_active: ["truck Bulky"]
+
+  - id: "HP"
+    name: "Hải Phòng"
+
+  - id: "DAN"
+    name: "Đà Nẵng"
+
+# ─── Hubs (sort centers / dispatch hubs) ─────────────────────────────────────
+hubs:
+  - id: "HUB-HCM-01"
+    city: "HCM"
+    district: "Quận 7"
+    address: "(điền địa chỉ)"
+    type: "Main sort center"
+    capacity_orders_per_day: 15_000
+    services: ["bike", "truck Bulky"]
+    manager: "(email)"
+    notes: "Phục vụ Q7, Q2, Nhà Bè"
+
+  - id: "HUB-HCM-02"
+    city: "HCM"
+    district: "Tân Bình"
+    type: "Bike dispatch"
+    capacity_orders_per_day: 12_000
+
+  - id: "HUB-HAN-01"
+    city: "HAN"
+    district: "Cầu Giấy"
+    type: "Main sort center"
+
+  - id: "HUB-BD-01"
+    city: "BD"
+    address: "VSIP I"
+    type: "KCN dispatch"
+    notes: "Phục vụ VSIP I + II + Mỹ Phước"
+
+  # (Add more hubs...)
+
+# ─── Stations (driver clusters) ──────────────────────────────────────────────
+# Station = driver tier "Station" gathering point — high density area.
+stations:
+  - id: "STN-HCM-Q1"
+    city: "HCM"
+    district: "Quận 1"
+    driver_count: 80
+    avg_orders_per_day: 600
+    type: "Bike station"
+
+  - id: "STN-HAN-HOANKIEM"
+    city: "HAN"
+    district: "Hoàn Kiếm"
+    driver_count: 50
+    type: "Bike station"
+
+  # (Add more stations...)
+
+# ─── Industrial Zones (KCN) ──────────────────────────────────────────────────
+kcn_zones:
+  - id: "KCN-VSIP-1"
+    name: "VSIP I"
+    city: "BD"
+    tenants_count: 240
+    primary_industries: ["Electronics", "FMCG", "Textile"]
+    ahamove_coverage_pct: 45              # % tenants using Ahamove
+    primary_member: "khâm@ahamove.com"    # KCN expansion lead
+    notes: "Largest single KCN by Ahamove revenue"
+
+  - id: "KCN-VSIP-2"
+    name: "VSIP II"
+    city: "BD"
+
+  - id: "KCN-MY-PHUOC"
+    name: "Mỹ Phước"
+    city: "BD"
+
+  - id: "KCN-SONG-THAN"
+    name: "Sóng Thần"
+    city: "BD"
+
+  - id: "KCN-LONG-HAU"
+    name: "Long Hậu"
+    city: "(Long An?)"
+
+  # (Add more KCNs...)
+
+# ─── Service coverage map ────────────────────────────────────────────────────
+# Mỗi service ở zone nào, capacity bao nhiêu.
+service_coverage:
+  - service: "bike Instant"
+    cities: ["HCM", "HAN"]
+    avg_capacity_orders_per_day: 50_000
+
+  - service: "truck Bulky"
+    cities: ["HCM", "HAN", "BD", "DN"]
+    avg_capacity_orders_per_day: 8_000
+
+  - service: "truck Longhaul"
+    cities: "Inter-city, primary HCM↔BD, HAN↔HP"
+    avg_capacity_orders_per_day: 1_500
+
+# ─── Network constraints ─────────────────────────────────────────────────────
+# AI dùng để hiểu tại sao 1 service ở 1 zone bị bottleneck.
+constraints:
+  - location: "KCN-VSIP-1"
+    constraint: "Driver supply limited evening rush (5-7PM)"
+    impact: "FR drop 15pp evening peak"
+    mitigation_owner: "(email)"
+
+  - location: "HAN Hoàn Kiếm"
+    constraint: "Government restriction truck entry day-time"
+    impact: "Truck Bulky shift to 9PM-5AM only"
+
+# ─── Expansion roadmap 2026 ──────────────────────────────────────────────────
+expansion:
+  - target_zone: "KCN Long Hậu"
+    quarter: "Q2/2026"
+    estimated_volume: "+500 orders/day"
+    owner: "khâm@ahamove.com"
+
+  - target_zone: "(điền)"
+    quarter: "Q3/2026"

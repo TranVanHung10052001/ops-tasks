@@ -1,0 +1,123 @@
+# =============================================================================
+# Layer 5 — KEY ACCOUNTS / CUSTOMERS
+# =============================================================================
+# Mục đích: AI biết KFM, Shopee, TikTok Shop... là ai, account manager là ai,
+# SLA gì, revenue share, đặc biệt gì.
+#
+# Khi anh hỏi "KH KFM tuần này thế nào" → AI có context ngay.
+# =============================================================================
+
+# Top 20 KH theo revenue / strategic importance
+# Update: weekly (BD lead add new key accounts)
+
+customers:
+
+  # ─── Tier 1: Strategic accounts (>5% revenue or strategic value) ───
+  - id: "C001"
+    name: "Shopee Vietnam"
+    legal_name: "Shopee Mobile VN Co., Ltd"
+    segment: "Enterprise / E-commerce platform"
+    tier: 1
+    services_used: ["bike Instant", "bike 4H", "truck Bulky"]
+    monthly_orders: 850_000           # ~850K orders/month
+    arr_vnd_billion: 180              # ~180 tỷ/year
+    revenue_share_pct: 8.4
+    contract:
+      type: "Enterprise master agreement"
+      sla:
+        fill_rate: ">75%"
+        delivery_time_p90: "60 min"
+        cod_settlement: "T+1"
+      special_terms: "API direct integration, dedicated fleet HCM"
+      contract_end: "2026-12-31"
+      auto_renew: true
+    contacts:
+      account_manager: "(điền email Ahamove)"
+      client_lead: "(điền name + email Shopee)"
+      ops_contact: "(điền)"
+    notes: |
+      ~85% Shopee Instant đi qua SPX, Ahamove serve overflow + Bulky.
+      Sensitive về FR — drop FR 2 tuần liên tiếp → renegotiate rate.
+    risks:
+      - "SPX scale up → giảm dependency vào Ahamove"
+      - "Promo war với Be Delivery → margin pressure"
+
+  - id: "C002"
+    name: "TikTok Shop Vietnam"
+    segment: "Enterprise / Live commerce"
+    tier: 1
+    services_used: ["bike Instant", "bike 4H"]
+    monthly_orders: 420_000
+    arr_vnd_billion: 95
+    revenue_share_pct: 4.4
+    contract:
+      type: "API partnership"
+      sla:
+        fill_rate: ">70%"
+      contract_end: "2026-09-30"
+    contacts:
+      account_manager: "(điền)"
+    notes: "Tăng trưởng fastest. Order pattern peaky theo live session."
+
+  - id: "C003"
+    name: "(KFM — fill chi tiết)"
+    segment: "(B2B / Cold chain / SME?)"
+    tier: 1
+    services_used: ["truck Bulky"]
+    contract:
+      sla: "(điền)"
+    contacts:
+      account_manager: "(điền)"
+    notes: "(KFM mention trong CLAUDE.md — fill business context)"
+
+  # ─── Tier 2: Active SME (1-5% revenue) ───
+  - id: "C010"
+    name: "(điền SME 1)"
+    segment: "SME / Retailer"
+    tier: 2
+    services_used: ["truck Bulky"]
+    monthly_orders: 12_000
+    contract:
+      type: "Service agreement"
+    contacts:
+      account_manager: "(điền)"
+
+  # ─── Tier 3: KCN clients (industrial zone) ───
+  - id: "C020"
+    name: "(KCN client — VSIP example)"
+    segment: "KCN / Manufacturing"
+    tier: 3
+    location: "Bình Dương VSIP"
+    services_used: ["truck Bulky", "truck Longhaul"]
+    contacts:
+      account_manager: "khâm@ahamove.com"     # member theo CLAUDE.md
+    notes: "Expansion KCN — focus area 2026"
+
+  # (Add more customers...)
+
+# ─── Customer segments — for routing ──────────────────────────────────────────
+# AI dùng để classify task related to customer.
+segments:
+  - id: "shopee_ecom"
+    keywords: ["shopee", "spx", "shopee instant"]
+    primary_member: "(account manager email)"
+  - id: "tiktok_shop"
+    keywords: ["tiktok", "ts", "tt shop", "live commerce"]
+    primary_member: "(email)"
+  - id: "kfm"
+    keywords: ["kfm"]
+    primary_member: "(email)"
+  - id: "kcn_binhduong"
+    keywords: ["vsip", "kcn", "bình dương", "song thần"]
+    primary_member: "khâm@ahamove.com"
+
+# ─── Customer health signals ─────────────────────────────────────────────────
+# AI auto-detect khi 1 customer "at-risk".
+health_indicators:
+  - signal: "FR drop > 5pp 2 weeks"
+    severity: "P0"
+    action: "Alert account manager + propose intervention"
+  - signal: "Order volume drop > 30% MoM"
+    severity: "P1"
+  - signal: "Complaint count > 3 in 1 week"
+    severity: "P2"
