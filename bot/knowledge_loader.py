@@ -305,6 +305,23 @@ def period_definitions() -> dict:
     return rhythm.get("period_definitions", {})
 
 
+def kpi_targets() -> dict[str, str]:
+    """Return {metric_key: "target X unit"} — single source of truth from kpi_dict.
+
+    Used by tool_metrics() so targets stay in sync with YAML, not hardcoded in code.
+    """
+    result = {}
+    for m in kpi_dict().get("metrics", []):
+        key = m.get("key")
+        if not key:
+            continue
+        target = m.get("target", "?")
+        unit = m.get("unit", "")
+        unit_str = f" {unit}" if unit else ""
+        result[key] = f"target {target}{unit_str}"
+    return result
+
+
 def get_metric(key: str) -> dict | None:
     """Look up a metric definition by key."""
     for m in kpi_dict().get("metrics", []):

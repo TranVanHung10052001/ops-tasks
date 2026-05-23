@@ -22,6 +22,10 @@ Use cases supported:
 
 import json
 import logging
+import re
+import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -35,6 +39,76 @@ from store import (
 logger = logging.getLogger(__name__)
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
+
+# ─── Module-level config constants ───────────────────────────────────────────
+_TOOL_TIMEOUT: float       = 5.0     # seconds per tool call before abort
+_MAX_TOOLS: int            = 4       # max tools plannable per ask()
+_QUESTION_MAX_LEN: int     = 1000    # chars — cap user input
+_SYSTEM_CACHE_TTL: float   = 300.0   # 5 min — refresh system prompt (TODAY, overdue alerts)
+_TOOL_RESULT_TTL: float    = 30.0    # 30 s  — reuse DB results for rapid follow-ups
+_TOOL_OUTPUT_MAX_CHARS: int = 4000   # per tool JSON truncation
+
+
+# ─── JSON / input utilities ──────────────────────────────────────────────────
+
+_FENCE_RE = re.compile(r'^```(?:json)?\s*(.*?)```\s*$', re.DOTALL)
+
+def safe_parse_json(raw: str | dict | None) -> dict:
+    """Robust JSON parser handling LLM quirks — markdown fences, trailing text.
+
+    Tries in order:
+      1. Already a dict → return as-is
+      2. Strip ``` fences → json.loads
+      3. Find first { … last } → json.loads
+      4. Return {}
+    """
+    if isinstance(raw, dict):
+        return raw
+    if not isinstance(raw, str) or not raw:
+        return {}
+    cleaned = raw.strip()
+    # Strip markdown code fences
+    m = _FENCE_RE.match(cleaned)
+    if m:
+        cleaned = m.group(1).strip()
+    # Fast path
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+    # Last resort: extract outermost { ... }
+    try:
+        start = cleaned.index('{')
+        end = cleaned.rindex('}') + 1
+        return json.loads(cleaned[start:end])
+    except (ValueError, json.JSONDecodeError):
+        logger.warning(f"safe_parse_json: failed to parse ({len(raw)} chars)")
+        return {}
+
+
+# Injection patterns that should never appear in legitimate ops questions
+_INJECTION_PATTERNS = (
+    "ignore previous instructions",
+    "ignore all previous",
+    "disregard your",
+    "new instructions:",
+    "you are now a",
+    "###system",
+)
+
+
+def _sanitize_question(question: str) -> str:
+    """Cap length and block obvious prompt-injection attempts.
+
+    Raises ValueError if suspicious content detected (caller should surface to user).
+    """
+    q = question[:_QUESTION_MAX_LEN].strip()
+    q_lower = q.lower()
+    for pattern in _INJECTION_PATTERNS:
+        if pattern in q_lower:
+            logger.warning(f"[smart_agent] injection attempt blocked: {pattern!r}")
+            raise ValueError("Câu hỏi không hợp lệ — vui lòng thử lại.")
+    return q
 
 
 # ─── Tool implementations ────────────────────────────────────────────────────
@@ -132,7 +206,7 @@ def tool_okr_status(okr_id: str | None = None, **_) -> dict:
 
 
 def tool_metrics(name: str | None = None, **_) -> dict:
-    """Current Redash/manual metrics."""
+    """Current Redash/manual metrics with targets from kpi_dict.yaml (L4)."""
     try:
         metrics = get_all_metrics()
     except Exception as e:
@@ -140,14 +214,11 @@ def tool_metrics(name: str | None = None, **_) -> dict:
     if name:
         metrics = {k: v for k, v in metrics.items() if name.lower() in k.lower()}
 
-    # Include common targets for context
-    targets = {
-        "fill_rate_core_pct": "target 68%",
-        "fill_rate_han_pct":  "target 70%",
-        "fill_rate_sgn_pct":  "target 65%",
-        "cogs_bulky_pct":     "target <30%",
-        "driver_core_pct":    "target Core+Station >55%",
-    }
+    # Single source of truth: L4 kpi_dict.yaml — no hardcoding here
+    targets = kn.kpi_targets()
+    if name:
+        targets = {k: v for k, v in targets.items() if name.lower() in k.lower()}
+
     return {"values": metrics, "targets": targets}
 
 
@@ -267,6 +338,44 @@ TOOL_DESCRIPTIONS = """
 """.strip()
 
 
+# ─── Tool result cache (30s TTL — reuse across rapid follow-up questions) ─────
+
+class _ToolCache:
+    """Thread-safe TTL cache for tool results.
+
+    Prevents redundant DB queries when manager asks multiple questions
+    in quick succession (e.g., several /ask within 30 seconds).
+    Errors are never cached so transient failures don't stick.
+    """
+
+    def __init__(self, ttl: float = _TOOL_RESULT_TTL):
+        self._cache: dict[str, tuple[float, dict]] = {}
+        self._ttl = ttl
+
+    def _key(self, tool_name: str, args: dict) -> str:
+        return f"{tool_name}:{json.dumps(args, sort_keys=True, default=str)}"
+
+    def get(self, tool_name: str, args: dict) -> dict | None:
+        key = self._key(tool_name, args)
+        entry = self._cache.get(key)
+        if entry:
+            ts, data = entry
+            if time.monotonic() - ts < self._ttl:
+                return data
+            del self._cache[key]
+        return None
+
+    def set(self, tool_name: str, args: dict, result: dict) -> None:
+        if isinstance(result, dict) and "error" not in result:
+            self._cache[self._key(tool_name, args)] = (time.monotonic(), result)
+
+    def clear(self) -> None:
+        self._cache.clear()
+
+
+TOOL_CACHE = _ToolCache()
+
+
 # ─── Pass 1: Planning ─────────────────────────────────────────────────────────
 
 _PLAN_PROMPT = """Bạn là planner cho AI analyst. Manager hỏi câu sau, hãy CHỈ ĐỊNH tools cần gọi.
@@ -284,22 +393,27 @@ Trả về JSON:
 }}
 
 Rules:
-- Gọi MỌI tool có thể giúp ích, tối đa 4 tools
+- Gọi MỌI tool có thể giúp ích, tối đa {max_tools} tools
 - Args phải đúng signature (xem TOOLS doc)
 - Nếu câu hỏi về 1 người cụ thể → gọi member_detail
 - Nếu câu hỏi về 1 OKR cụ thể → gọi okr_status với okr_id
 - Nếu câu hỏi về metrics/KPI → gọi metrics
 - Default fallback: team_workload + okr_status
 
-CÂU HỎI: """
+Câu hỏi của manager:"""
 
 
 def _plan_tools(question: str) -> list[dict]:
-    prompt = _PLAN_PROMPT.format(tools=TOOL_DESCRIPTIONS) + question
-    result = call_tier("fast", prompt, label="ask_plan", max_output_tokens=600)
+    # XML delimiter isolates user content from prompt instructions
+    prompt = (
+        _PLAN_PROMPT.format(tools=TOOL_DESCRIPTIONS, max_tools=_MAX_TOOLS)
+        + f"\n<user_question>\n{question}\n</user_question>"
+    )
+    raw = call_tier("fast", prompt, label="ask_plan", max_output_tokens=600)
+    result = safe_parse_json(raw)
     if not result:
         return [{"name": "team_workload", "args": {}}]
-    tools = result.get("tools_to_call", [])[:4]
+    tools = result.get("tools_to_call", [])[:_MAX_TOOLS]
     return [t for t in tools if t.get("name") in TOOLS]
 
 
@@ -415,24 +529,38 @@ TODAY = {today}
 """.strip()
 
 
-_ANSWER_SYSTEM_CACHED: str | None = None
+@dataclass
+class _CachedSystem:
+    """System prompt with TTL — auto-expires so TODAY + overdue alerts stay fresh."""
+    content: str
+    built_at: float
+
+    def is_valid(self) -> bool:
+        return time.monotonic() - self.built_at < _SYSTEM_CACHE_TTL
+
+
+_SYSTEM_CACHE: _CachedSystem | None = None
 
 
 def _answer_system() -> str:
-    global _ANSWER_SYSTEM_CACHED
-    if _ANSWER_SYSTEM_CACHED is None:
-        _ANSWER_SYSTEM_CACHED = _build_answer_system()
-    return _ANSWER_SYSTEM_CACHED
+    global _SYSTEM_CACHE
+    if _SYSTEM_CACHE is None or not _SYSTEM_CACHE.is_valid():
+        _SYSTEM_CACHE = _CachedSystem(
+            content=_build_answer_system(),
+            built_at=time.monotonic(),
+        )
+    return _SYSTEM_CACHE.content
 
 
 def reload_knowledge() -> str:
-    """Reload all YAML knowledge files + clear system prompt cache.
-    Call this after filling/updating any knowledge YAML file.
+    """Reload all YAML knowledge files + clear all caches.
+    Call this after filling/updating any knowledge YAML file, or via /api/knowledge/reload.
     """
-    global _ANSWER_SYSTEM_CACHED
-    kn.reload()                          # Clear all YAML + JSON caches
-    _ANSWER_SYSTEM_CACHED = None         # Force system prompt rebuild on next ask()
-    return "Knowledge reloaded. Next ask() will rebuild system prompt."
+    global _SYSTEM_CACHE
+    kn.reload()              # Clear YAML + JSON knowledge caches
+    _SYSTEM_CACHE = None     # Force system prompt rebuild
+    TOOL_CACHE.clear()       # Stale DB results no longer valid after reload
+    return "Knowledge reloaded — system prompt + tool cache cleared."
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -693,20 +821,7 @@ def decompose_task(task_text: str) -> dict:
 
     try:
         raw = call_tier("balanced", prompt, system=_decompose_system(), json_mode=True)
-        # call_tier returns str; parse JSON
-        import json as _j
-        if isinstance(raw, str):
-            # Strip markdown code fences if present
-            raw_clean = raw.strip()
-            if raw_clean.startswith("```"):
-                raw_clean = raw_clean.split("```")[1]
-                if raw_clean.startswith("json"):
-                    raw_clean = raw_clean[4:]
-            result = _j.loads(raw_clean)
-        elif isinstance(raw, dict):
-            result = raw
-        else:
-            result = {}
+        result = safe_parse_json(raw)
 
         # Validate required keys
         if "sub_tasks" not in result:
@@ -770,8 +885,8 @@ def _format_tool_results(results: dict[str, dict]) -> str:
         except (TypeError, ValueError):
             blob = str(data)
         # Cap each tool output to keep context manageable
-        if len(blob) > 4000:
-            blob = blob[:4000] + "\n... (truncated)"
+        if len(blob) > _TOOL_OUTPUT_MAX_CHARS:
+            blob = blob[:_TOOL_OUTPUT_MAX_CHARS] + "\n... (truncated)"
         chunks.append(f"### Tool: `{name}`\n```json\n{blob}\n```")
     return "\n\n".join(chunks) if chunks else "(no tool data)"
 
@@ -789,7 +904,10 @@ def ask(question: str) -> dict:
         "plan_reason":  <why these tools>,
       }
     """
-    question = (question or "").strip()
+    try:
+        question = _sanitize_question(question or "")
+    except ValueError as e:
+        return {"answer": str(e), "tools_used": [], "tool_results": {}}
     if not question:
         return {"answer": "Câu hỏi trống.", "tools_used": [], "tool_results": {}}
 
@@ -799,23 +917,48 @@ def ask(question: str) -> dict:
         tools_plan = [{"name": "team_workload", "args": {}}]
     logger.info(f"[smart_agent] plan: {[t.get('name') for t in tools_plan]}")
 
-    # ── Execute tools ──────────────────────────────────────────────────────────
+    # ── Execute tools (parallel + per-tool timeout + 30s result cache) ─────────
     tool_results: dict[str, dict] = {}
+    to_fetch: list[tuple[str, dict]] = []
+
     for tc in tools_plan:
         name = tc.get("name")
-        args = tc.get("args") or {}
         if name not in TOOLS:
             continue
-        try:
-            tool_results[name] = TOOLS[name](**args) if isinstance(args, dict) else TOOLS[name]()
-        except TypeError:
-            # args mismatched signature — try empty
-            try:
-                tool_results[name] = TOOLS[name]()
-            except Exception as e:
-                tool_results[name] = {"error": str(e)}
-        except Exception as e:
-            tool_results[name] = {"error": str(e)}
+        args = tc.get("args") or {}
+        if not isinstance(args, dict):
+            args = {}
+        # Cache hit → skip fetch
+        cached = TOOL_CACHE.get(name, args)
+        if cached is not None:
+            logger.debug(f"[smart_agent] cache hit: {name}")
+            tool_results[name] = cached
+        else:
+            to_fetch.append((name, args))
+
+    if to_fetch:
+        with ThreadPoolExecutor(max_workers=_MAX_TOOLS) as executor:
+            futures = {
+                executor.submit(TOOLS[name], **args): (name, args)
+                for name, args in to_fetch
+            }
+            for future, (name, args) in futures.items():
+                try:
+                    result = future.result(timeout=_TOOL_TIMEOUT)
+                except FuturesTimeout:
+                    logger.warning(f"[smart_agent] tool timeout ({_TOOL_TIMEOUT}s): {name}")
+                    result = {"error": f"tool timeout {_TOOL_TIMEOUT}s"}
+                except TypeError:
+                    # Signature mismatch — retry with no args, log it
+                    logger.warning(f"[smart_agent] TypeError calling {name} — retrying empty")
+                    try:
+                        result = TOOLS[name]()
+                    except Exception as e:
+                        result = {"error": str(e)}
+                except Exception as e:
+                    result = {"error": str(e)}
+                TOOL_CACHE.set(name, args, result)
+                tool_results[name] = result
 
     # ── Playbook injection (if KPI symptom detected) ───────────────────────────
     playbook_context = ""
