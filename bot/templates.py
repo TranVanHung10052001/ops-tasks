@@ -32,6 +32,109 @@ STATUS_ICON = {
     "blocked": "◌",
 }
 
+# ─── Eisenhower Matrix — Urgent × Important ──────────────────────────────────
+#
+# Căn cứ khoa học:
+#   1. Eisenhower Decision Matrix (1954) — Tổng thống Dwight D. Eisenhower
+#   2. Stephen Covey "7 Habits of Highly Effective People" (1989) — Q2 Focus
+#      Principle: high performers dành 65%+ thời gian ở Q2
+#   3. Color psychology (Berlin & Kay, 1969; Elliot et al., 2007):
+#      🔴 đỏ = nguy hiểm / hành động ngay (amygdala response — LeDoux, 1996)
+#      🟡 vàng = cẩn thận / cần lên kế hoạch
+#      🟠 cam = cảnh báo / nên ủy quyền
+#      ⚪ xám = thấp ưu tiên / xem xét loại bỏ
+#   4. GTD (David Allen, 2001): next-action clarity reduces decision fatigue
+#   5. Neuroscience: urgency triggers false-priority bias (attention hijack) →
+#      matrix breaks the "urgent = important" cognitive trap
+#
+# Định nghĩa trong context Truck Ops:
+#   Khẩn cấp  = deadline ≤ 24h HOẶC priority P0
+#   Quan trọng = priority P0/P1 HOẶC có OKR ref
+
+_URGENT_HOURS      = 24   # deadline trong vòng 24h = khẩn cấp
+_IMPORTANT_PRIOS   = {"P0", "P1"}
+
+EISENHOWER = {
+    "Q1": {
+        "icon":  "🔴",
+        "label": "LÀM NGAY",
+        "note":  "Gấp + Quan trọng",
+        "hint":  "Xử lý ngay, không trì hoãn",
+    },
+    "Q2": {
+        "icon":  "🟡",
+        "label": "LÊN KẾ HOẠCH",
+        "note":  "Quan trọng, chưa gấp",
+        "hint":  "Block time, đừng để thành Q1",
+    },
+    "Q3": {
+        "icon":  "🟠",
+        "label": "UỶ QUYỀN",
+        "note":  "Gấp, ít quan trọng",
+        "hint":  "Nếu được, giao người khác",
+    },
+    "Q4": {
+        "icon":  "⚪",
+        "label": "XEM LẠI",
+        "note":  "Không gấp, ít quan trọng",
+        "hint":  "Cân nhắc bỏ / để sau",
+    },
+}
+
+
+def eisenhower_quadrant(task: dict) -> str:
+    """
+    Phân loại task vào 1 trong 4 ô Eisenhower (Q1–Q4).
+
+    Urgency   = deadline ≤ _URGENT_HOURS giờ  HOẶC  priority P0
+    Importance = priority P0/P1  HOẶC  có OKR ref
+    """
+    import json as _j
+    now = datetime.now()
+    p   = task.get("priority", "P3")
+
+    # ── Urgency ───────────────────────────────────────────────────────────────
+    urgent = (p == "P0")          # P0 luôn khẩn cấp theo định nghĩa
+    if not urgent:
+        dl_raw = task.get("deadline") or task.get("deadline_iso")
+        if dl_raw:
+            try:
+                dl = datetime.fromisoformat(dl_raw).replace(tzinfo=None)
+                hours_left = (dl - now).total_seconds() / 3600
+                urgent = 0 < hours_left <= _URGENT_HOURS
+            except (ValueError, TypeError):
+                pass
+
+    # ── Importance ────────────────────────────────────────────────────────────
+    important = p in _IMPORTANT_PRIOS
+    if not important:
+        # Check OKR alignment in classifier_meta or top-level field
+        try:
+            meta = task.get("classifier_meta") or {}
+            if isinstance(meta, str):
+                meta = _j.loads(meta)
+            if meta.get("okr_ref") or meta.get("okr_tag"):
+                important = True
+        except Exception:
+            pass
+        if not important and task.get("okr_ref"):
+            important = True
+
+    # ── Matrix ────────────────────────────────────────────────────────────────
+    if urgent and important:
+        return "Q1"
+    if not urgent and important:
+        return "Q2"
+    if urgent and not important:
+        return "Q3"
+    return "Q4"
+
+
+def eisenhower_icon(task: dict) -> str:
+    """Trả về colored circle emoji cho task."""
+    return EISENHOWER[eisenhower_quadrant(task)]["icon"]
+
+
 CAT_LABEL = {
     "fill_rate": "Fill Rate",
     "supply":    "Supply",
@@ -111,16 +214,23 @@ def _deadline_line(deadline_iso: str | None) -> str:
 
 # ─── Task inline format (list rows) ──────────────────────────────────────────
 
-def fmt_task_line(task: dict, show_assignee: bool = False) -> str:
-    """Compact single-line: `▪ #42 Tên task  ◷ còn 3h`"""
+def fmt_task_line(
+    task: dict,
+    show_assignee: bool = False,
+    show_quadrant: bool = False,
+) -> str:
+    """
+    Compact single-line: `▪ #42 Tên task  ◷ còn 3h`
+    show_quadrant=True thêm Eisenhower icon trước: `🔴 ▪ #42 ...`
+    """
     p    = task.get("priority", "P3")
     icon = PRIORITY_ICON.get(p, "□")
-    st   = STATUS_ICON.get(task.get("status", "todo"), "○")
-    line = f"{icon} {st} `#{task['id']}` {task.get('summary','')[:65]}"
+    q_prefix = eisenhower_icon(task) + " " if show_quadrant else ""
+    line = f"{q_prefix}{icon} `#{task['id']}` {task.get('summary','')[:60]}"
     if show_assignee and task.get("assignee_name"):
         short = task["assignee_name"].split()[-1]
         line += f"  [{short}]"
-    dl = _deadline_line(task.get("deadline"))
+    dl = _deadline_line(task.get("deadline") or task.get("deadline_iso"))
     if dl:
         line += f"  {dl}"
     return line
@@ -544,50 +654,77 @@ def msg_morning_member(
     top_tasks: list[dict],
     okr_note: str = "",
 ) -> str:
-    """Member briefing 08:00."""
-    now   = datetime.now()
-    wday  = ["Thứ Hai","Thứ Ba","Thứ Tư","Thứ Năm","Thứ Sáu","Thứ Bảy","Chủ Nhật"][now.weekday()]
+    """
+    Member briefing 08:00 — task list grouped by Eisenhower quadrant.
+    overdue_tasks: list from get_overdue_tasks_for_user()
+    top_tasks    : list from get_top_tasks_for_user() — today's priority tasks
+    """
+    now    = datetime.now()
+    wday   = ["Thứ Hai","Thứ Ba","Thứ Tư","Thứ Năm","Thứ Sáu","Thứ Bảy","Chủ Nhật"][now.weekday()]
     date_s = _fmt_date(now)
 
-    overdue_block = ""
-    if overdue_tasks:
-        rows = [fmt_task_line(t) for t in overdue_tasks[:4]]
-        overdue_block = (
-            f"QUÁ HẠN ({len(overdue_tasks)})\n"
-            + "\n".join(rows)
-            + f"\n\n{DIV_LIGHT}\n\n"
+    all_tasks = list(overdue_tasks) + list(top_tasks)
+
+    if not all_tasks:
+        return (
+            f"{AI_SIG} · {wday} {date_s}\n"
+            f"{DIV_STRONG}\n"
+            f"\n"
+            f"Chào sáng, {name}.\n"
+            f"\n"
+            f"Queue trống — không có task nào hôm nay.\n"
+            f"/add <nội dung> để tạo task mới."
         )
 
-    top_block = ""
-    if top_tasks:
-        nums = ["01", "02", "03"]
-        rows = []
-        for i, t in enumerate(top_tasks[:3]):
-            p    = t.get("priority", "P3")
-            icon = PRIORITY_ICON.get(p, "□")
-            dl   = _deadline_line(t.get("deadline"))
-            dl_p = f"  {dl}" if dl else ""
-            rows.append(f"{nums[i]} · {icon} `#{t['id']}` {t.get('summary','')[:55]}{dl_p}")
-        top_block = "ƯU TIÊN HÔM NAY\n" + "\n".join(rows) + "\n"
+    # Force overdue → Q1
+    overdue_ids = {t["id"] for t in overdue_tasks}
+    groups = _group_by_quadrant(all_tasks)
+    for q in ("Q2", "Q3", "Q4"):
+        moved    = [t for t in groups[q] if t["id"] in overdue_ids]
+        kept     = [t for t in groups[q] if t["id"] not in overdue_ids]
+        groups["Q1"] = moved + groups["Q1"]
+        groups[q]    = kept
 
-    okr_block = f"\n{DIV_LIGHT}\n\n{okr_note}\n" if okr_note else ""
+    q1_n = len(groups["Q1"])
+    q2_n = len(groups["Q2"])
 
-    empty = "Queue sạch hôm nay. 👍\n" if not overdue_tasks and not top_tasks else ""
+    lines = [
+        f"{AI_SIG} · {wday} {date_s}",
+        DIV_STRONG,
+        "",
+        f"Chào sáng, {name}.",
+        "",
+    ]
 
-    return (
-        f"{AI_SIG} · {wday} {date_s}\n"
-        f"{DIV_STRONG}\n"
-        f"\n"
-        f"Chào sáng, {name}.\n"
-        f"\n"
-        f"{DIV_LIGHT}\n"
-        f"\n"
-        f"{overdue_block}"
-        f"{top_block}"
-        f"{empty}"
-        f"{okr_block}"
-        f"\n/today · /done <id> · /snooze <id> 2h"
-    )
+    # Quick summary line
+    summary_parts = []
+    if q1_n:
+        summary_parts.append(f"🔴 {q1_n} cần làm ngay")
+    if q2_n:
+        summary_parts.append(f"🟡 {q2_n} lên kế hoạch")
+    for q in ("Q3", "Q4"):
+        n = len(groups[q])
+        if n:
+            summary_parts.append(f"{EISENHOWER[q]['icon']} {n} {EISENHOWER[q]['label'].lower()}")
+    if summary_parts:
+        lines.append("  ·  ".join(summary_parts))
+        lines.append("")
+
+    lines.append(DIV_LIGHT)
+    lines.append("")
+
+    # Quadrant sections — Q1 & Q2 always shown; Q3/Q4 only if non-empty
+    for q in ("Q1", "Q2", "Q3", "Q4"):
+        block = _quadrant_block(q, groups[q], max_tasks=4)
+        if block:
+            lines.append(block)
+            lines.append("")
+
+    if okr_note:
+        lines += [DIV_LIGHT, "", okr_note, ""]
+
+    lines += [DIV_LIGHT, "/done <id> · /snooze <id> 2h · /today"]
+    return "\n".join(lines)
 
 
 # ─── 4.3  Evening summary Member ──────────────────────────────────────────────
@@ -683,49 +820,90 @@ def msg_eod_manager(
     return "\n".join(lines)
 
 
+# ─── Eisenhower grouping helper ───────────────────────────────────────────────
+
+def _group_by_quadrant(tasks: list[dict]) -> dict[str, list[dict]]:
+    """Group tasks list into {Q1: [...], Q2: [...], Q3: [...], Q4: [...]}."""
+    groups: dict[str, list[dict]] = {"Q1": [], "Q2": [], "Q3": [], "Q4": []}
+    for t in tasks:
+        groups[eisenhower_quadrant(t)].append(t)
+    return groups
+
+
+def _quadrant_block(q: str, tasks: list[dict], max_tasks: int = 6) -> str:
+    """Single quadrant section: header + task rows."""
+    if not tasks:
+        return ""
+    meta  = EISENHOWER[q]
+    icon  = meta["icon"]
+    label = meta["label"]
+    note  = meta["note"]
+    rows  = [fmt_task_line(t) for t in tasks[:max_tasks]]
+    extra = f"  (+{len(tasks)-max_tasks} task nữa)" if len(tasks) > max_tasks else ""
+    return (
+        f"{icon} {label} — {note} ({len(tasks)}){extra}\n"
+        + "\n".join(rows)
+    )
+
+
 # ─── 6.1  /today ──────────────────────────────────────────────────────────────
 
 def msg_today(name: str, overdue_tasks: list[dict], today_tasks: list[dict]) -> str:
+    """
+    Task list grouped by Eisenhower quadrant.
+    Overdue tasks force-classified as Q1 (they were already urgent+missed).
+    """
     now   = datetime.now()
     wday  = ["Thứ Hai","Thứ Ba","Thứ Tư","Thứ Năm","Thứ Sáu","Thứ Bảy","Chủ Nhật"][now.weekday()]
     date_s = _fmt_date(now)
 
-    if not overdue_tasks and not today_tasks:
+    all_tasks = list(overdue_tasks) + list(today_tasks)
+
+    if not all_tasks:
         return (
-            f"⊡ Hôm nay sạch.\n"
+            f"⊡ {wday} {date_s} · {name}\n"
             f"{DIV_LIGHT}\n"
             f"\n"
-            f"Không có task nào. Queue trống.\n"
+            f"Queue trống. Không có task nào hôm nay.\n"
             f"\n"
             f"+ `/add <nội dung>` để tạo task mới"
         )
 
-    overdue_block = ""
+    # Overdue tasks → always Q1 (already missed deadline = maximum urgency)
+    for t in overdue_tasks:
+        t["_force_q1"] = True  # marker, not persisted
+
+    groups = _group_by_quadrant(all_tasks)
+
+    # Overdue: move to Q1 regardless of calculated quadrant
     if overdue_tasks:
-        rows = [fmt_task_line(t) for t in overdue_tasks[:5]]
-        overdue_block = (
-            f"QUÁ HẠN ({len(overdue_tasks)})\n"
-            + "\n".join(rows)
-            + f"\n\n{DIV_LIGHT}\n\n"
-        )
+        overdue_ids = {t["id"] for t in overdue_tasks}
+        for q in ("Q2", "Q3", "Q4"):
+            moved    = [t for t in groups[q] if t["id"] in overdue_ids]
+            kept     = [t for t in groups[q] if t["id"] not in overdue_ids]
+            groups["Q1"] = moved + groups["Q1"]
+            groups[q]    = kept
 
-    today_block = ""
-    if today_tasks:
-        rows = [fmt_task_line(t) for t in today_tasks[:8]]
-        today_block = (
-            f"HÔM NAY ({len(today_tasks)})\n"
-            + "\n".join(rows)
-            + "\n"
-        )
+    total = len(all_tasks)
+    q1_n  = len(groups["Q1"])
 
-    return (
-        f"⊡ {wday} {date_s} · {name}\n"
-        f"{DIV_LIGHT}\n"
-        f"\n"
-        f"{overdue_block}"
-        f"{today_block}\n"
-        f"/done <id> · /snooze <id> 2h · + /add mới"
-    )
+    lines = [
+        f"⊡ {wday} {date_s} · {name}",
+        f"{DIV_LIGHT}",
+        f"",
+        f"{total} task  ·  " + (f"🔴 {q1_n} cần làm ngay" if q1_n else "Không có task khẩn cấp"),
+        f"",
+    ]
+
+    # Q1 first, then Q2, Q3 — Q4 last (deprioritize)
+    for q in ("Q1", "Q2", "Q3", "Q4"):
+        block = _quadrant_block(q, groups[q])
+        if block:
+            lines.append(block)
+            lines.append("")
+
+    lines += [DIV_LIGHT, "/done <id> · /snooze <id> 2h · /add mới"]
+    return "\n".join(lines)
 
 
 # ─── 6.3  /done response ──────────────────────────────────────────────────────
@@ -866,6 +1044,7 @@ def msg_brief_team(
     members: list[dict],
     cat_counts: dict[str, int],
     p0_tasks: list[dict],
+    all_tasks: list[dict] | None = None,
 ) -> str:
     """
     /brief response cho manager/TL.
@@ -873,6 +1052,7 @@ def msg_brief_team(
     members       = list_team_by_person() list
     cat_counts    = {category: count} of pending tasks
     p0_tasks      = list of P0 task dicts (max shown: 5)
+    all_tasks     = full pending task list (optional) → shows Eisenhower matrix
     """
     now        = datetime.now()
     active     = stats.get("active", 0)
@@ -940,10 +1120,23 @@ def msg_brief_team(
             label = CAT_LABEL.get(cat, cat)
             lines.append(f"  · {label}: {count}")
 
+    # ── Eisenhower matrix summary (nếu có all_tasks) ──
+    if all_tasks:
+        groups = _group_by_quadrant(all_tasks)
+        q_counts = {q: len(v) for q, v in groups.items() if v}
+        if q_counts:
+            lines.append("")
+            lines.append("MA TRẬN EISENHOWER")
+            for q in ("Q1", "Q2", "Q3", "Q4"):
+                n = len(groups[q])
+                if n:
+                    meta = EISENHOWER[q]
+                    lines.append(f"  {meta['icon']} {meta['label']} ({n})  · {meta['note']}")
+
     # ── P0 block ──
     if p0_tasks:
         lines.append("")
-        lines.append(f"■ P0 KHẨN CẤP ({len(p0_tasks)} task):")
+        lines.append(f"🔴 Q1 KHẨN CẤP ({len(p0_tasks)} task cần xử lý ngay):")
         for t in p0_tasks[:5]:
             lines.append(fmt_task_line(t, show_assignee=True))
 

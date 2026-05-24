@@ -894,7 +894,8 @@ async def cmd_team(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         tpl.msg_brief_team(stats=stats, members=members,
-                           cat_counts=cat_counts, p0_tasks=p0_tasks)
+                           cat_counts=cat_counts, p0_tasks=p0_tasks,
+                           all_tasks=all_tasks)
     )
 
 
@@ -1372,6 +1373,7 @@ async def _send_brief(
         members=members,
         cat_counts=cat_counts,
         p0_tasks=p0_tasks,
+        all_tasks=all_tasks,
     )
     await update.message.reply_text(text)
 
