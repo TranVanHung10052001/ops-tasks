@@ -33,52 +33,17 @@ STATUS_ICON = {
 }
 
 # ─── Eisenhower Matrix — Urgent × Important ──────────────────────────────────
-#
-# Căn cứ khoa học:
-#   1. Eisenhower Decision Matrix (1954) — Tổng thống Dwight D. Eisenhower
-#   2. Stephen Covey "7 Habits of Highly Effective People" (1989) — Q2 Focus
-#      Principle: high performers dành 65%+ thời gian ở Q2
-#   3. Color psychology (Berlin & Kay, 1969; Elliot et al., 2007):
-#      🔴 đỏ = nguy hiểm / hành động ngay (amygdala response — LeDoux, 1996)
-#      🟡 vàng = cẩn thận / cần lên kế hoạch
-#      🟠 cam = cảnh báo / nên ủy quyền
-#      ⚪ xám = thấp ưu tiên / xem xét loại bỏ
-#   4. GTD (David Allen, 2001): next-action clarity reduces decision fatigue
-#   5. Neuroscience: urgency triggers false-priority bias (attention hijack) →
-#      matrix breaks the "urgent = important" cognitive trap
-#
-# Định nghĩa trong context Truck Ops:
-#   Khẩn cấp  = deadline ≤ 24h HOẶC priority P0
-#   Quan trọng = priority P0/P1 HOẶC có OKR ref
+# Eisenhower (1954) × Covey Q2-focus × color psychology (🔴 urgent, ⚪ defer)
+# Urgent = deadline ≤ 24h HOẶC P0 · Important = P0/P1 HOẶC OKR ref
 
-_URGENT_HOURS      = 24   # deadline trong vòng 24h = khẩn cấp
-_IMPORTANT_PRIOS   = {"P0", "P1"}
+_URGENT_HOURS    = 24
+_IMPORTANT_PRIOS = {"P0", "P1"}
 
 EISENHOWER = {
-    "Q1": {
-        "icon":  "🔴",
-        "label": "LÀM NGAY",
-        "note":  "Gấp + Quan trọng",
-        "hint":  "Xử lý ngay, không trì hoãn",
-    },
-    "Q2": {
-        "icon":  "🟡",
-        "label": "LÊN KẾ HOẠCH",
-        "note":  "Quan trọng, chưa gấp",
-        "hint":  "Block time, đừng để thành Q1",
-    },
-    "Q3": {
-        "icon":  "🟠",
-        "label": "UỶ QUYỀN",
-        "note":  "Gấp, ít quan trọng",
-        "hint":  "Nếu được, giao người khác",
-    },
-    "Q4": {
-        "icon":  "⚪",
-        "label": "XEM LẠI",
-        "note":  "Không gấp, ít quan trọng",
-        "hint":  "Cân nhắc bỏ / để sau",
-    },
+    "Q1": {"icon": "🔴", "label": "Làm ngay",      "note": "Gấp + Quan trọng"},
+    "Q2": {"icon": "🟡", "label": "Lên kế hoạch",  "note": "Quan trọng, chưa gấp"},
+    "Q3": {"icon": "🟠", "label": "Uỷ quyền",      "note": "Gấp, ít quan trọng"},
+    "Q4": {"icon": "⚪", "label": "Xem lại",        "note": "Không gấp, ít quan trọng"},
 }
 
 
@@ -217,11 +182,11 @@ def _deadline_line(deadline_iso: str | None) -> str:
 def fmt_task_line(
     task: dict,
     show_assignee: bool = False,
-    show_quadrant: bool = False,
+    show_quadrant: bool = True,
 ) -> str:
     """
-    Compact single-line: `▪ #42 Tên task  ◷ còn 3h`
-    show_quadrant=True thêm Eisenhower icon trước: `🔴 ▪ #42 ...`
+    Compact single-line: `🔴 ▪ #42 Tên task  ◷ còn 3h`
+    show_quadrant=False để ẩn Eisenhower icon.
     """
     p    = task.get("priority", "P3")
     icon = PRIORITY_ICON.get(p, "□")
@@ -280,31 +245,14 @@ def msg_task_new(task: dict, assigned_by_name: str = "") -> str:
 
 def msg_task_accepted(task: dict) -> str:
     """Xác nhận đã nhận task."""
-    dl = task.get("deadline")
-    remind_lines = ""
-    if dl:
-        try:
-            dt = datetime.fromisoformat(dl).replace(tzinfo=None)
-            delta = dt - datetime.now()
-            secs = delta.total_seconds()
-            if secs > 0:
-                # 15p và 5p trước
-                r15 = datetime.fromtimestamp(dt.timestamp() - 15 * 60).strftime("%H:%M")
-                r5  = datetime.fromtimestamp(dt.timestamp() - 5  * 60).strftime("%H:%M")
-                remind_lines = (
-                    f"\nTôi sẽ nhắc anh:\n"
-                    f"· {r15} (15p trước)\n"
-                    f"· {r5} (5p trước)"
-                )
-        except (ValueError, TypeError):
-            pass
-
+    dl = _deadline_line(task.get("deadline"))
+    dl_part = f"\n{dl}" if dl else ""
     return (
         f"● Đã nhận\n"
         f"{DIV_LIGHT}\n"
         f"\n"
         f"`#{task['id']}` {task.get('summary','')[:70]}"
-        f"{remind_lines}"
+        f"{dl_part}"
     )
 
 
@@ -449,51 +397,20 @@ def msg_task_created(task_id: int, result: dict, text: str) -> str:
 
 # ─── 2.9  Done confirm ─────────────────────────────────────────────────────────
 
-def msg_task_done(task: dict, actual_minutes: int = 0, next_task: dict | None = None) -> str:
-    """Xác nhận task hoàn thành theo spec 6.3."""
-    tid = task.get("id", "?")
+def msg_task_done(task: dict, next_task: dict | None = None) -> str:
+    """Xác nhận task hoàn thành."""
+    tid     = task.get("id", "?")
     summary = task.get("summary", "")[:70]
-
-    time_block = ""
-    if actual_minutes > 0:
-        h = actual_minutes // 60
-        m = actual_minutes % 60
-        dur_str = f"{h}h {m:02d}p" if h else f"{m}p"
-        est = task.get("estimated_minutes", 0)
-        if est and est > 0:
-            diff = est - actual_minutes
-            if diff > 0:
-                diff_str = f"{diff // 60}h {diff % 60:02d}p" if diff >= 60 else f"{diff}p"
-                trend = f"▲ Sớm hơn {diff_str}"
-            elif diff < 0:
-                diff_str = f"{abs(diff) // 60}h {abs(diff) % 60:02d}p" if abs(diff) >= 60 else f"{abs(diff)}p"
-                trend = f"▼ Chậm hơn {diff_str}"
-            else:
-                trend = "━ Đúng ước tính"
-            time_block = f"\nTHỜI GIAN\nThực tế: {dur_str}  {trend}\n"
-        else:
-            time_block = f"\nTHỜI GIAN\n{dur_str}\n"
-
-    okr_block = ""
-    try:
-        import json as _j
-        meta = task.get("classifier_meta") or {}
-        if isinstance(meta, str):
-            meta = _j.loads(meta)
-        okr_ref = meta.get("okr_ref") or meta.get("okr_tag", "")
-        if okr_ref:
-            okr_block = f"\nOKR ĐÓNG GÓP\n{okr_ref}\n"
-    except Exception:
-        pass
 
     next_block = ""
     if next_task:
-        p = next_task.get("priority", "P3")
+        p  = next_task.get("priority", "P3")
         dl = _deadline_line(next_task.get("deadline"))
         dl_part = f"  {dl}" if dl else ""
         next_block = (
             f"\nTASK TIẾP THEO\n"
-            f"{PRIORITY_ICON.get(p,'□')} `#{next_task['id']}` {next_task.get('summary','')[:55]}{dl_part}\n"
+            f"{PRIORITY_ICON.get(p,'□')} `#{next_task['id']}` "
+            f"{next_task.get('summary','')[:55]}{dl_part}\n"
         )
 
     return (
@@ -501,8 +418,6 @@ def msg_task_done(task: dict, actual_minutes: int = 0, next_task: dict | None = 
         f"{DIV_LIGHT}\n"
         f"\n"
         f"`#{tid}` {summary}"
-        f"{time_block}"
-        f"{okr_block}"
         f"{next_block}"
     )
 
@@ -580,22 +495,18 @@ def msg_morning_manager(
     stats: dict,
     members: list[dict],
     overdue_tasks: list[dict],
-    signals: list[str] | None = None,
-    composed_at: datetime | None = None,
 ) -> str:
-    """Manager digest 08:30."""
-    now    = composed_at or datetime.now()
+    """Manager digest 08:00."""
+    now    = datetime.now()
     wday   = ["Thứ Hai","Thứ Ba","Thứ Tư","Thứ Năm","Thứ Sáu","Thứ Bảy","Chủ Nhật"][now.weekday()]
     date_s = _fmt_date(now)
 
-    # Summary line
     active  = stats.get("active", 0)
     done_t  = stats.get("done_today", 0)
     overdue = stats.get("overdue", 0)
     blocked = stats.get("blocked", 0)
     summary = f"{active} task · {done_t} xong · {overdue} trễ · {blocked} blocked"
 
-    # Member rows
     member_rows = []
     for m in members:
         ov = m.get("overdue_count", 0)
@@ -609,20 +520,10 @@ def msg_morning_manager(
             row += f", {bl} blocked"
         member_rows.append(row)
 
-    # Overdue list
     overdue_block = ""
     if overdue_tasks:
         rows = [fmt_task_line(t, show_assignee=True) for t in overdue_tasks[:5]]
-        overdue_block = (
-            f"\nCẦN XỬ LÝ\n"
-            + "\n".join(rows)
-            + "\n"
-        )
-
-    # Signals block
-    signal_block = ""
-    if signals:
-        signal_block = "\nTÍN HIỆU\n" + "\n".join(f"▲ {s}" for s in signals) + "\n"
+        overdue_block = "\nCẦN XỬ LÝ\n" + "\n".join(rows) + "\n"
 
     return (
         f"{AI_SIG} · BÁO CÁO SÁNG\n"
@@ -640,7 +541,6 @@ def msg_morning_manager(
         + "\n".join(member_rows)
         + f"\n"
         f"{overdue_block}"
-        f"{signal_block}"
         f"{DIV_LIGHT}\n"
         f"/team · /pending · /assign"
     )
@@ -835,13 +735,11 @@ def _quadrant_block(q: str, tasks: list[dict], max_tasks: int = 6) -> str:
     if not tasks:
         return ""
     meta  = EISENHOWER[q]
-    icon  = meta["icon"]
-    label = meta["label"]
-    note  = meta["note"]
-    rows  = [fmt_task_line(t) for t in tasks[:max_tasks]]
-    extra = f"  (+{len(tasks)-max_tasks} task nữa)" if len(tasks) > max_tasks else ""
+    n     = len(tasks)
+    extra = f" +{n - max_tasks}" if n > max_tasks else ""
+    rows  = [fmt_task_line(t, show_quadrant=False) for t in tasks[:max_tasks]]
     return (
-        f"{icon} {label} — {note} ({len(tasks)}){extra}\n"
+        f"{meta['icon']} {meta['label']} ({n}{extra})\n"
         + "\n".join(rows)
     )
 
@@ -920,40 +818,6 @@ def msg_done_quick(task_id: int, summary: str) -> str:
     )
 
 
-# ─── 6.6  /briefing ───────────────────────────────────────────────────────────
-
-def msg_briefing_quick(
-    stats: dict,
-    members: list[dict],
-) -> str:
-    """Báo cáo nhanh hiện tại."""
-    now = datetime.now()
-    active  = stats.get("active", 0)
-    overdue = stats.get("overdue", 0)
-    blocked = stats.get("blocked", 0)
-
-    cap_total = sum(m.get("active_count", 0) for m in members) or 1
-    cap_max   = len(members) * 10
-    cap_pct   = int(cap_total / cap_max * 100) if cap_max else 0
-    bar_filled = cap_pct // 10
-    cap_bar = "▓" * bar_filled + "░" * (10 - bar_filled)
-
-    return (
-        f"{AI_SIG} · BÁO CÁO NHANH\n"
-        f"◷ {now.strftime('%H:%M')}\n"
-        f"{DIV_LIGHT}\n"
-        f"\n"
-        f"TEAM HIỆN TẠI\n"
-        f"● {active} task đang chạy\n"
-        f"⚠️ {overdue} task trễ\n"
-        f"◌ {blocked} blocked\n"
-        f"\n"
-        f"CAPACITY\n"
-        f"{cap_bar} {cap_pct}%\n"
-        f"\n"
-        f"/team chi tiết · /ask <câu hỏi>"
-    )
-
 
 # ─── 7.x  AI response wrapper ─────────────────────────────────────────────────
 
@@ -968,38 +832,6 @@ def msg_ai_response(answer_text: str, tools_used: list[str] | None = None) -> st
 def msg_ai_thinking() -> str:
     return f"{AI_SIG}\n{DIV_LIGHT}\n\n◐ Đang phân tích..."
 
-
-# ─── 8.1  P0 alert to manager ─────────────────────────────────────────────────
-
-def msg_p0_new_to_manager(task: dict, creator_name: str, suggested_assignee: str = "") -> str:
-    suggest_line = f"\nĐỀ XUẤT\n{suggested_assignee}" if suggested_assignee else ""
-    return (
-        f"‼ P0 MỚI TRONG TEAM\n"
-        f"{DIV_STRONG}\n"
-        f"\n"
-        f"`#{task['id']}` vừa được tạo\n"
-        f"\n"
-        f"{task.get('summary','')}\n"
-        f"\n"
-        f"Người tạo: {creator_name}"
-        f"{suggest_line}"
-    )
-
-
-# ─── 8.4  Member overload ─────────────────────────────────────────────────────
-
-def msg_member_overload(member_name: str, active: int, overdue: int, weeks: int = 1) -> str:
-    weeks_str = f"{weeks} tuần liên tiếp" if weeks > 1 else "tuần này"
-    return (
-        f"▲ THÀNH VIÊN OVERLOAD\n"
-        f"{DIV_LIGHT}\n"
-        f"\n"
-        f"{member_name}\n"
-        f"Workload: {active}/10 ({weeks_str})\n"
-        f"Task trễ: {overdue}\n"
-        f"\n"
-        f"▸ Xem chi tiết: /team"
-    )
 
 
 # ─── 9.x  Errors & system ────────────────────────────────────────────────────
@@ -1136,7 +968,7 @@ def msg_brief_team(
     # ── P0 block ──
     if p0_tasks:
         lines.append("")
-        lines.append(f"🔴 Q1 KHẨN CẤP ({len(p0_tasks)} task cần xử lý ngay):")
+        lines.append(f"🔴 Làm ngay — {len(p0_tasks)} task khẩn cấp:")
         for t in p0_tasks[:5]:
             lines.append(fmt_task_line(t, show_assignee=True))
 
@@ -1150,24 +982,3 @@ def msg_brief_team(
     return "\n".join(lines)
 
 
-# ─── OKR risk / intel ────────────────────────────────────────────────────────
-
-def msg_okr_risk(okr_label: str, progress_pct: float, pace_pct: float, reasons: list[str], options: list[str]) -> str:
-    gap = pace_pct - progress_pct
-    reason_block = "\n".join(f"· {r}" for r in reasons)
-    option_block = "\n".join(f"▸ {o}" for o in options)
-    return (
-        f"{AI_SIG} · OKR RỦI RO\n"
-        f"{DIV_LIGHT}\n"
-        f"\n"
-        f"\"{okr_label}\"\n"
-        f"\n"
-        f"DỮ LIỆU\n"
-        f"Tiến độ: {progress_pct:.0f}%  Pace cần: {pace_pct:.0f}%  Chậm: {gap:.0f}pp\n"
-        f"\n"
-        f"NGUYÊN NHÂN\n"
-        f"{reason_block}\n"
-        f"\n"
-        f"ĐỀ XUẤT\n"
-        f"{option_block}"
-    )

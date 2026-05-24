@@ -27,7 +27,7 @@ from bot import (
     handle_keyboard_text, KEYBOARD_ROUTES,
 )
 from scheduler import (
-    morning_briefing_all, manager_team_digest,
+    morning_briefing_all,
     deadline_check_all, eod_recap_all,
 )
 from redash_sync import sync_all as redash_sync_all
