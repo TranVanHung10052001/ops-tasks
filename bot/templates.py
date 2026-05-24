@@ -205,26 +205,17 @@ def fmt_task_line(
 
 def msg_task_new(task: dict, assigned_by_name: str = "") -> str:
     """Tin nhắn khi task mới được giao tới member."""
-    p      = task.get("priority", "P3")
-    icon   = PRIORITY_ICON.get(p, "□")
-    label  = PRIORITY_LABEL.get(p, "")
-    cat    = CAT_LABEL.get(task.get("category", "other"), "Khác")
-    dl     = _deadline_line(task.get("deadline"))
-    by_str = f"\n◉ Giao bởi: {assigned_by_name}" if assigned_by_name else ""
+    p       = task.get("priority", "P3")
+    icon    = PRIORITY_ICON.get(p, "□")
+    cat     = CAT_LABEL.get(task.get("category", "other"), "Khác")
+    dl      = _deadline_line(task.get("deadline"))
     divider = DIV_STRONG if p == "P0" else DIV_LIGHT
 
-    parts = [
-        f"{icon} {p} · {label}",
-        divider,
-        f"",
-        f"`#{task['id']}`",
-        f"{task.get('summary', '')}",
-        f"",
-        DIV_LIGHT,
-        f"◈ {cat}{by_str}",
-    ]
+    meta_parts = [f"{icon} {p}", cat]
     if dl:
-        parts.insert(-1, dl)
+        meta_parts.append(dl)
+    if assigned_by_name:
+        meta_parts.append(f"từ {assigned_by_name}")
 
     okr_ref = ""
     try:
@@ -232,13 +223,22 @@ def msg_task_new(task: dict, assigned_by_name: str = "") -> str:
         meta = task.get("classifier_meta") or {}
         if isinstance(meta, str):
             meta = _j.loads(meta)
-        okr_ref = meta.get("okr_ref") or meta.get("okr_tag") or ""
+        okr_ref = meta.get("okr_ref") or meta.get("okr_tag") or task.get("okr_ref", "")
     except Exception:
         pass
-    if okr_ref:
-        parts.append(f"◈ OKR · {okr_ref}")
 
-    return "\n".join(parts)
+    lines = [
+        f"{icon} {p} · task mới",
+        divider,
+        "",
+        f"`#{task['id']}` {task.get('summary', '')}",
+        "",
+        "  ·  ".join(meta_parts),
+    ]
+    if okr_ref:
+        lines.append(f"OKR · {okr_ref}")
+
+    return "\n".join(lines)
 
 
 # ─── 2.3  Confirm nhận task ───────────────────────────────────────────────────
@@ -273,125 +273,108 @@ def msg_task_transferred(task: dict, from_name: str, to_name: str, reason: str =
 # ─── 2.7  Assigner xác nhận giao task ───────────────────────────────────────
 
 def msg_assign_confirm(task_id: int, assignee_name: str, result: dict) -> str:
-    """
-    Gửi lại cho người giao sau khi task được tạo thành công.
-    result = classifier/router output dict.
-    """
-    p      = result.get("priority", "P2")
-    icon   = PRIORITY_ICON.get(p, "□")
-    label  = PRIORITY_LABEL.get(p, "")
-    cat    = CAT_LABEL.get(result.get("category", "other"), "Khác")
-    summary = result.get("summary", "")
-    dl     = _deadline_line(result.get("deadline_iso"))
-    okr    = result.get("okr_ref", "")
-    conf   = result.get("assignee_confidence", result.get("confidence", 0))
-    conf_s = f"· AI {int(conf*100)}%" if conf else ""
+    """Gửi lại cho người giao sau khi task được tạo thành công."""
+    p       = result.get("priority", "P2")
+    icon    = PRIORITY_ICON.get(p, "□")
+    cat     = CAT_LABEL.get(result.get("category", "other"), "Khác")
+    summary = result.get("summary", "") or "(chưa có nội dung)"
+    dl      = _deadline_line(result.get("deadline_iso"))
+    okr     = result.get("okr_ref", "")
+    conf    = result.get("assignee_confidence", result.get("confidence", 0))
+    conf_str = f"  ·  {int(conf*100)}%" if conf else ""
 
-    # breakdown steps
+    meta_parts = [f"{icon} {p}", cat]
+    if dl:
+        meta_parts.append(dl)
+    if okr:
+        meta_parts.append(f"OKR {okr}")
+
     steps = result.get("breakdown", [])
     step_block = ""
     if steps:
-        step_block = "\nGỢI Ý THỰC HIỆN\n" + "\n".join(
+        step_block = "\n\ngợi ý:\n" + "\n".join(
             f"{i}. {s}" for i, s in enumerate(steps[:3], 1)
-        ) + "\n"
+        )
 
-    lines = [
-        f"● Đã giao `#{task_id}` → {assignee_name}",
-        DIV_LIGHT,
-        "",
-        f"NỘI DUNG",
-        summary or "(chưa có summary)",
-        "",
-        f"PHÂN LOẠI",
-        f"{icon} {p} · {label}  ◈ {cat}",
-    ]
-    if dl:
-        lines.append(dl)
-    if okr:
-        lines.append(f"◈ OKR · {okr}  {conf_s}")
-    elif conf_s:
-        lines.append(conf_s)
-    if step_block:
-        lines.append("")
-        lines.append(step_block.strip())
-
-    return "\n".join(lines)
+    return (
+        f"● #{task_id} → {assignee_name}{conf_str}\n"
+        f"{DIV_LIGHT}\n"
+        f"\n"
+        f"{summary}\n"
+        f"\n"
+        + "  ·  ".join(meta_parts)
+        + step_block
+    )
 
 
 def msg_ai_route_card(result: dict, assigner_name: str = "") -> str:
-    """
-    Text cho confirm card khi AI đề xuất người nhận — kèm inline keyboard bên ngoài.
-    result = route_task() output.
-    """
-    p          = result.get("priority", "P2")
-    icon       = PRIORITY_ICON.get(p, "□")
-    label      = PRIORITY_LABEL.get(p, "")
-    cat        = CAT_LABEL.get(result.get("category", "other"), "Khác")
-    summary    = result.get("summary", "")
-    assignee   = result.get("assignee_name", "?")
-    dl         = _deadline_line(result.get("deadline_iso"))
-    okr        = result.get("okr_ref", "")
-    in_scope   = result.get("in_scope", True)
-    scope_note = result.get("scope_note", "")
-    conf       = int(result.get("assignee_confidence", 0) * 100)
-    steps      = result.get("breakdown", [])
+    """AI đề xuất người nhận — kèm inline keyboard bên ngoài."""
+    p        = result.get("priority", "P2")
+    icon     = PRIORITY_ICON.get(p, "□")
+    cat      = CAT_LABEL.get(result.get("category", "other"), "Khác")
+    summary  = result.get("summary", "") or "(chưa có nội dung)"
+    assignee = result.get("assignee_name", "?")
+    dl       = _deadline_line(result.get("deadline_iso"))
+    okr      = result.get("okr_ref", "")
+    in_scope = result.get("in_scope", True)
+    conf     = int(result.get("assignee_confidence", 0) * 100)
+    steps    = result.get("breakdown", [])
 
-    scope_icon = "●" if in_scope else "▲"
-    scope_text = scope_note or ("Đúng scope" if in_scope else "Ngoài scope")
-
-    lines = [
-        f"⊙ AI ĐỀ XUẤT · {conf}% tin cậy",
-        DIV_LIGHT,
-        "",
-        "NỘI DUNG",
-        summary or "(chưa có summary)",
-        "",
-        "GIAO CHO",
-        f"{assignee}  ·  {icon} {p} · {label}",
-    ]
+    meta_parts = [f"{icon} {p}", cat]
     if dl:
-        lines.append(dl)
-    lines += ["", "PHÂN LOẠI"]
-    cat_line = f"◈ {cat}"
+        meta_parts.append(dl)
     if okr:
-        cat_line += f"  ·  OKR {okr}"
-    lines.append(cat_line)
-    lines.append(f"{scope_icon} {scope_text}")
+        meta_parts.append(f"OKR {okr}")
 
+    scope_line = (
+        "" if in_scope
+        else f"\n▲ {result.get('scope_note', 'Ngoài scope thông thường')}"
+    )
+    step_block = ""
     if steps:
-        lines.append("")
-        lines.append("GỢI Ý THỰC HIỆN")
-        for i, s in enumerate(steps[:3], 1):
-            lines.append(f"{i}. {s}")
+        step_block = "\n\ngợi ý:\n" + "\n".join(
+            f"{i}. {s}" for i, s in enumerate(steps[:3], 1)
+        )
 
-    return "\n".join(lines)
+    return (
+        f"⊙ AI đề xuất  ·  {conf}%\n"
+        f"{DIV_LIGHT}\n"
+        f"\n"
+        f"{summary}\n"
+        f"\n"
+        f"→ {assignee}\n"
+        + "  ·  ".join(meta_parts)
+        + scope_line
+        + step_block
+    )
 
 
 # ─── 2.8  Tạo task nhanh ─────────────────────────────────────────────────────
 
 def msg_task_created(task_id: int, result: dict, text: str) -> str:
     """Xác nhận tạo task, chờ confirm."""
-    p    = result.get("priority", "P3")
-    icon = PRIORITY_ICON.get(p, "□")
-    cat  = CAT_LABEL.get(result.get("category", "other"), "Khác")
-    conf = result.get("confidence", result.get("classifier_confidence", 0))
-    conf_pct = f"{int(conf * 100)}%" if conf else "—"
-    dl = _deadline_line(result.get("deadline_iso"))
-    dl_line = f"\n◷ {dl}" if dl else "\n◷ Chưa đặt deadline"
+    p       = result.get("priority", "P3")
+    icon    = PRIORITY_ICON.get(p, "□")
+    cat     = CAT_LABEL.get(result.get("category", "other"), "Khác")
+    conf    = result.get("confidence", result.get("classifier_confidence", 0))
+    conf_str = f"  ·  {int(conf * 100)}%" if conf else ""
+    summary = result.get("summary") or text[:80]
+    dl      = _deadline_line(result.get("deadline_iso"))  # đã có icon riêng
     okr_ref = result.get("okr_ref", "")
-    okr_line = f"\n◈ OKR · {okr_ref}" if okr_ref else ""
+
+    meta_parts = [f"{icon} {p}", cat]
+    if dl:
+        meta_parts.append(dl)
+    if okr_ref:
+        meta_parts.append(f"OKR {okr_ref}")
 
     return (
-        f"`T-{task_id}` đã tạo\n"
+        f"● T-{task_id} đã tạo{conf_str}\n"
+        f"{DIV_LIGHT}\n"
         f"\n"
-        f"NỘI DUNG\n"
-        f"{result.get('summary', text[:80])}\n"
+        f"{summary}\n"
         f"\n"
-        f"PHÂN LOẠI · tin cậy {conf_pct}\n"
-        f"{icon} {p} · {PRIORITY_LABEL.get(p, '')}\n"
-        f"◈ {cat}"
-        f"{okr_line}"
-        f"{dl_line}"
+        + "  ·  ".join(meta_parts)
     )
 
 
