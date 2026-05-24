@@ -29,10 +29,8 @@ from roles import (
     can_approve_users, can_see_task,
 )
 from classifier import (
-    full_pipeline, image_pipeline, extract_deadline,
-    route_task, coach_task, nl_intent,
+    full_pipeline, extract_deadline, route_task,
 )
-from roast import get_done_roast, get_snooze_roast
 import templates as tpl
 
 logger = logging.getLogger(__name__)
@@ -52,9 +50,6 @@ _pending_deadline: dict[int, tuple] = {}
 
 # {manager_chat_id: {routed task data}} — waiting for manager to confirm AI routing
 _pending_confirm: dict[int, dict] = {}
-
-# {manager_chat_id: decompose_result dict} — waiting for /ok to create decomposed tasks
-_pending_decompose: dict[int, dict] = {}
 
 DEADLINE_TTL = 300  # 5 minutes
 
@@ -576,99 +571,6 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode="Markdown")
 
 
-async def cmd_coach(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    /coach <task_id> — AI coaching guide for a specific task.
-    Available to all team members for their own tasks; manager/TL for any task.
-    """
-    user = await _require_approved(update)
-    if not user:
-        return
-
-    if not context.args:
-        await update.message.reply_text(
-            "Cú pháp: `/coach <id>`\n"
-            "Ví dụ: `/coach 12` — AI phân tích task #12 và hướng dẫn cách làm",
-            parse_mode="Markdown",
-        )
-        return
-
-    try:
-        task_id = int(context.args[0])
-    except ValueError:
-        await update.message.reply_text("ID phải là số.")
-        return
-
-    task = get_task(task_id)
-    if not task or not can_see_task(user, task):
-        await update.message.reply_text(f"Không tìm thấy task #{task_id}.")
-        return
-
-    await update.message.reply_text("🤔 AI đang phân tích task...")
-
-    meta = task.get("classifier_meta") or {}
-    if isinstance(meta, str):
-        import json as _json
-        try:
-            meta = _json.loads(meta)
-        except Exception:
-            meta = {}
-
-    guide = coach_task(
-        task_summary=task.get("summary", task.get("raw_message", "")),
-        okr_ref=meta.get("okr_ref") or task.get("okr_ref"),
-        okr_action_id=meta.get("okr_action_id"),
-        breakdown=meta.get("breakdown") or [],
-        priority=task.get("priority", "P2"),
-        deadline_iso=task.get("deadline"),
-        assignee_name=task.get("assignee_name"),
-    )
-
-    p       = task.get("priority", "P3")
-    icon    = tpl.PRIORITY_ICON.get(p, "□")
-    summary = task.get("summary", "")
-    okr_ref = meta.get("okr_ref") or task.get("okr_ref")
-
-    lines = [
-        f"{icon} `#{task_id}` {summary[:70]}",
-        tpl.DIV_LIGHT,
-        "",
-    ]
-
-    if okr_ref:
-        lines.append(f"◈ OKR {okr_ref}")
-        lines.append("")
-
-    if guide.get("why_matters"):
-        lines += ["TẠI SAO QUAN TRỌNG", f"· {guide['why_matters']}", ""]
-
-    if guide.get("steps"):
-        lines.append("CÁCH LÀM")
-        for i, step in enumerate(guide["steps"][:5], 1):
-            lines.append(f"{i}. {step}")
-        lines.append("")
-
-    if guide.get("watch_out"):
-        lines.append("▲ LƯU Ý")
-        for w in guide["watch_out"][:3]:
-            lines.append(f"· {w}")
-        lines.append("")
-
-    if guide.get("tips"):
-        lines += [f"· {guide['tips']}", ""]
-
-    mins = guide.get("estimated_minutes", 0)
-    if mins:
-        h, m = divmod(mins, 60)
-        lines.append(f"◷ Ước tính: {f'{h}h {m:02d}p' if h else f'{m}p'}")
-
-    coach_kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("● Done", callback_data=f"done:{task_id}"),
-        InlineKeyboardButton("◷ 2h", callback_data=f"snooze:{task_id}:2h"),
-    ]])
-
-    await update.message.reply_text("\n".join(lines), reply_markup=coach_kb)
-
 
 async def cmd_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cancel pending deadline prompt."""
@@ -1104,12 +1006,6 @@ async def handle_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
 
-    # NL intent: try to parse commands like "task 5 deadline T6", "Thống đang làm gì"
-    # Managers get full NL handling; employees get query_person + mark_done
-    if not update.message.forward_origin:
-        if await _handle_nl_intent(update, context, user, text):
-            return
-
     # Regular text — create task for self
     result = full_pipeline(text)
     if result.get("is_task") and result.get("confidence", 0) >= 0.6:
@@ -1155,217 +1051,22 @@ async def handle_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle screenshot (OCR + classify)."""
-    user = await _require_approved(update)
-    if not user:
-        return
-
-    photo = update.message.photo[-1]
-    file = await photo.get_file()
-    image_bytes = await file.download_as_bytearray()
-
-    await update.message.reply_text("Đang đọc ảnh...")
-
-    result = image_pipeline(bytes(image_bytes))
-    if not result.get("is_task"):
-        await update.message.reply_text("Không phát hiện task trong ảnh này.")
-        return
-
-    uid = user["telegram_id"]
-    task_id = add_task(
-        raw_message=f"[OCR screenshot]",
-        summary=result["summary"],
-        assignee_id=uid,
-        assigned_by=uid,
-        team=user.get("team"),
-        source="photo",
-        deadline=result.get("deadline_iso"),
-        priority=result.get("priority", "P3"),
-        category=result.get("category", "other"),
-        estimated_minutes=result.get("estimated_minutes", 30),
-        classifier_meta=result,
-    )
-
-    msg = tpl.msg_task_created(task_id, result, "[OCR screenshot]")
-    if not result.get("deadline_iso"):
-        _pending_deadline[uid] = (task_id, datetime.now())
-        msg += "\n\n◷ Deadline? (Gõ T6 17h, hoặc /skip)"
-    await update.message.reply_text(msg, reply_markup=_task_keyboard(task_id))
-
-
-# ─── NL Intent Handler ────────────────────────────────────────────────────────
-
-async def _handle_nl_intent(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    user: dict,
-    text: str,
-) -> bool:
-    """
-    Try to parse text as an NL command. Returns True if handled, False if not.
-    Handles: mark_done | update_deadline | reassign | query_person | brief
-    """
-    uid      = update.effective_chat.id
-    recent   = _last_task.get(uid)
-    parsed   = nl_intent(text, recent_task_id=recent)
-    intent   = parsed.get("intent", "unknown")
-    conf     = parsed.get("confidence", 0.0)
-
-    if intent == "unknown" or conf < 0.70:
-        return False
-
-    # ── mark_done ─────────────────────────────────────────────────────────────
-    if intent == "mark_done":
-        task_id = parsed.get("task_id")
-        if not task_id:
-            return False
-        task = get_task(task_id)
-        if not task or not can_see_task(user, task):
-            await update.message.reply_text(f"Không tìm thấy task #{task_id}.")
-            return True
-        if mark_done(task_id):
-            from roast import get_done_roast
-            await update.message.reply_text(
-                f"✓ *#{task_id}* done. _{get_done_roast()}_\nMất bao lâu?",
-                parse_mode="Markdown",
-                reply_markup=_duration_keyboard(task_id),
-            )
-            log_action(user["telegram_id"], "done_nl", "task", task_id)
-            if task.get("assigned_by") and task["assigned_by"] != user["telegram_id"]:
-                try:
-                    await context.bot.send_message(
-                        chat_id=task["assigned_by"],
-                        text=f"✓ *{user['full_name']}* xong task #{task_id}: _{task['summary'][:60]}_",
-                        parse_mode="Markdown",
-                    )
-                except Exception:
-                    pass
-        return True
-
-    # ── update_deadline ────────────────────────────────────────────────────────
-    if intent == "update_deadline":
-        task_id      = parsed.get("task_id")
-        deadline_raw = parsed.get("deadline_raw", "")
-        if not task_id or not deadline_raw:
-            return False
-        task = get_task(task_id)
-        if not task or not can_see_task(user, task):
-            await update.message.reply_text(f"Không tìm thấy task #{task_id}.")
-            return True
-        dl_data = extract_deadline(deadline_raw)
-        if dl_data.get("deadline_iso"):
-            update_task_deadline(task_id, dl_data["deadline_iso"], "nl")
-            dl_str = _deadline_str(dl_data["deadline_iso"])
-            await update.message.reply_text(
-                f"✓ Task *#{task_id}* deadline: {dl_str}",
-                parse_mode="Markdown",
-            )
-        else:
-            await update.message.reply_text(
-                f"Không hiểu '{deadline_raw}'. Thử: `task {task_id} deadline T6 17h`",
-                parse_mode="Markdown",
-            )
-        return True
-
-    # ── reassign ───────────────────────────────────────────────────────────────
-    if intent == "reassign":
-        task_id = parsed.get("task_id")
-        hint    = (parsed.get("assignee_hint") or "").strip()
-        if not task_id or not hint:
-            return False
-        task = get_task(task_id)
-        if not task or not can_assign(user):
-            await update.message.reply_text("Task không tồn tại hoặc bạn không có quyền giao.")
-            return True
-        candidates = find_users_by_name(hint)
-        if not candidates:
-            await update.message.reply_text(f"Không tìm thấy '{hint}' trong team.")
-            return True
-        if len(candidates) == 1:
-            new_owner = candidates[0]
-            reassign_task(task_id, new_owner["telegram_id"])
-            await update.message.reply_text(
-                f"✓ Task *#{task_id}* chuyển sang *{new_owner['full_name']}*",
-                parse_mode="Markdown",
-            )
-            log_action(user["telegram_id"], "reassign_nl", "task", task_id,
-                       f"→ {new_owner['full_name']}")
-            try:
-                task_dict = dict(task)
-                task_dict["deadline"] = task_dict.get("deadline")
-                await context.bot.send_message(
-                    chat_id=new_owner["telegram_id"],
-                    text=tpl.msg_task_transferred(task_dict, user["full_name"],
-                                                   new_owner["full_name"]),
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("✓ Nhận việc", callback_data=f"accept:{task_id}"),
-                    ]]),
-                )
-            except Exception:
-                pass
-        else:
-            names = " / ".join(c["full_name"] for c in candidates[:4])
-            await update.message.reply_text(f"Có nhiều người tên '{hint}': {names}\nGõ họ tên đầy đủ hơn.")
-        return True
-
-    # ── query_person ───────────────────────────────────────────────────────────
-    if intent == "query_person":
-        hint   = (parsed.get("person_hint") or "").strip()
-        person = get_user_by_name(hint) if hint else None
-        if not person:
-            await update.message.reply_text(f"Không tìm thấy '{hint}' trong team.")
-            return True
-        tasks = list_user_tasks(person["telegram_id"], status="pending", limit=8)
-        name  = person["full_name"]
-        if not tasks:
-            await update.message.reply_text(
-                f"● {name} — không có task pending."
-            )
-            return True
-        overdue_cnt = sum(
-            1 for t in tasks if t.get("deadline") and
-            datetime.fromisoformat(t["deadline"]).replace(tzinfo=None) < datetime.now()
-        )
-        ov = f"  ‼ {overdue_cnt} trễ" if overdue_cnt else ""
-        lines = [
-            f"TASK CỦA {name.upper()}",
-            f"○ {len(tasks)} pending{ov}",
-            tpl.DIV_LIGHT,
-        ]
-        for t in tasks[:6]:
-            lines.append(tpl.fmt_task_line(t))
-        await update.message.reply_text("\n".join(lines))
-        return True
-
-    # ── brief ──────────────────────────────────────────────────────────────────
-    if intent == "brief":
-        if can_see_team(user):
-            await _send_brief(update, context, user)
-        else:
-            await update.message.reply_text("Brief chỉ dành cho Manager/TL.")
-        return True
-
-    return False
-
 
 async def _send_brief(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
     user: dict,
 ) -> None:
-    """Send team brief snapshot grouped by member + category + P0 tasks."""
+    """Team brief snapshot: member grid + category + P0."""
     members   = list_team_by_person()
     stats     = get_team_stats()
     all_tasks = list_team_tasks(statuses=["pending"])
 
-    # Category counts
     cat_counts: dict[str, int] = {}
     for t in all_tasks:
         cat = t.get("category", "other")
         cat_counts[cat] = cat_counts.get(cat, 0) + 1
 
-    # P0 tasks
     p0_tasks = [t for t in all_tasks if t.get("priority") == "P0"]
 
     text = tpl.msg_brief_team(
@@ -1379,7 +1080,7 @@ async def _send_brief(
 
 
 async def cmd_brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/brief — AI-structured team brief for manager/TL."""
+    """/brief — Team status brief (Manager/TL only)."""
     user = await _require_approved(update)
     if not user:
         return
@@ -1391,7 +1092,7 @@ async def cmd_brief(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    /ask <câu hỏi> — Smart AI reasoning over team workload + OKR + metrics + scope.
+    /ask <câu hỏi> — Single-prompt AI query với live team context.
     Examples:
       /ask Vì sao FR HAN giảm tuần này?
       /ask Task #5 nên giao ai phù hợp nhất?
@@ -1422,240 +1123,38 @@ async def cmd_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     msg = await update.message.reply_text(tpl.msg_ai_thinking())
     try:
-        from smart_agent import ask as smart_ask
-        # Run in executor since smart_ask is sync (Gemini SDK is blocking)
+        from ask import ask as ai_ask
         import asyncio
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, smart_ask, question)
+        result = await loop.run_in_executor(None, ai_ask, question)
     except Exception as e:
         logger.error(f"cmd_ask failed: {e}", exc_info=True)
         await msg.edit_text(tpl.msg_error("AI lỗi", str(e)[:200], "Thử lại sau ít phút"))
         return
 
-    answer = result.get("answer") or "(không có câu trả lời)"
-    tools_used = result.get("tools_used", [])
-    body = tpl.msg_ai_response(answer, tools_used)
+    if result.get("error"):
+        await msg.edit_text(tpl.msg_error("AI lỗi", result["error"]))
+        return
 
-    # Telegram limit 4096 chars
+    answer = result.get("answer") or "(không có câu trả lời)"
+    body = tpl.msg_ai_response(answer)
     if len(body) > 4000:
         body = body[:3900] + "\n…(rút gọn)"
 
     try:
-        await msg.edit_text(body, parse_mode="Markdown")
-    except Exception:
-        # Markdown parse may fail on weird AI output — fall back to plain text
-        try:
-            await msg.edit_text(body)
-        except Exception as e:
-            logger.error(f"cmd_ask edit failed: {e}")
-            await msg.edit_text("Không gửi được câu trả lời. Check log.")
-    log_action(user["telegram_id"], "ask", "smart", 0, question[:80])
-
-
-# ─── /giao — AI Task Decomposition ───────────────────────────────────────────
-
-async def cmd_giao(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    /giao <mô tả việc> — Manager giao việc cấp cao, AI phân tích + chia sub-tasks.
-
-    Examples:
-      /giao Giải quyết FR HAN đang trend giảm
-      /giao Phân tích COGS GXT đang cao hơn target
-      /giao Chuẩn bị kế hoạch mở hub Long An
-    """
-    user = await _require_approved(update)
-    if not user:
-        return
-    if not can_assign(user):
-        await update.message.reply_text(
-            "Chỉ Manager/TL mới dùng được /giao.\n"
-            "Để tự thêm task: /add <mô tả>"
-        )
-        return
-
-    task_text = " ".join(context.args) if context.args else ""
-    if not task_text.strip():
-        await update.message.reply_text(
-            "*Giao việc AI-assisted:*\n"
-            "`/giao <mô tả việc cần làm>`\n\n"
-            "*Ví dụ:*\n"
-            "• `/giao Giải quyết FR HAN đang trend giảm`\n"
-            "• `/giao Phân tích COGS GXT tại sao cao hơn 75K`\n"
-            "• `/giao Chuẩn bị plan mở Hub Long An`\n"
-            "• `/giao Review driver retention D30 đang giảm`\n\n"
-            "AI sẽ hiểu OKR liên quan + đề xuất sub-tasks với owner cụ thể.",
-            parse_mode="Markdown",
-        )
-        return
-
-    cid = update.effective_chat.id
-    msg = await update.message.reply_text("🧠 AI đang phân tích…")
-
-    try:
-        import asyncio
-        from smart_agent import decompose_task, format_decompose_preview
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, decompose_task, task_text)
+        await msg.edit_text(body)
     except Exception as e:
-        logger.error(f"cmd_giao decompose failed: {e}", exc_info=True)
-        await msg.edit_text(tpl.msg_error("AI lỗi", str(e)[:200], "Thử lại sau ít phút"))
-        return
-
-    if result.get("error"):
-        await msg.edit_text(tpl.msg_error("Lỗi phân tích", result["error"]))
-        return
-
-    # Store pending decompose result for /ok confirmation
-    _pending_decompose[cid] = {
-        "decompose": result,
-        "original_text": task_text,
-        "requester_id": user["telegram_id"],
-        "ts": datetime.now().isoformat(),
-    }
-
-    preview = format_decompose_preview(result)
-    try:
-        await msg.edit_text(preview, parse_mode="Markdown")
-    except Exception:
-        await msg.edit_text(preview)
-
-    log_action(user["telegram_id"], "giao", "decompose", 0, task_text[:80])
-
-
-async def cmd_ok(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    /ok — Confirm AI decomposition plan from /giao → create all sub-tasks + notify owners.
-    """
-    user = await _require_approved(update)
-    if not user:
-        return
-
-    cid = update.effective_chat.id
-    pending = _pending_decompose.pop(cid, None)
-
-    if not pending:
-        # Check if there's a pending_confirm (older flow)
-        if cid in _pending_confirm:
-            # Delegate to old confirm handler
-            await update.message.reply_text("Dùng nút inline để xác nhận nhé.")
-            return
-        await update.message.reply_text("Không có plan nào đang chờ xác nhận. Dùng /giao trước.")
-        return
-
-    decompose = pending["decompose"]
-    sub_tasks = decompose.get("sub_tasks", [])
-    if not sub_tasks:
-        await update.message.reply_text("Không có sub-tasks để tạo.")
-        return
-
-    created_ids = []
-    notify_tasks = []  # (user_telegram_id, task_dict)
-
-    import json as _json
-    from store import get_user_by_email
-
-    for st in sub_tasks:
-        owner_email = st.get("owner_email", "")
-        # Look up owner in DB
-        assignee = None
-        if owner_email:
-            assignee = get_user_by_email(owner_email) if hasattr(__import__("store"), "get_user_by_email") else None
-            if not assignee:
-                from store import get_user_by_name
-                assignee = get_user_by_name(st.get("owner_short", ""))
-
-        meta = _json.dumps({
-            "okr_tag": st.get("okr_tag", decompose.get("okr_link", "")),
-            "steps": st.get("steps", []),
-            "source": "decompose",
-            "decomposed_from": pending.get("original_text", "")[:80],
-        }, ensure_ascii=False)
-
-        task_id = add_task(
-            assignee_id=assignee["telegram_id"] if assignee else user["telegram_id"],
-            assigned_by=user["telegram_id"],
-            raw_message=st["summary"],
-            summary=st["summary"],
-            deadline=st.get("deadline_iso"),
-            deadline_confidence="high",
-            priority=st.get("priority", decompose.get("priority", "P1")),
-            category=decompose.get("category", "other"),
-            source="giao",
-            sender=user.get("full_name", "Manager"),
-            classifier_meta=meta,
-        )
-        created_ids.append(task_id)
-
-        if assignee:
-            notify_tasks.append((assignee["telegram_id"], assignee.get("full_name","?"), task_id, st))
-
-    # Confirm to manager
-    task_list = "\n".join(
-        f"  ● #{tid} — {st['summary'][:50]}"
-        for tid, st in zip(created_ids, sub_tasks)
-    )
-    confirm_msg = (
-        f"*Đã tạo {len(created_ids)} task:*\n{task_list}\n\n"
-        f"Chủ nhân task sẽ nhận thông báo ngay."
-    )
-    await update.message.reply_text(confirm_msg, parse_mode="Markdown")
-
-    # Notify each assignee
-    from smart_agent import build_smart_reminder
-    for (assignee_telegram_id, assignee_name, task_id, st) in notify_tasks:
-        task_obj = get_task(task_id)
-        if not task_obj:
-            continue
-        okr_link = st.get("okr_tag") or decompose.get("okr_link", "")
-        p    = st.get("priority", "P2")
-        icon = tpl.PRIORITY_ICON.get(p, "□")
-        steps = st.get("steps", [])
-        step_block = ""
-        if steps:
-            step_block = "\nGỢI Ý THỰC HIỆN\n" + "\n".join(
-                f"{i}. {s}" for i, s in enumerate(steps[:3], 1)
-            )
-        assign_msg = (
-            f"{icon} {p} — `#{task_id}` {st['summary']}\n"
-            f"{tpl.DIV_LIGHT}\n"
-            f"\n"
-            f"◈ OKR {okr_link or '—'}\n"
-            f"· {decompose.get('why_urgent','')[:100]}"
-            f"{step_block}\n"
-            f"\n"
-            f"`/done {task_id}` khi xong · `/block {task_id} <lý do>` nếu blocked"
-        )
-
-        try:
-            await context.bot.send_message(
-                chat_id=assignee_telegram_id,
-                text=assign_msg,
-                parse_mode="Markdown",
-            )
-        except Exception as e:
-            logger.error(f"notify assignee {assignee_telegram_id} failed: {e}")
-
-    log_action(user["telegram_id"], "giao", "confirm", 0, f"created {created_ids}")
-
-
-async def cmd_huy(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/huy — Cancel pending /giao decomposition."""
-    cid = update.effective_chat.id
-    if _pending_decompose.pop(cid, None):
-        await update.message.reply_text(tpl.msg_confirm("Đã huỷ plan", "Dùng /giao để tạo lại."))
-    else:
-        await update.message.reply_text("Không có gì đang chờ xác nhận.")
+        logger.error(f"cmd_ask edit failed: {e}")
+    log_action(user["telegram_id"], "ask", "ai", 0, question[:80])
 
 
 # ─── Keyboard text routing ────────────────────────────────────────────────────
 
 KEYBOARD_ROUTES = {
-    "▸ Task của tôi": cmd_mytasks,
     "▸ Hôm nay":      cmd_today,
-    "▸ Thống kê":     cmd_stats,
-    "▸ Team":         cmd_team,
+    "▸ Task của tôi": cmd_mytasks,
     "▸ Giao việc":    cmd_assign,
-    "▸ Giao việc AI": cmd_giao,     # New AI-assisted assignment
+    "▸ Team":         cmd_team,
 }
 
 

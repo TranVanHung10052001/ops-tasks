@@ -15,10 +15,6 @@ from store import (
     get_task, block_task,
 )
 from roles import MANAGER, TEAM_LEAD, can_see_team
-from roast import (
-    get_morning_roast, get_manager_morning_roast,
-    get_overdue_roast, get_eod_roast,
-)
 import templates as tpl
 
 logger = logging.getLogger(__name__)
@@ -27,17 +23,7 @@ QUIET_START = int(os.getenv("QUIET_HOURS_START", "22"))
 QUIET_END   = int(os.getenv("QUIET_HOURS_END", "6"))
 MANAGER_ID  = int(os.getenv("MANAGER_CHAT_ID", "0"))
 
-# Priority icons — alias from templates (legacy dict removed)
 P_EMOJI = tpl.PRIORITY_ICON
-
-# Lazy import to avoid circular dependency
-def _build_smart_reminder(task: dict, context: str = "deadline") -> str:
-    try:
-        from smart_agent import build_smart_reminder
-        return build_smart_reminder(task, context=context)
-    except Exception as e:
-        logger.warning(f"smart_reminder fallback: {e}")
-        return None  # Caller falls back to simple _fmt()
 
 
 def _is_quiet() -> bool:
@@ -143,13 +129,8 @@ async def deadline_check_all(app):
                     should_remind = True
 
                 if should_remind:
-                    # Try smart reminder first, fallback to template
-                    msg = _build_smart_reminder(task, context="deadline")
-                    if not msg:
-                        msg = tpl.msg_reminder_deadline(task, hours)
-                    await app.bot.send_message(
-                        chat_id=uid, text=msg, parse_mode="Markdown"
-                    )
+                    msg = tpl.msg_reminder_deadline(task, hours)
+                    await app.bot.send_message(chat_id=uid, text=msg)
                     increment_reminder(task["id"])
 
             # Overdue check — smart reminder + P0 escalation
@@ -171,32 +152,9 @@ async def deadline_check_all(app):
                     should_ping = hrs_over % 24 < 0.5
 
                 if should_ping:
-                    msg = _build_smart_reminder(task, context="overdue")
-                    if not msg:
-                        msg = tpl.msg_overdue(task, hrs_over)
-                    await app.bot.send_message(
-                        chat_id=uid, text=msg, parse_mode="Markdown"
-                    )
+                    msg = tpl.msg_overdue(task, hrs_over)
+                    await app.bot.send_message(chat_id=uid, text=msg)
                     increment_reminder(task["id"])
-
-                    # P0 escalation: after 24h overdue + rc>=2 → alert manager too
-                    if (task.get("priority") == "P0" and hrs_over >= 24
-                            and rc_task == 2 and MANAGER_ID and uid != MANAGER_ID):
-                        escalate_msg = (
-                            f"🚨 *P0 Escalation:*\n"
-                            f"Task #{task['id']} của *{task.get('assignee_name','?')}* "
-                            f"đã quá hạn {int(hrs_over)}h và chưa có update.\n\n"
-                            f"_{task.get('summary','')[:80]}_\n\n"
-                            f"Cần can thiệp không?"
-                        )
-                        try:
-                            await app.bot.send_message(
-                                chat_id=MANAGER_ID,
-                                text=escalate_msg,
-                                parse_mode="Markdown",
-                            )
-                        except Exception as esc_e:
-                            logger.error(f"P0 escalation failed: {esc_e}")
 
         except Exception as e:
             logger.error(f"deadline_check_all failed for {uid}: {e}")
@@ -249,259 +207,3 @@ async def eod_recap_all(app):
             logger.error(f"manager eod digest failed: {e}")
 
 
-# ─── OKR Risk Intel (Mon/Wed/Fri 8:30 — Manager only) ───────────────────────
-
-# Static OKR actions from api.py (duplicated here to avoid circular import)
-# Update deadline when OKR changes
-_OKR_ACTIONS = [
-    ("O1.1", "FR Core ≥68%", ["1.1.1","1.1.2","1.1.3","1.1.4"]),
-    ("O1.2", "FR Long Haul ≥70%", ["1.2.1","1.2.2","1.2.3","1.2.4"]),
-    ("O1.3", "FR SME 100–300kg ≥65%", ["1.3.1","1.3.2","1.3.3","1.3.4"]),
-    ("O2.1", "KCN BDG + LAN Hub", ["2.1.1","2.1.2","2.1.3","2.1.4","2.1.5","2.1.6"]),
-    ("O2.2", "Shift Model ≥100 drivers", ["2.2.1","2.2.2","2.2.3","2.2.4","2.2.5"]),
-    ("O2.4", "Driver Retention D30 70%", ["2.4.1","2.4.2","2.4.3"]),
-    ("O3.1", "1st PU On-Time 80%", ["3.1.1","3.1.2","3.1.3"]),
-    ("O3.2", "COGS GXT 75K/kiện", ["3.2.1","3.2.2","3.2.3","3.2.4"]),
-    ("O3.3", "Vendor Truck B2B 11", ["3.3.1","3.3.2"]),
-    ("O3.4", "Distribution GSV ≥4.5B", ["3.4.1","3.4.2"]),
-]
-
-_DEADLINES = {
-    "1.1.1": "2026-04-29","1.1.2": "2026-04-30","1.1.3": "2026-05-27","1.1.4": "2026-04-30",
-    "1.2.1": "2026-05-10","1.2.2": "2026-05-22","1.2.3": "2026-06-15","1.2.4": "2026-05-31",
-    "1.3.1": "2026-05-18","1.3.2": "2026-05-22","1.3.3": "2026-05-15","1.3.4": "2026-04-30",
-    "2.1.1": "2026-05-10","2.1.2": "2026-05-27","2.1.3": "2026-05-20","2.1.4": "2026-06-30",
-    "2.1.5": "2026-05-27","2.1.6": "2026-05-15","2.2.1": "2026-04-22","2.2.2": "2026-04-30",
-    "2.2.3": "2026-05-07","2.2.4": "2026-05-15","2.2.5": "2026-05-15","2.4.1": "2026-05-07",
-    "2.4.2": "2026-05-15","2.4.3": "2026-05-31","3.1.1": "2026-04-15","3.1.2": "2026-04-30",
-    "3.1.3": "2026-04-22","3.2.1": "2026-04-20","3.2.2": "2026-04-30","3.2.3": "2026-05-31",
-    "3.2.4": "2026-05-31","3.3.1": "2026-05-30","3.3.2": "2026-06-15","3.4.1": "2026-04-30",
-    "3.4.2": "2026-05-31",
-}
-
-
-async def okr_risk_intel(app):
-    """
-    Send OKR Risk Radar to manager Mon/Wed/Fri 8:30.
-    Analyzes overdue OKR actions + team member overload → actionable suggestions.
-    """
-    if _is_quiet() or not MANAGER_ID:
-        return
-
-    now = datetime.now()
-    weekday = now.weekday()  # 0=Mon, 1=Tue, ...
-    if weekday not in (0, 2, 4):  # Mon/Wed/Fri only
-        return
-
-    # Compute OKR health
-    at_risk = []
-    watch = []
-    on_track = []
-
-    for kr_id, kr_label, action_ids in _OKR_ACTIONS:
-        total = len(action_ids)
-        overdue_count = 0
-        critical_count = 0  # due in ≤ 3 days
-        for aid in action_ids:
-            dl_str = _DEADLINES.get(aid)
-            if not dl_str:
-                continue
-            try:
-                dl = datetime.fromisoformat(dl_str)
-                delta = (dl - now).total_seconds()
-                if delta < 0:
-                    overdue_count += 1
-                elif delta <= 3 * 86400:
-                    critical_count += 1
-            except (ValueError, TypeError):
-                pass
-
-        overdue_pct = overdue_count / total if total else 0
-        if overdue_pct >= 0.5:
-            at_risk.append((kr_id, kr_label, overdue_count, total, critical_count))
-        elif overdue_pct >= 0.25 or critical_count >= 2:
-            watch.append((kr_id, kr_label, overdue_count, total, critical_count))
-        else:
-            on_track.append((kr_id, kr_label, overdue_count, total, critical_count))
-
-    # Team load analysis
-    members = list_team_by_person()
-    overloaded = [(m["full_name"], m["active_count"], m["overdue_count"])
-                  for m in members if m.get("active_count", 0) > 6 or m.get("overdue_count", 0) > 2]
-    underloaded = [(m["full_name"], m["active_count"])
-                   for m in members if m.get("active_count", 0) <= 1 and m.get("role") != "manager"]
-
-    # Build message
-    day_str = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu"][weekday]
-    lines = [
-        f"{tpl.AI_SIG} · OKR Risk Radar",
-        f"{day_str} {now.strftime('%d·%m')}",
-        tpl.DIV_STRONG,
-        "",
-    ]
-
-    if at_risk:
-        lines.append("■ AT RISK — xử lý ngay")
-        for kr_id, label, od, total, crit in at_risk:
-            row = f"  · {kr_id} {label}: {od}/{total} overdue"
-            if crit:
-                row += f", {crit} sắp hết hạn"
-            lines.append(row)
-        lines.append("")
-
-    if watch:
-        lines.append("▪ WATCH — theo dõi")
-        for kr_id, label, od, total, crit in watch:
-            row = f"  · {kr_id} {label}: {od}/{total} overdue"
-            if crit:
-                row += f", {crit} sắp hết hạn"
-            lines.append(row)
-        lines.append("")
-
-    if on_track:
-        lines.append("● ON TRACK: " + " · ".join(kr for kr, *_ in on_track))
-        lines.append("")
-
-    if overloaded:
-        lines.append(f"{tpl.DIV_LIGHT}")
-        lines.append("▲ OVERLOAD")
-        for name, active, ov in overloaded:
-            lines.append(f"  · {name}: {active} active, {ov} trễ")
-        lines.append("")
-
-    if underloaded and overloaded:
-        lines.append(f"Đề xuất: phân lại task sang {', '.join(n for n, _ in underloaded[:2])}")
-        lines.append("")
-
-    lines.append("/team · /assign")
-    msg = "\n".join(lines)
-
-    try:
-        await app.bot.send_message(
-            chat_id=MANAGER_ID, text=msg, parse_mode="Markdown"
-        )
-    except Exception as e:
-        logger.error(f"okr_risk_intel failed: {e}")
-
-
-# ─── Stall check (9:00 and 15:00) ────────────────────────────────────────────
-
-async def stall_check_all(app):
-    if _is_quiet():
-        return
-
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-    users = list_users(approved_only=True)
-
-    for u in users:
-        uid = u["telegram_id"]
-        stalled = get_stalled_tasks_for_user(uid, stale_days=2)
-        for task in stalled[:2]:
-            try:
-                created = datetime.fromisoformat(task["created_at"]).replace(tzinfo=None)
-                days = (datetime.now() - created).days
-            except (ValueError, TypeError):
-                days = "?"
-
-            defers = f" (hoãn {task['defer_count']}x)" if task.get("defer_count", 0) else ""
-            base_msg = tpl.msg_stalled(task)
-            msg = base_msg if not defers else base_msg + f"\n_{defers}_"
-            kb = InlineKeyboardMarkup([
-                [
-                    InlineKeyboardButton("🧾 Chờ chứng từ", callback_data=f"block:{task['id']}:chờ_chứng_từ"),
-                    InlineKeyboardButton("👤 Chờ người", callback_data=f"block:{task['id']}:chờ_người"),
-                ],
-                [
-                    InlineKeyboardButton("❓ Chưa rõ hướng", callback_data=f"block:{task['id']}:chưa_rõ"),
-                    InlineKeyboardButton("✓ Xong rồi", callback_data=f"done:{task['id']}"),
-                ],
-            ])
-            try:
-                await app.bot.send_message(
-                    chat_id=uid, text=msg,
-                    parse_mode="Markdown", reply_markup=kb,
-                )
-                increment_defer(task["id"])
-            except Exception as e:
-                logger.error(f"stall_check failed for task #{task['id']}: {e}")
-
-
-# ─── Weekly Friday Report (17:00 Fri) ─────────────────────────────────────────
-
-async def weekly_report(app):
-    """
-    Friday 17:00 — AI-generated weekly summary sent to manager.
-    Covers: done, overdue, velocity, AI highlights + next-week focus.
-    """
-    if _is_quiet() or not MANAGER_ID:
-        return
-
-    now = datetime.now()
-    if now.weekday() != 4:  # Friday only
-        return
-
-    from store import list_team_tasks, get_team_stats
-    from classifier import weekly_summary as ai_summary
-
-    # Collect last 7 days data
-    week_start = (now - timedelta(days=7)).isoformat()
-    done_tasks    = list_team_tasks(statuses=["done"],    since=week_start)
-    pending_tasks = list_team_tasks(statuses=["pending"])
-    overdue_tasks = get_all_overdue_tasks()
-    stats = get_team_stats()
-
-    period_label = f"{(now - timedelta(days=7)).strftime('%d/%m')}–{now.strftime('%d/%m/%Y')}"
-
-    # AI analysis
-    ai = ai_summary(done_tasks, pending_tasks, overdue_tasks, period_label)
-
-    # Build report — design system
-    lines = [
-        f"{tpl.AI_SIG} · WEEKLY REPORT",
-        f"◷ Tuần {period_label}",
-        tpl.DIV_STRONG,
-        "",
-    ]
-
-    if ai.get("headline"):
-        lines += [ai["headline"], ""]
-
-    lines += [
-        "TỔNG KẾT",
-        f"● {len(done_tasks)} hoàn thành   ○ {len(pending_tasks)} pending",
-    ]
-    if overdue_tasks:
-        lines.append(f"‼ {len(overdue_tasks)} overdue")
-
-    # Top contributors
-    doer_count: dict[str, int] = {}
-    for t in done_tasks:
-        name = t.get("assignee_name") or "?"
-        doer_count[name] = doer_count.get(name, 0) + 1
-    if doer_count:
-        top3 = sorted(doer_count.items(), key=lambda x: -x[1])[:3]
-        lines += ["", "TOP CONTRIBUTOR"]
-        for i, (name, cnt) in enumerate(top3, 1):
-            lines.append(f"{i}. {name.split()[-1]}  ● {cnt} tasks")
-
-    if ai.get("highlights"):
-        lines += ["", "ĐIỂM NỔI BẬT"]
-        for h in ai["highlights"][:3]:
-            lines.append(f"· {h}")
-
-    if ai.get("risks"):
-        lines += ["", "▲ CẦN CHÚ Ý"]
-        for r in ai["risks"][:2]:
-            lines.append(f"· {r}")
-
-    if ai.get("next_week_focus"):
-        lines += ["", "TUẦN TỚI", f"▸ {ai['next_week_focus']}"]
-
-    lines += ["", tpl.DIV_LIGHT, "/brief · /pending · /team"]
-
-    msg = "\n".join(lines)
-    try:
-        await app.bot.send_message(chat_id=MANAGER_ID, text=msg)
-        logger.info("Weekly report sent to manager")
-    except Exception as e:
-        logger.error(f"weekly_report failed: {e}")
