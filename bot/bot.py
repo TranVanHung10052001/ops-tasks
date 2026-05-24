@@ -30,7 +30,7 @@ from roles import (
     can_approve_users, can_see_task,
 )
 from classifier import (
-    full_pipeline, extract_deadline, route_task,
+    extract_deadline, route_task,
 )
 import templates as tpl
 
@@ -644,7 +644,7 @@ async def _do_assign_with_text(
     assigner: dict, assignee: dict, task_text: str,
 ):
     """Create task and notify assignee directly."""
-    result = full_pipeline(task_text)
+    result = route_task(task_text)
     task_id = add_task(
         raw_message=task_text,
         summary=result.get("summary", task_text[:100]),
@@ -983,7 +983,7 @@ async def handle_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if uid in _pending_assign_who and _pending_assign_who[uid].get("waiting_desc"):
         _pending_assign_who[uid] = {
             "task_text": text,
-            "result": full_pipeline(text),
+            "result": route_task(text),
             "ts": datetime.now(),
         }
         # Show assignee picker
@@ -1014,8 +1014,8 @@ async def handle_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
 
-    # Regular text — create task for self
-    result = full_pipeline(text)
+    # Regular text — create task for self (route_task gives OKR-aware breakdown)
+    result = route_task(text)
     if result.get("is_task") and result.get("confidence", 0) >= 0.6:
         task_id = add_task(
             raw_message=text,
@@ -1256,7 +1256,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _pending_assign_who.pop(uid, None)
 
         task_text = state["task_text"]
-        result = state.get("result") or full_pipeline(task_text)
+        result = state.get("result") or route_task(task_text)
         task_id = add_task(
             raw_message=task_text,
             summary=result.get("summary", task_text[:100]),
@@ -1433,6 +1433,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             deadline=routed.get("deadline_iso"),
             priority=routed.get("priority", "P2"),
             category=routed.get("category", "other"),
+            estimated_minutes=routed.get("estimated_minutes", 30),
             classifier_meta=routed,
         )
 

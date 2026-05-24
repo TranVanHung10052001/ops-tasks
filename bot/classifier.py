@@ -58,7 +58,7 @@ TODAY = {datetime.now().strftime("%Y-%m-%d (%A)")}
 JSON_CONFIG = genai.GenerationConfig(
     response_mime_type="application/json",
     temperature=0.15,
-    max_output_tokens=1200,
+    max_output_tokens=2000,
 )
 
 SAFETY = [
@@ -97,21 +97,53 @@ Phân tích task text sau và trả về JSON với đúng cấu trúc này:
 
 {
   "is_task": true/false,
-  "summary": "tóm tắt task ngắn gọn dưới 100 ký tự",
+  "summary": "Động từ + Đối tượng + Context (ai/ở đâu/về gì). VD: 'Theo dõi FR Core HAN tuần 22 với Thương' | tối đa 100 ký tự",
   "assignee_name": "Họ tên đầy đủ hoặc tên thường dùng | null nếu không rõ",
   "assignee_email": "email@ahamove.com | null nếu không rõ",
   "assignee_confidence": 0.0-1.0,
   "deadline_raw": "chuỗi deadline gốc từ text | null",
-  "deadline_iso": "YYYY-MM-DD | null",
+  "deadline_iso": "YYYY-MM-DDTHH:MM:SS | null",
   "priority": "P0|P1|P2|P3",
-  "category": "fill_rate|supply|retention|b2b|expansion|cost|tech|other",
-  "okr_ref": "ví dụ O1.1 | null nếu không liên quan OKR",
-  "okr_action_id": "ví dụ 1.1.1 | null",
+  "category": "ops|report|meeting|vendor|admin|data|other",
+  "estimated_minutes": <số phút ước tính thực tế — tối thiểu 15, meeting thường 60, report 90-120>,
+  "okr_ref": "O1|O2|O3|O4 | null nếu không liên quan OKR rõ ràng",
+  "okr_action_id": "ví dụ O1.1 | null",
   "in_scope": true/false,
   "scope_note": "giải thích ngắn tại sao in/out scope",
-  "breakdown": ["bước 1...", "bước 2...", "bước 3..."] hoặc [] nếu task đơn giản,
+  "breakdown": [...],
   "confidence": 0.0-1.0
 }
+
+**BREAKDOWN RULES — quan trọng nhất:**
+- Để `[]` nếu task đơn giản (1 hành động rõ ràng, ≤15 phút)
+- Dùng 2–5 bước nếu task phức tạp hoặc có nhiều giai đoạn
+- Mỗi bước PHẢI cụ thể và actionable: Động từ + Đối tượng + Nguồn/Tool cụ thể
+  ✅ "Vào Redash > Fill Rate dashboard > filter KCN VSIP, pull số liệu tuần hiện tại"
+  ✅ "So sánh với target O1: FR EXP ≥65% (baseline ~55%) — note gap nếu có"
+  ✅ "Liên hệ Khâm (khamnd@ahamove.com) qua Telegram xác nhận nguyên nhân supply gap"
+  ❌ "Kiểm tra tình hình" / "Liên hệ liên quan" / "Xem xét vấn đề"
+
+- Khi task liên quan OKR, nhúng số liệu thực vào bước:
+  * O1 Fill Rate: target Core ≥68% (baseline 60.5%), EXP ≥65% (baseline ~55%), Long Haul ≥70%, SME ≥65% (baseline 17%)
+  * O2 Supply: KCN BDG live 30/04, LAN Hub live 15/05; Shift Model ≥100 drivers; Decal target 1,900; Retention D30 ≥70%
+  * O3 Cost/SLA: COGS GXT target 75K/kiện (đang ~80K), Vendor B2B target 11 (đang 8), 1st PU On-Time ≥80% (baseline 47.6%)
+  * O4 Tech: Dynamic Pricing 100% research, Vehicle Classification 60%, AI Bot 40% auto
+
+- Khi task liên quan người cụ thể, nêu tên + email hoặc kênh liên lạc:
+  * FR data HAN → Thương (thuonglth@ahamove.com)
+  * FR SGN / SLA SGN → Thành (thanhtq@ahamove.com) hoặc Phú (phutn@ahamove.com)
+  * KCN / expansion / EXP → Khâm (khamnd@ahamove.com)
+  * Vendor B2B / hợp đồng → Khánh (khanhlv@ahamove.com) hoặc Ngân (Nganntk1@ahamove.com)
+  * COGS GXT / planning HAN → Thống (thonglhn@ahamove.com)
+  * Driver retention HAN → Toàn (toanpt@ahamove.com) | SGN → Chiến (chienpd@ahamove.com)
+
+Ví dụ breakdown tốt cho "Check fill rate VSIP tuần này và báo cáo":
+[
+  "Vào Redash > Fill Rate EXP dashboard > filter KCN VSIP, lấy số tuần hiện tại (MTD + W/W)",
+  "So sánh với target O1: FR EXP ≥65% (baseline ~55%) — highlight gap nếu dưới target",
+  "Liên hệ Khâm (khamnd@) qua Telegram xác nhận nguyên nhân nếu có supply gap",
+  "Tổng hợp vào báo cáo FR tuần → gửi cho Huy (huyle@) trước EOD"
+]
 
 TASK TEXT:
 """
@@ -188,6 +220,7 @@ def route_task(text: str) -> dict:
         "deadline_iso":         result.get("deadline_iso"),
         "priority":             result.get("priority", "P2"),
         "category":             result.get("category", "other"),
+        "estimated_minutes":    int(result.get("estimated_minutes", 30)),
         "okr_ref":              result.get("okr_ref"),
         "okr_action_id":        result.get("okr_action_id"),
         "in_scope":             result.get("in_scope", True),
