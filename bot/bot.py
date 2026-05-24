@@ -22,6 +22,7 @@ from store import (
     increment_defer, get_overdue_tasks_for_user, get_stalled_tasks_for_user,
     log_action,
     get_user_by_name, find_users_by_name, reassign_task,
+    get_adhoc_ratio_this_week,
 )
 from roles import (
     MANAGER, TEAM_LEAD, EMPLOYEE, ROLE_LABELS, MANAGER_CHAT_ID,
@@ -388,10 +389,16 @@ async def cmd_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     _last_task[uid] = task_id
 
-    msg = tpl.msg_task_created(task_id, result, text)
+    adhoc = get_adhoc_ratio_this_week(uid)
+    msg = tpl.msg_task_created(
+        task_id, result, text,
+        assignee_name=user["full_name"].split()[0],
+        is_self=True,
+        adhoc_ratio=adhoc,
+    )
     if not result.get("deadline_iso"):
         _pending_deadline[update.effective_chat.id] = (task_id, datetime.now())
-        msg += "\n\n◷ Deadline? (Gõ T6 17h, mai 9h, hoặc /skip)"
+        msg += "\n\n⏰ _Deadline? Gõ T6 17h, mai 9h, hoặc /skip_"
 
     await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=_task_keyboard(task_id))
     log_action(uid, "add_task", "task", task_id, result.get("summary", ""))
@@ -1026,10 +1033,16 @@ async def handle_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         _last_task[uid] = task_id
-        msg = tpl.msg_task_created(task_id, result, text)
+        adhoc = get_adhoc_ratio_this_week(uid)
+        msg = tpl.msg_task_created(
+            task_id, result, text,
+            assignee_name=user["full_name"].split()[0],
+            is_self=True,
+            adhoc_ratio=adhoc,
+        )
         if not result.get("deadline_iso"):
             _pending_deadline[uid] = (task_id, datetime.now())
-            msg += "\n\n⏰ Deadline? _(Gõ T6 17h, mai 9h, hoặc /skip)_"
+            msg += "\n\n⏰ _Deadline? Gõ T6 17h, mai 9h, hoặc /skip_"
         await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=_task_keyboard(task_id))
 
     elif result.get("is_task"):
@@ -1502,8 +1515,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             visibility="team",
         )
         _last_task[uid] = task_id
+        adhoc = get_adhoc_ratio_this_week(uid)
         await query.edit_message_text(
-            tpl.msg_task_created(task_id, routed, task_txt),
+            tpl.msg_task_created(
+                task_id, routed, task_txt,
+                assignee_name=user["full_name"].split()[0] if user else "?",
+                is_self=True,
+                adhoc_ratio=adhoc,
+            ),
+            parse_mode="Markdown",
             reply_markup=_task_keyboard(task_id),
         )
 

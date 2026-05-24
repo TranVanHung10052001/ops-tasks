@@ -163,8 +163,10 @@ def _time_over(dt: datetime) -> str:
 _DOW = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"]
 
 
-def _deadline_line(deadline_iso: str | None) -> str:
-    """One-line deadline chip — always includes day-of-week for future context."""
+def _deadline_line(deadline_iso: str | None, verbose: bool = False) -> str:
+    """One-line deadline chip with day-of-week.
+    verbose=True thêm '(còn N ngày/h)' — dùng cho task card, không dùng cho list rows.
+    """
     if not deadline_iso:
         return ""
     try:
@@ -179,17 +181,22 @@ def _deadline_line(deadline_iso: str | None) -> str:
         if secs < 0:
             return f"⚠️ {_time_over(dl)}"
         elif secs < 3600:
-            return f"🔴 Còn {int(secs/60)}p · {t}"
+            mins = int(secs / 60)
+            return f"🔴 Còn {mins}p · {t}"
         elif secs < 4 * 3600:
-            return f"⏰ Còn {int(secs/3600)}h · hôm nay {t}"
+            h = int(secs / 3600)
+            suffix = f" (còn {h}h)" if verbose else ""
+            return f"⏰ Hôm nay {t}{suffix}"
         elif dl.date() == now.date():
-            return f"⏰ Hôm nay {t}"
-        elif delta.days == 0:
-            return f"⏰ Hôm nay {t}"
+            h = int(secs / 3600)
+            suffix = f" (còn {h}h)" if verbose else ""
+            return f"⏰ Hôm nay {t}{suffix}"
         elif delta.days == 1:
-            return f"⏰ Mai {dow} · {t}"
+            suffix = " (còn 1 ngày)" if verbose else ""
+            return f"⏰ Mai {dow} · {t}{suffix}"
         else:
-            return f"📅 {dow} {d} · {t}"
+            suffix = f" (còn {delta.days} ngày)" if verbose else ""
+            return f"📅 {dow} {d} · {t}{suffix}"
     except (ValueError, TypeError):
         return ""
 
@@ -367,30 +374,59 @@ def msg_ai_route_card(result: dict, assigner_name: str = "") -> str:
 
 # ─── 2.8  Tạo task nhanh ─────────────────────────────────────────────────────
 
-def msg_task_created(task_id: int, result: dict, text: str) -> str:
-    """Xác nhận tạo task, chờ confirm."""
+_ADHOC_CATS = {"ops", "admin", "meeting", "vendor", "other"}
+_ADHOC_CAP  = int(__import__("os").getenv("ADHOC_CAP", "15"))
+
+
+def msg_task_created(
+    task_id: int,
+    result: dict,
+    text: str,
+    assignee_name: str = "",
+    is_self: bool = True,
+    adhoc_ratio: dict | None = None,
+) -> str:
+    """Xác nhận tạo task — rich card layout."""
     p       = result.get("priority", "P3")
-    icon    = PRIORITY_ICON.get(p, "□")
     cat     = CAT_LABEL.get(result.get("category", "other"), "Khác")
     conf    = result.get("confidence", result.get("classifier_confidence", 0))
-    conf_str = f" · {int(conf * 100)}%" if conf else ""
+    conf_str = f"AI {int(conf * 100)}%" if conf else ""
     summary = result.get("summary") or text[:120]
-    dl      = _deadline_line(result.get("deadline_iso"))
+    dl      = _deadline_line(result.get("deadline_iso"), verbose=True)
+    est     = result.get("estimated_minutes") or 0
     okr_ref = result.get("okr_ref", "")
+    steps   = result.get("breakdown", [])
 
-    meta_parts = [f"{icon} {p}", cat]
+    name = assignee_name or "?"
+    assignee_display = f"{name} (self)" if is_self else name
+    if conf_str:
+        assignee_display += f" | {conf_str}"
+
+    lines = [
+        f"✅ *Task #{task_id}*",
+        "─────────────────────────",
+        f"📝 *{_md(summary)}*",
+        "",
+        f"⚡ {p} | {cat}",
+    ]
+    if est:
+        lines.append(f"⚙️ ~{est} phút")
     if dl:
-        meta_parts.append(dl)
+        lines.append(f"⏰ {dl}")
+    lines.append(f"👤 {assignee_display}")
     if okr_ref:
-        meta_parts.append(f"OKR {okr_ref}")
+        lines.append(f"🎯 OKR {okr_ref}")
 
-    return (
-        f"📋 *T-{task_id} đã tạo*{conf_str}\n"
-        f"\n"
-        f"*{_md(summary)}*\n"
-        f"\n"
-        + "  ·  ".join(meta_parts)
-    )
+    if steps:
+        lines += ["", "📋 *Lộ trình:*"]
+        for s in steps[:4]:
+            lines.append(f"▶ {_md(str(s))}")
+
+    if adhoc_ratio and adhoc_ratio.get("ratio_pct", 0) > _ADHOC_CAP:
+        r = adhoc_ratio["ratio_pct"]
+        lines += ["", f"⚠️ _Ad-hoc tuần này: {r}% (vượt cap {_ADHOC_CAP}%)_"]
+
+    return "\n".join(lines)
 
 
 # ─── 2.9  Done confirm ─────────────────────────────────────────────────────────

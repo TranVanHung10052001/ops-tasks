@@ -664,3 +664,34 @@ def get_all_metrics() -> dict:
             if ts_row and ts_row["ts"]:
                 result["updated_at"] = ts_row["ts"]
         return result
+
+
+def get_adhoc_ratio_this_week(user_id: int) -> dict:
+    """Return ad-hoc task ratio for tasks assigned BY user_id since Monday 00:00 this week.
+
+    Ad-hoc categories: ops, admin, meeting, vendor, other.
+    Only non-cancelled tasks are counted.
+    Returns {"total": int, "adhoc": int, "ratio_pct": float}.
+    """
+    _ADHOC_CATEGORIES = {"ops", "admin", "meeting", "vendor", "other"}
+
+    now = datetime.now()
+    monday = (now - timedelta(days=now.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT category FROM tasks
+            WHERE assigned_by = ?
+              AND created_at >= ?
+              AND status != 'cancel'
+        """, (user_id, monday.isoformat())).fetchall()
+
+    total = len(rows)
+    if total == 0:
+        return {"total": 0, "adhoc": 0, "ratio_pct": 0.0}
+
+    adhoc = sum(1 for r in rows if (r["category"] or "").lower() in _ADHOC_CATEGORIES)
+    ratio_pct = round(adhoc / total * 100, 1)
+    return {"total": total, "adhoc": adhoc, "ratio_pct": ratio_pct}
