@@ -1,0 +1,289 @@
+# =============================================================================
+# Layer 3 — OKR TREE (Q2/2026)
+# =============================================================================
+# Mục đích: AI tự tag task vào OKR action, biết action nào owner ai, deadline gì.
+# Source: TRUCK 70% OPS PLAN DETAIL.xlsx (đọc 22/05/2026)
+#
+# Current values: update qua Google Sheets push (bot/.env SHEETS_*)
+# Sau khi KPI connected → AI tự compare current vs target.
+# =============================================================================
+
+period: "Q2/2026"
+north_star: |
+  GSV Non-Bulky 70% YoY (69B → 117.3B) | FR Core HAN+SGN ≥68% | 1st PU On-Time Bulky ≥80%
+
+objectives:
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # O1 — FILL RATE EXCELLENCE
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: "O1"
+    label: "Fill Rate Excellence"
+    owner: "huyle@ahamove.com"              # Lê Quang Huy — Manager
+    rationale: |
+      FR thấp → driver/KH cùng unhappy → churn cả 2 phía. FR Core HAN hiện
+      58% Q1 — xa target 70%. FR SME 100-300kg mới 17% — gap lớn nhất.
+
+    krs:
+      - id: "O1.1"
+        label: "FR Core HAN+SGN ≥68%"
+        baseline: "60.5% (Q1/2026)"
+        target: "68%"
+        unit: "%"
+        weight: 0.40
+        metric_key: "fill_rate_core_pct"
+        current_value: null              # Update từ Sheets — null = chưa có data
+
+      - id: "O1.2"
+        label: "FR EXP (tỉnh) ≥65%"
+        baseline: "~55% (Q1/2026)"
+        target: "65%"
+        unit: "%"
+        weight: 0.30
+        metric_key: "fill_rate_exp_pct"
+        current_value: null
+
+      - id: "O1.3"
+        label: "FR Longhaul ≥70%"
+        baseline: "(Q1 baseline)"
+        target: "70%"
+        unit: "%"
+        weight: 0.15
+        metric_key: "fill_rate_lh_pct"
+        current_value: null
+
+      - id: "O1.4"
+        label: "FR SME 100-300kg ≥65%"
+        baseline: "17% (Q1/2026)"
+        target: "65%"
+        unit: "%"
+        weight: 0.15
+        metric_key: "fill_rate_sme_small_pct"
+        current_value: null
+        notes: "Gap lớn nhất — segment chưa được phục vụ tốt"
+
+    actions:
+      - id: "1.1.1"
+        summary: "SLA Config Bulky HAN — cấu hình lại time slot + zone routing"
+        kr_ref: "O1.1"
+        owner: "thonglhn@ahamove.com"       # Thống — HAN Lead
+        deadline_iso: "2026-05-25"
+        status: "in_progress"
+        progress_pct: 70
+        notes: "Tuần 11/05 đang config. SGN đã xong."
+
+      - id: "1.1.2"
+        summary: "Convert Bulky Mỹ Phước — mở service Bulky zone KCN Mỹ Phước (Bình Dương)"
+        kr_ref: "O1.2"
+        owner: "thonglhn@ahamove.com"       # Thống, support Chiến (LMS)
+        support: "chienpd@ahamove.com"
+        deadline_iso: "2026-05-30"
+        status: "in_progress"
+        progress_pct: 50
+
+      - id: "1.1.3"
+        summary: "Đồng giá GXT SGN — chuẩn hóa bảng giá GXT Sài Gòn"
+        kr_ref: "O1.1"
+        owner: "thanhtq@ahamove.com"        # Thành — SGN Lead
+        deadline_iso: "2026-05-31"
+        status: "pending"
+        progress_pct: 0
+        notes: "Chưa bắt đầu tính đến 22/05"
+
+      - id: "1.1.4"
+        summary: "FR SME 100-300kg: thiết kế zone + pricing policy"
+        kr_ref: "O1.4"
+        owner: "khanhlv@ahamove.com"        # Khánh — B2B/EXP Lead
+        deadline_iso: "2026-06-30"
+        status: "pending"
+        progress_pct: 0
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # O2 — SUPPLY & NETWORK EXPANSION
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: "O2"
+    label: "Supply & Network Expansion"
+    owner: "khanhlv@ahamove.com"            # Khánh — B2B/EXP Lead
+    rationale: |
+      Driver pool không đủ coverage → FR thấp. Mở Hub Long An = unlock tỉnh mới.
+      Shift Model giúp tăng hiệu suất fleet giờ cao điểm.
+
+    krs:
+      - id: "O2.1"
+        label: "LAN Hub go-live: ≥5 orders/ngày, FR ≥50%"
+        baseline: "0 (chưa có hub)"
+        target: "5 orders/ngày + FR 50%"
+        unit: "orders/day + FR%"
+        weight: 0.35
+        current_value: null
+        notes: "Go-live deadline 15/05 — ĐÃ OVERDUE tính đến 22/05"
+
+      - id: "O2.2"
+        label: "Pilot Shift Model ≥50 driver SGN + ≥50 HAN"
+        baseline: "0"
+        target: "100 drivers (50+50)"
+        unit: "drivers"
+        weight: 0.25
+        current_value: null
+
+      - id: "O2.3"
+        label: "Decal xác minh 1,600 → 1,900 (+300)"
+        baseline: "1,600"
+        target: "1,900"
+        unit: "drivers với decal"
+        weight: 0.20
+        current_value: null
+
+      - id: "O2.4"
+        label: "Driver retention D30: 65% → 70%"
+        baseline: "65%"
+        target: "70%"
+        unit: "%"
+        weight: 0.20
+        metric_key: "driver_retention_d30"
+        current_value: null
+
+    actions:
+      - id: "2.1.1"
+        summary: "LAN Hub — ký hợp đồng thuê mặt bằng"
+        kr_ref: "O2.1"
+        owner: "khamnd@ahamove.com"         # Khâm — EXP tỉnh
+        support: "hungtv@ahamove.com"       # Hùng support
+        deadline_iso: "2026-06-30"
+        status: "in_progress"
+        progress_pct: 40
+
+      - id: "2.1.2"
+        summary: "LAN Hub — tuyển dụng driver Long An"
+        kr_ref: "O2.1"
+        owner: "khamnd@ahamove.com"
+        support: "khanhlv@ahamove.com"
+        deadline_iso: "2026-05-27"
+        status: "in_progress"
+        progress_pct: 30
+
+      - id: "2.1.3"
+        summary: "LAN Hub — Go-live chính thức (≥5 orders/ngày)"
+        kr_ref: "O2.1"
+        owner: "khamnd@ahamove.com"
+        support: "khanhlv@ahamove.com"
+        deadline_iso: "2026-05-15"
+        status: "overdue"                   # ⚠️ OVERDUE — deadline đã qua 7 ngày
+        progress_pct: 20
+        notes: "Go-live target 15/05 đã missed. Cần re-plan + escalate."
+
+      - id: "2.1.4"
+        summary: "KCN Rental Policy — xây dựng policy rental cho KCN tỉnh"
+        kr_ref: "O2.1"
+        owner: "hungtv@ahamove.com"         # Hùng — B2B Vendor
+        support: "khanhlv@ahamove.com"
+        deadline_iso: "2026-05-30"
+        status: "in_progress"
+        progress_pct: 40
+
+      - id: "2.2.1"
+        summary: "Shift Model Design — thiết kế model vận hành ca shift SGN+HAN"
+        kr_ref: "O2.2"
+        owner: "thonglhn@ahamove.com"
+        deadline_iso: "2026-06-15"
+        status: "pending"
+        progress_pct: 0
+        notes: "Chưa bắt đầu tính đến 22/05"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # O3 — SERVICE QUALITY & COST OPTIMIZATION
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: "O3"
+    label: "Service Quality & Cost Optimization"
+    owner: "thonglhn@ahamove.com"           # Thống — HAN Lead, chủ chốt O3
+    rationale: |
+      1st PU On-Time thấp → KH complaint + churn. COGS GXT 80K/kiện quá cao
+      so target 75K → margin âm ở zone xa. Hai OKR này liên quan trực tiếp
+      đến P&L và NPS.
+
+    krs:
+      - id: "O3.1"
+        label: "1st PU On-Time Bulky: 47.6% → 80%"
+        baseline: "47.6% (Q1/2026)"
+        target: "80%"
+        unit: "%"
+        weight: 0.50
+        metric_key: "first_pu_ontime_pct"
+        current_value: null
+        notes: "SGN: SLA redesign đã DONE. HAN: đang config tuần 11/05."
+
+      - id: "O3.2"
+        label: "COGS GXT/kiện 80K → 75K VNĐ (-6.25%)"
+        baseline: "80,000 VNĐ/kiện (Q1/2026)"
+        target: "75,000 VNĐ/kiện"
+        unit: "VNĐ/kiện"
+        weight: 0.50
+        metric_key: "cogs_gxt_per_order_vnd"
+        current_value: null
+        notes: "⚠️ P0 URGENT — analysis CHƯA BẮT ĐẦU tính đến 22/05"
+
+    actions:
+      - id: "3.1.1"
+        summary: "SLA redesign SGN Bulky (GHN/GXT) — cấu hình lại time slot"
+        kr_ref: "O3.1"
+        owner: "thonglhn@ahamove.com"
+        deadline_iso: "2026-04-30"
+        status: "done"
+        progress_pct: 100
+        notes: "✅ DONE — SGN complete. Waiting HAN."
+
+      - id: "3.1.2"
+        summary: "SLA Config HAN Bulky — cấu hình SLA time slot HAN"
+        kr_ref: "O3.1"
+        owner: "thonglhn@ahamove.com"
+        support: "chienpd@ahamove.com"
+        deadline_iso: "2026-05-25"
+        status: "in_progress"
+        progress_pct: 60
+
+      - id: "3.2.1"
+        summary: "COGS GXT Breakdown — phân tích chi tiết structure cost GXT/kiện"
+        kr_ref: "O3.2"
+        owner: "thonglhn@ahamove.com"
+        support: "BA (Yến)"                  # Business Analyst
+        deadline_iso: "2026-04-20"          # ĐÃ DELAYED
+        status: "pending"
+        progress_pct: 0
+        notes: "⚠️ P0 URGENT. Deadline gốc 20/04 đã qua. Chưa bắt đầu 22/05."
+
+# ─── Cross-OKR dependencies ──────────────────────────────────────────────────
+dependencies:
+  - blocker: "2.1.1"              # LAN Hub Lease
+    blocks:  "2.1.3"              # LAN Go-live
+    rationale: "Cần có mặt bằng trước khi go-live"
+
+  - blocker: "2.1.2"              # LAN Driver Recruit
+    blocks:  "2.1.3"              # LAN Go-live
+    rationale: "Cần đủ driver trước khi go-live"
+
+  - blocker: "3.2.1"              # COGS GXT analysis
+    blocks:  "O3.2_future"        # Actions tiếp theo
+    rationale: "Cần analysis xong trước khi có action plan thực tế"
+
+  - blocker: "1.1.1"              # SLA Config Bulky HAN
+    blocks:  "3.1.2"              # SLA Config HAN (same action — confirm consistent)
+    rationale: "SLA config HAN ảnh hưởng cả FR (O1) và 1st PU (O3)"
+
+# ─── Health check rules ──────────────────────────────────────────────────────
+risk_rules:
+  - rule: "overdue_actions_pct"
+    threshold: 0.30                # >30% action overdue → OKR at-risk
+    severity: "P1"
+
+  - rule: "kr_current_vs_target_gap"
+    threshold: 0.20                # current < target * 0.80 → KR off-track
+    severity: "P2"
+
+  - rule: "no_action_progress_days"
+    threshold: 7                   # 7 ngày không có update → stalled (strict mode)
+    severity: "P2"
+
+  - rule: "p0_action_pending"
+    condition: "action với notes chứa 'P0 URGENT' và status='pending'"
+    severity: "P0"
+    action: "Alert manager ngay + đề xuất owner meeting"

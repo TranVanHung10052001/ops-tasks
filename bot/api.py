@@ -506,19 +506,16 @@ class AskBody(BaseModel):
 
 @app.post("/api/ask")
 def api_ask(body: AskBody, token: str = Depends(verify_token)):
-    """
-    Smart Agent endpoint — reasoning over team workload + OKR + metrics + scope.
-    Returns: {answer, tools_used, tool_results}
-    """
+    """Single-prompt AI query với live team context."""
     if not body.question or not body.question.strip():
         raise HTTPException(status_code=400, detail="question is required")
     try:
-        from smart_agent import ask as smart_ask
-        result = smart_ask(body.question)
+        from ask import ask as ai_ask
+        result = ai_ask(body.question)
         log_action(0, "api_ask", detail=body.question[:100])
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"smart_agent failed: {e}")
+        raise HTTPException(status_code=500, detail=f"ask failed: {e}")
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────

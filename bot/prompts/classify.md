@@ -24,7 +24,16 @@ Tin nhắn bên dưới được forward vào hệ thống. Hãy phân tích và
 - true: yêu cầu làm gì đó cụ thể, có action item rõ
 - false: thông báo thuần, chitchat, câu hỏi không cần action
 
-**Quy tắc summary:** bắt đầu bằng động từ, ngắn gọn, đủ hiểu không cần context.
-Ví dụ: "Gửi báo cáo doanh thu T5 cho KFM", "Liên hệ vendor X về invoice tháng 4"
+**Quy tắc summary:** bắt đầu bằng động từ, đủ hiểu khi đọc lại sau 1 tuần mà không nhớ nguyên văn.
+Phải trả lời được: Làm GÌ, với AI / cho AI, về việc GÌ.
+
+- Tối đa 120 ký tự
+- Không được paraphrase lại đúng input — phải có thêm context hoặc làm rõ
+- Nếu họp: ghi rõ chủ đề hoặc đánh dấu [chủ đề?] nếu không rõ — KHÔNG được chỉ ghi "Họp lúc Xh"
+- Nếu báo cáo: ghi rõ loại báo cáo và gửi cho ai — KHÔNG được chỉ ghi "Gửi báo cáo"
+- Nếu liên hệ: ghi rõ liên hệ ai, về vấn đề gì
+
+✅ Đúng: "Họp review fill rate Q2 với anh Huy [chủ đề?]", "Gửi báo cáo GSV T5 cho KFM", "Liên hệ vendor VSIP về invoice tháng 4"
+❌ Sai:  "Họp vào 16h chiều mai", "Gửi báo cáo", "Liên hệ vendor"
 
 Tin nhắn:
