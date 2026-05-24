@@ -130,7 +130,7 @@ async def deadline_check_all(app):
 
                 if should_remind:
                     msg = tpl.msg_reminder_deadline(task, hours)
-                    await app.bot.send_message(chat_id=uid, text=msg)
+                    await app.bot.send_message(chat_id=uid, text=msg, parse_mode="Markdown")
                     increment_reminder(task["id"])
 
             # Overdue check — smart reminder + P0 escalation

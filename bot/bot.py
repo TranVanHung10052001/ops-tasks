@@ -393,7 +393,7 @@ async def cmd_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _pending_deadline[update.effective_chat.id] = (task_id, datetime.now())
         msg += "\n\n◷ Deadline? (Gõ T6 17h, mai 9h, hoặc /skip)"
 
-    await update.message.reply_text(msg, reply_markup=_task_keyboard(task_id))
+    await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=_task_keyboard(task_id))
     log_action(uid, "add_task", "task", task_id, result.get("summary", ""))
 
 
@@ -676,6 +676,7 @@ async def _do_assign_with_text(
         await context.bot.send_message(
             chat_id=assignee["telegram_id"],
             text=tpl.msg_task_new(task_dict, assigned_by_name=assigner["full_name"]),
+            parse_mode="Markdown",
             reply_markup=accept_kb,
         )
     except Exception as e:
@@ -1028,8 +1029,8 @@ async def handle_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = tpl.msg_task_created(task_id, result, text)
         if not result.get("deadline_iso"):
             _pending_deadline[uid] = (task_id, datetime.now())
-            msg += "\n\n◷ Deadline? (Gõ T6 17h, mai 9h, hoặc /skip)"
-        await update.message.reply_text(msg, reply_markup=_task_keyboard(task_id))
+            msg += "\n\n⏰ Deadline? _(Gõ T6 17h, mai 9h, hoặc /skip)_"
+        await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=_task_keyboard(task_id))
 
     elif result.get("is_task"):
         # Low confidence — ask confirmation

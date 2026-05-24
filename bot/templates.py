@@ -117,6 +117,13 @@ CAT_LABEL = {
 }
 
 
+# ─── Markdown helpers ─────────────────────────────────────────────────────────
+
+def _md(text: str) -> str:
+    """Escape * _ ` for Telegram Markdown v1 so bold wrapping doesn't break."""
+    return str(text).replace("*", "\\*").replace("_", "\\_").replace("`", "\\`")
+
+
 # ─── Time helpers ──────────────────────────────────────────────────────────────
 
 def _fmt_time(dt: datetime) -> str:
@@ -153,26 +160,36 @@ def _time_over(dt: datetime) -> str:
     return f"trễ {h}h"
 
 
+_DOW = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"]
+
+
 def _deadline_line(deadline_iso: str | None) -> str:
-    """One-line deadline chip for message body."""
+    """One-line deadline chip — always includes day-of-week for future context."""
     if not deadline_iso:
         return ""
     try:
-        dl = datetime.fromisoformat(deadline_iso).replace(tzinfo=None)
-        delta = dl - datetime.now()
-        secs = delta.total_seconds()
+        dl    = datetime.fromisoformat(deadline_iso).replace(tzinfo=None)
+        now   = datetime.now()
+        delta = dl - now
+        secs  = delta.total_seconds()
+        dow   = _DOW[dl.weekday()]
+        t     = _fmt_time(dl)
+        d     = dl.strftime("%d/%m")
+
         if secs < 0:
             return f"⚠️ {_time_over(dl)}"
         elif secs < 3600:
-            return f"‼ Còn {int(secs/60)}p — {_fmt_time(dl)}"
+            return f"🔴 Còn {int(secs/60)}p · {t}"
         elif secs < 4 * 3600:
-            return f"◷ Còn {int(secs/3600)}h — {_fmt_time(dl)} hôm nay"
-        elif dl.date() == datetime.now().date():
-            return f"◷ Hôm nay {_fmt_time(dl)}"
+            return f"⏰ Còn {int(secs/3600)}h · hôm nay {t}"
+        elif dl.date() == now.date():
+            return f"⏰ Hôm nay {t}"
+        elif delta.days == 0:
+            return f"⏰ Hôm nay {t}"
         elif delta.days == 1:
-            return f"◷ Mai {_fmt_time(dl)}"
+            return f"⏰ Mai {dow} · {t}"
         else:
-            return f"⊡ {_fmt_date(dl)} · {_fmt_time(dl)}"
+            return f"📅 {dow} {d} · {t}"
     except (ValueError, TypeError):
         return ""
 
@@ -228,15 +245,15 @@ def msg_task_new(task: dict, assigned_by_name: str = "") -> str:
         pass
 
     lines = [
-        f"{icon} {p} · task mới",
-        divider,
+        f"📬 *Task mới · {p}*",
         "",
-        f"`#{task['id']}` {task.get('summary', '')}",
+        f"`#{task['id']}` *{_md(task.get('summary', ''))}*",
         "",
         "  ·  ".join(meta_parts),
     ]
     if okr_ref:
         lines.append(f"OKR · {okr_ref}")
+    lines += ["", f"`/done {task['id']}` xong · `/snooze {task['id']} 2h` hoãn"]
 
     return "\n".join(lines)
 
@@ -337,12 +354,11 @@ def msg_ai_route_card(result: dict, assigner_name: str = "") -> str:
         )
 
     return (
-        f"⊙ AI đề xuất  ·  {conf}%\n"
-        f"{DIV_LIGHT}\n"
+        f"🤖 *AI đề xuất · {conf}%*\n"
         f"\n"
-        f"{summary}\n"
+        f"*{_md(summary)}*\n"
         f"\n"
-        f"→ {assignee}\n"
+        f"→ *{_md(assignee)}*\n"
         + "  ·  ".join(meta_parts)
         + scope_line
         + step_block
@@ -357,9 +373,9 @@ def msg_task_created(task_id: int, result: dict, text: str) -> str:
     icon    = PRIORITY_ICON.get(p, "□")
     cat     = CAT_LABEL.get(result.get("category", "other"), "Khác")
     conf    = result.get("confidence", result.get("classifier_confidence", 0))
-    conf_str = f"  ·  {int(conf * 100)}%" if conf else ""
-    summary = result.get("summary") or text[:80]
-    dl      = _deadline_line(result.get("deadline_iso"))  # đã có icon riêng
+    conf_str = f" · {int(conf * 100)}%" if conf else ""
+    summary = result.get("summary") or text[:120]
+    dl      = _deadline_line(result.get("deadline_iso"))
     okr_ref = result.get("okr_ref", "")
 
     meta_parts = [f"{icon} {p}", cat]
@@ -369,10 +385,9 @@ def msg_task_created(task_id: int, result: dict, text: str) -> str:
         meta_parts.append(f"OKR {okr_ref}")
 
     return (
-        f"● T-{task_id} đã tạo{conf_str}\n"
-        f"{DIV_LIGHT}\n"
+        f"📋 *T-{task_id} đã tạo*{conf_str}\n"
         f"\n"
-        f"{summary}\n"
+        f"*{_md(summary)}*\n"
         f"\n"
         + "  ·  ".join(meta_parts)
     )
@@ -408,27 +423,26 @@ def msg_task_done(task: dict, next_task: dict | None = None) -> str:
 # ─── 3.1 / 3.3  Reminders ────────────────────────────────────────────────────
 
 def msg_reminder_deadline(task: dict, hours_left: float) -> str:
-    """Nhắc deadline sắp tới (15p / vài giờ / ngày mai)."""
+    """Nhắc deadline sắp tới."""
     tid     = task.get("id", "?")
-    summary = task.get("summary", "")[:70]
+    summary = task.get("summary", "")[:100]
     p       = task.get("priority", "P3")
     icon    = PRIORITY_ICON.get(p, "□")
     dl      = _deadline_line(task.get("deadline"))
 
     if hours_left <= 0.25:
-        header = f"‼ Còn {int(hours_left * 60)}p"
+        header = f"🔴 *Còn {int(hours_left * 60)}p*"
     elif hours_left <= 4:
-        header = f"◷ Còn {int(hours_left)}h"
+        header = f"🔴 *Còn {int(hours_left)}h*"
     elif hours_left <= 28:
-        header = "◷ Deadline hôm nay / mai"
+        header = "⏰ *Deadline hôm nay / mai*"
     else:
-        header = "⊡ Nhắc trước 3 ngày"
+        header = "📅 *Nhắc trước 3 ngày*"
 
     return (
         f"{header}\n"
-        f"{DIV_LIGHT}\n"
         f"\n"
-        f"{icon} `#{tid}` {summary}\n"
+        f"{icon} `#{tid}` *{_md(summary)}*\n"
         f"{dl}\n"
         f"\n"
         f"`/done {tid}` xong · `/snooze {tid} 2h` hoãn"
@@ -572,10 +586,9 @@ def msg_morning_member(
     q2_n = len(groups["Q2"])
 
     lines = [
-        f"{AI_SIG} · {wday} {date_s}",
-        DIV_STRONG,
+        f"☀️ *{wday} {date_s}*",
         "",
-        f"Chào sáng, {name}.",
+        f"Chào sáng, *{name}*.",
         "",
     ]
 
