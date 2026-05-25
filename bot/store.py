@@ -180,15 +180,16 @@ def find_users_by_name(name: str) -> list[dict]:
 
 
 def reassign_task(task_id: int, new_assignee_id: int) -> bool:
-    """Reassign an active task to a different team member."""
+    """Reassign an active task to a different team member.
+    Note: assignee_name is derived from users JOIN, not stored on tasks table.
+    """
     new_user = get_user(new_assignee_id)
-    new_name = new_user["full_name"] if new_user else str(new_assignee_id)
     new_team = new_user.get("team") if new_user else None
     with get_db() as conn:
         cur = conn.execute(
-            """UPDATE tasks SET assignee_id = ?, assignee_name = ?, team = ?
+            """UPDATE tasks SET assignee_id = ?, team = ?
                WHERE id = ? AND status NOT IN ('done', 'cancelled')""",
-            (new_assignee_id, new_name, new_team, task_id),
+            (new_assignee_id, new_team, task_id),
         )
         return cur.rowcount > 0
 
@@ -356,13 +357,20 @@ def list_auto_created_today(since_iso: str | None = None) -> list[dict]:
     """
     Tasks that bot auto-created (source='ai_auto') in the current day.
     Used for the 17h manager digest + dashboard widget.
-    `since_iso` optional override (defaults to today 00:00 local time).
+
+    `since_iso` optional override. If None, uses SQLite's `datetime('now',
+    '+7 hours', 'start of day')` so the format matches stored created_at
+    (space-separated, NOT ISO 'T' — those compare differently as strings).
     """
-    if not since_iso:
-        now = datetime.now()
-        since_iso = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     with get_db() as conn:
-        rows = conn.execute("""
+        if since_iso:
+            q_where = "AND t.created_at >= ?"
+            params = [since_iso]
+        else:
+            q_where = "AND t.created_at >= datetime('now', '+7 hours', 'start of day')"
+            params = []
+
+        rows = conn.execute(f"""
             SELECT t.*,
                    u.full_name  AS assignee_name,
                    u2.full_name AS assigner_name
@@ -370,10 +378,10 @@ def list_auto_created_today(since_iso: str | None = None) -> list[dict]:
               LEFT JOIN users u  ON t.assignee_id = u.telegram_id
               LEFT JOIN users u2 ON t.assigned_by = u2.telegram_id
              WHERE t.source = 'ai_auto'
-               AND t.created_at >= ?
+               {q_where}
              ORDER BY t.created_at DESC
              LIMIT 50
-        """, (since_iso,)).fetchall()
+        """, params).fetchall()
         return [dict(r) for r in rows]
 
 
