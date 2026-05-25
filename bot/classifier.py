@@ -309,6 +309,104 @@ Yêu cầu: steps phải cụ thể, actionable, phù hợp với nghiệp vụ 
     }
 
 
+def recommend_now(
+    pending_tasks: list[dict],
+    user_name: str = "",
+) -> dict:
+    """
+    Given a user's pending tasks + current time, pick THE single task they should
+    do right now and explain why in 1 sentence.
+
+    Scoring lens the AI should use (built into prompt):
+    - Deadline urgency (overdue > today > tomorrow > >2d)
+    - OKR weight (tasks with okr_ref outrank generic tasks)
+    - Priority (P0 always wins, P1 > P2 > P3)
+    - Time-of-day fit: P0/deep-work AM, meetings/coordination PM, admin EOD
+    - Blocker chain: tasks others are waiting on first
+
+    Returns: {task_id, reason, alternative_task_id, alternative_reason}
+    """
+    if not pending_tasks:
+        return {"task_id": None, "reason": "Không có task nào đang pending."}
+
+    now = datetime.now()
+    today_str = now.strftime("%Y-%m-%d %H:%M (%A)")
+    hour = now.hour
+    period = (
+        "đầu giờ sáng (deep work)" if 7 <= hour < 11
+        else "trưa (medium energy)" if 11 <= hour < 13
+        else "chiều (coordination)" if 13 <= hour < 17
+        else "cuối ngày (wrap up)" if 17 <= hour < 20
+        else "ngoài giờ"
+    )
+
+    # Compact task list for prompt
+    task_lines = []
+    for t in pending_tasks[:15]:  # cap at 15 to control token cost
+        meta = t.get("classifier_meta") or {}
+        if isinstance(meta, str):
+            try:
+                meta = json.loads(meta)
+            except Exception:
+                meta = {}
+        okr = meta.get("okr_ref", "") if isinstance(meta, dict) else ""
+        dl = t.get("deadline", "")
+        dl_short = dl[:16] if dl else "no-deadline"
+        task_lines.append(
+            f"#{t['id']} [{t.get('priority','P3')}] {t.get('summary','')[:80]} | "
+            f"dl={dl_short} | okr={okr or '—'} | cat={t.get('category','other')}"
+        )
+    tasks_text = "\n".join(task_lines)
+
+    prompt = f"""User: {user_name or '?'}
+NOW: {today_str} — {period}
+
+PENDING TASKS:
+{tasks_text}
+
+Pick THE single task this user should do RIGHT NOW (1 task only).
+
+Criteria (decreasing priority):
+1. P0 + overdue → always wins
+2. Deadline ≤ 4h từ now → escalate
+3. OKR-linked (có okr_ref) > ad-hoc
+4. Time-of-day fit: AM=deep work / heavy analysis, PM=coordination/meeting, EOD=admin
+5. Nếu nhiều task tương đương → chọn task có deadline gần nhất
+
+Return JSON:
+{{
+  "task_id": <id của task chọn>,
+  "reason": "1 câu (≤20 từ) giải thích vì sao chọn task này — bám vào OKR/deadline cụ thể",
+  "alternative_task_id": <id task thứ 2 nên cân nhắc, hoặc null>,
+  "alternative_reason": "1 câu ngắn nói vì sao đó là backup, hoặc null"
+}}
+"""
+    result = _safe_call(_router_model, prompt)
+    if not result:
+        # Fallback: rule-based pick
+        sorted_t = sorted(pending_tasks, key=lambda t: (
+            _PRIORITY_RANK_LOCAL.get(t.get("priority", "P3"), 3),
+            t.get("deadline") or "9999",
+        ))
+        first = sorted_t[0]
+        return {
+            "task_id": first["id"],
+            "reason": f"Priority {first.get('priority','P3')} với deadline sớm nhất.",
+            "alternative_task_id": sorted_t[1]["id"] if len(sorted_t) > 1 else None,
+            "alternative_reason": None,
+        }
+
+    return {
+        "task_id": result.get("task_id"),
+        "reason": result.get("reason", ""),
+        "alternative_task_id": result.get("alternative_task_id"),
+        "alternative_reason": result.get("alternative_reason"),
+    }
+
+
+_PRIORITY_RANK_LOCAL = {"P0": 0, "P1": 1, "P2": 2, "P3": 3, "P4": 4}
+
+
 def weekly_summary(done_tasks: list, pending_tasks: list, overdue_tasks: list,
                    period_label: str = "") -> dict:
     """

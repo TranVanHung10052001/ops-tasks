@@ -26,6 +26,7 @@ from store import (
     set_user_role, add_task, block_task, unblock_task,
     get_all_overdue_tasks, get_user_stats, log_action,
     update_task_priority, upsert_metric, get_all_metrics,
+    list_auto_created_today, reassign_task,
 )
 from roles import MANAGER, TEAM_LEAD, EMPLOYEE, ROLE_LABELS
 
@@ -523,6 +524,44 @@ def api_ask(body: AskBody, token: str = Depends(verify_token)):
 @app.get("/api/health")
 def health():
     return {"status": "ok", "ts": datetime.now().isoformat()}
+
+
+# ─── Auto-digest (manager review of bot-created tasks today) ─────────────────
+
+@app.get("/api/auto-digest")
+def get_auto_digest(token: str = Depends(verify_token)):
+    """Tasks bot auto-created today — for manager review widget on dashboard."""
+    tasks = list_auto_created_today()
+    return {
+        "count": len(tasks),
+        "tasks": [_fmt_task(t) for t in tasks],
+        "ts": datetime.now().isoformat(),
+    }
+
+
+class ReassignBody(BaseModel):
+    new_assignee_id: int
+    actor_id: Optional[int] = None  # who triggered the reassign (for audit log)
+
+
+@app.post("/api/tasks/{task_id}/reassign")
+def post_reassign(
+    task_id: int,
+    body: ReassignBody,
+    token: str = Depends(verify_token),
+):
+    """Reassign an existing task from the dashboard (mirror of bot's digest_reassign)."""
+    task = get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    new_user = get_user(body.new_assignee_id)
+    if not new_user:
+        raise HTTPException(status_code=400, detail="New assignee not found")
+    if reassign_task(task_id, body.new_assignee_id):
+        log_action(body.actor_id or 0, "reassign_dashboard", "task", task_id,
+                   f"→ {new_user['full_name']}")
+        return {"ok": True, "task": _fmt_task(get_task(task_id))}
+    raise HTTPException(status_code=500, detail="Reassign failed")
 
 
 # ─── Serializers ──────────────────────────────────────────────────────────────

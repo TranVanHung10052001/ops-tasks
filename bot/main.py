@@ -19,8 +19,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from bot import (
-    cmd_start, cmd_help, cmd_add, cmd_mytasks, cmd_today,
-    cmd_done, cmd_snooze, cmd_cancel, cmd_stats, cmd_skip,
+    cmd_start, cmd_help, cmd_add, cmd_mytasks, cmd_today, cmd_now,
+    cmd_done, cmd_snooze, cmd_cancel, cmd_undo, cmd_stats, cmd_skip,
     cmd_assign, cmd_team, cmd_pending, cmd_brief, cmd_ask,
     cmd_approve, cmd_users, cmd_setrole,
     handle_forward, handle_callback,
@@ -29,8 +29,10 @@ from bot import (
 from scheduler import (
     morning_briefing_all,
     deadline_check_all, eod_recap_all,
+    auto_digest_manager,
 )
 from redash_sync import sync_all as redash_sync_all
+from sheet_sync  import sync_all as sheet_sync_all
 from store import init_db
 from roles import MANAGER_CHAT_ID
 
@@ -72,9 +74,11 @@ async def main():
         ("add",      cmd_add),
         ("mytasks",  cmd_mytasks),
         ("today",    cmd_today),
+        ("now",      cmd_now),
         ("done",     cmd_done),
         ("snooze",   cmd_snooze),
         ("cancel",   cmd_cancel),
+        ("undo",     cmd_undo),
         ("stats",    cmd_stats),
         ("skip",     cmd_skip),
         ("assign",   cmd_assign),
@@ -130,14 +134,18 @@ async def main():
                   args=[app], id="morning_all")
     sched.add_job(deadline_check_all,    "interval", minutes=15,
                   args=[app], id="deadline_check")
+    sched.add_job(auto_digest_manager,   "cron", hour=17, minute=0,
+                  args=[app], id="auto_digest")
     sched.add_job(eod_recap_all,         "cron", hour=18, minute=0,
                   args=[app], id="eod_recap")
 
-    # Redash KPI sync — every 30 min (silent no-op if REDASH_URL not set)
+    # KPI sync — every 30 min. Both sources are silent no-op when unconfigured.
+    # Redash for teams with Redash; Google Sheet for teams using manager-maintained sheets.
     sched.add_job(redash_sync_all, "interval", minutes=30, id="redash_sync")
+    sched.add_job(sheet_sync_all,  "interval", minutes=30, id="sheet_sync")
 
     sched.start()
-    logger.info("Scheduler started — 3 user-facing jobs + Redash sync")
+    logger.info("Scheduler started — 3 user-facing jobs + Redash + Sheet sync")
 
     logger.info(f"Bot starting | Manager: {MANAGER_CHAT_ID}")
 

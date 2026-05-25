@@ -352,6 +352,31 @@ def list_team_tasks(
         return [dict(r) for r in conn.execute(q, params).fetchall()]
 
 
+def list_auto_created_today(since_iso: str | None = None) -> list[dict]:
+    """
+    Tasks that bot auto-created (source='ai_auto') in the current day.
+    Used for the 17h manager digest + dashboard widget.
+    `since_iso` optional override (defaults to today 00:00 local time).
+    """
+    if not since_iso:
+        now = datetime.now()
+        since_iso = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT t.*,
+                   u.full_name  AS assignee_name,
+                   u2.full_name AS assigner_name
+              FROM tasks t
+              LEFT JOIN users u  ON t.assignee_id = u.telegram_id
+              LEFT JOIN users u2 ON t.assigned_by = u2.telegram_id
+             WHERE t.source = 'ai_auto'
+               AND t.created_at >= ?
+             ORDER BY t.created_at DESC
+             LIMIT 50
+        """, (since_iso,)).fetchall()
+        return [dict(r) for r in rows]
+
+
 def list_team_by_person(manager_id: int = None) -> list[dict]:
     """All team users with their task counts — for dashboard."""
     with get_db() as conn:

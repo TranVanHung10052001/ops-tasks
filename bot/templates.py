@@ -331,6 +331,86 @@ def msg_assign_confirm(task_id: int, assignee_name: str, result: dict) -> str:
     )
 
 
+def msg_auto_assigned(
+    task_id: int, assignee_name: str, result: dict, undo_window_min: int = 60,
+) -> str:
+    """
+    Bot tự tạo task → 1-line confirmation gửi cho manager.
+    Đi kèm inline keyboard [↶ Undo] [↗ Đổi người] bên ngoài.
+    """
+    p        = result.get("priority", "P2")
+    icon     = PRIORITY_ICON.get(p, "□")
+    summary  = (result.get("summary") or "")[:80]
+    dl       = _deadline_line(result.get("deadline_iso"))
+    okr      = result.get("okr_ref", "")
+    conf     = int(result.get("assignee_confidence", 0) * 100)
+
+    bits = [f"{icon} {p}"]
+    if dl:
+        bits.append(dl)
+    if okr:
+        bits.append(f"OKR {okr}")
+
+    return (
+        f"🤖 *Auto* `#{task_id}` → *{_md(assignee_name)}* (AI {conf}%)\n"
+        f"{_md(summary)}\n"
+        f"{'  ·  '.join(bits)}\n"
+        f"_Undo trong {undo_window_min}p nếu sai._"
+    )
+
+
+def msg_auto_digest_manager(tasks: list[dict]) -> str:
+    """
+    17h daily digest gửi cho manager — list tất cả task bot tự tạo trong ngày,
+    grouped by assignee. Mỗi task hiển thị id, summary ngắn, OKR ref, deadline.
+    Inline buttons reassign per-task được thêm ngoài (do scheduler tạo).
+    """
+    if not tasks:
+        return "🤖 *Auto-digest hôm nay*\n\nKhông có task nào bot tự tạo."
+
+    # Group by assignee
+    by_person: dict[str, list[dict]] = {}
+    for t in tasks:
+        name = t.get("assignee_name") or "?"
+        by_person.setdefault(name, []).append(t)
+
+    today = datetime.now().strftime("%d/%m")
+    lines = [
+        f"🤖 *Auto-digest {today}* — {len(tasks)} task bot tự tạo",
+        DIV_LIGHT,
+    ]
+
+    for person, items in by_person.items():
+        lines.append(f"\n*{_md(person)}* ({len(items)})")
+        for t in items[:5]:
+            p_icon = PRIORITY_ICON.get(t.get("priority", "P3"), "□")
+            summary = (t.get("summary") or "")[:55]
+            dl = _deadline_line(t.get("deadline")) if t.get("deadline") else ""
+            okr = t.get("classifier_meta", {})
+            okr_ref = ""
+            if isinstance(okr, dict):
+                okr_ref = okr.get("okr_ref", "") or ""
+            elif isinstance(okr, str):
+                try:
+                    import json as _j
+                    okr_ref = _j.loads(okr).get("okr_ref", "") or ""
+                except Exception:
+                    pass
+            extras = []
+            if dl:
+                extras.append(dl)
+            if okr_ref:
+                extras.append(f"OKR {okr_ref}")
+            extra_str = "  ·  " + "  ·  ".join(extras) if extras else ""
+            lines.append(f"  {p_icon} `#{t['id']}` {_md(summary)}{extra_str}")
+
+    lines.append(
+        f"\n_Bấm nút bên dưới để giao lại nếu sai person._"
+        f"\n_Dùng `/undo <id>` để hủy hẳn._"
+    )
+    return "\n".join(lines)
+
+
 def msg_ai_route_card(result: dict, assigner_name: str = "") -> str:
     """AI đề xuất người nhận — kèm inline keyboard bên ngoài."""
     p        = result.get("priority", "P2")
@@ -777,6 +857,61 @@ def _quadrant_block(q: str, tasks: list[dict], max_tasks: int = 6) -> str:
 
 
 # ─── 6.1  /today ──────────────────────────────────────────────────────────────
+
+def msg_now_recommendation(
+    primary_task: dict,
+    primary_reason: str,
+    alternative_task: dict | None = None,
+    alternative_reason: str | None = None,
+) -> str:
+    """
+    /now — AI chọn 1 task để user làm ngay + lý do, kèm 1 alternative nếu có.
+    Inline keyboard [Done] [Snooze] gắn ngoài bởi caller.
+    """
+    p = primary_task.get("priority", "P3")
+    icon = PRIORITY_ICON.get(p, "□")
+    summary = _md(primary_task.get("summary", ""))
+    dl = _deadline_line(primary_task.get("deadline"), verbose=True)
+    est = primary_task.get("estimated_minutes") or 0
+
+    meta = primary_task.get("classifier_meta") or {}
+    if isinstance(meta, str):
+        try:
+            import json as _j
+            meta = _j.loads(meta)
+        except Exception:
+            meta = {}
+    okr = meta.get("okr_ref", "") if isinstance(meta, dict) else ""
+
+    bits = [f"{icon} {p}"]
+    if est:
+        bits.append(f"~{est}p")
+    if dl:
+        bits.append(dl)
+    if okr:
+        bits.append(f"OKR {okr}")
+
+    lines = [
+        f"🎯 *Làm ngay:* `#{primary_task['id']}`",
+        f"*{summary}*",
+        f"{'  ·  '.join(bits)}",
+        "",
+        f"_💡 {_md(primary_reason)}_",
+    ]
+
+    if alternative_task:
+        alt_p = alternative_task.get("priority", "P3")
+        alt_icon = PRIORITY_ICON.get(alt_p, "□")
+        lines += [
+            "",
+            f"Backup: {alt_icon} `#{alternative_task['id']}` "
+            f"{_md(alternative_task.get('summary','')[:60])}",
+        ]
+        if alternative_reason:
+            lines.append(f"_{_md(alternative_reason)}_")
+
+    return "\n".join(lines)
+
 
 def msg_today(name: str, overdue_tasks: list[dict], today_tasks: list[dict]) -> str:
     """

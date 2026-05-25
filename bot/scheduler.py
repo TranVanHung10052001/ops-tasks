@@ -12,7 +12,7 @@ from store import (
     get_upcoming_deadlines_for_user, get_stalled_tasks_for_user,
     list_team_by_person, get_team_stats, get_all_overdue_tasks,
     unsnooze_due_tasks, increment_reminder, increment_defer,
-    get_task, block_task,
+    get_task, block_task, list_auto_created_today,
 )
 from roles import MANAGER, TEAM_LEAD, can_see_team
 import templates as tpl
@@ -158,6 +158,45 @@ async def deadline_check_all(app):
 
         except Exception as e:
             logger.error(f"deadline_check_all failed for {uid}: {e}")
+
+
+# ─── Daily AI auto-assign digest (17:00) ─────────────────────────────────────
+
+async def auto_digest_manager(app):
+    """
+    17:00 daily — list mọi task bot tự tạo (source='ai_auto') trong ngày,
+    gửi cho manager kèm inline button reassign per-task.
+    Im lặng nếu không có task auto-tạo nào trong ngày.
+    """
+    if _is_quiet() or not MANAGER_ID:
+        return
+
+    tasks = list_auto_created_today()
+    if not tasks:
+        logger.info("auto_digest_manager: no auto-created tasks today")
+        return
+
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    msg = tpl.msg_auto_digest_manager(tasks)
+    # 1 reassign button per task (cap 8 to keep keyboard readable)
+    rows = []
+    for t in tasks[:8]:
+        rows.append([
+            InlineKeyboardButton(
+                f"↗ #{t['id']} → {t.get('assignee_name','?')}",
+                callback_data=f"digest_reassign:{t['id']}",
+            ),
+        ])
+    kb = InlineKeyboardMarkup(rows) if rows else None
+
+    try:
+        await app.bot.send_message(
+            chat_id=MANAGER_ID, text=msg,
+            parse_mode="Markdown", reply_markup=kb,
+        )
+        logger.info("auto_digest_manager: sent %d auto-created tasks", len(tasks))
+    except Exception as e:
+        logger.error(f"auto_digest_manager failed: {e}")
 
 
 # ─── EOD recap (18:00) ────────────────────────────────────────────────────────

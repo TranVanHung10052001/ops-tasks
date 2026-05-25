@@ -213,3 +213,30 @@ export async function getActivityData(): Promise<ActivityEvent[]> {
     return []; // no mock — show empty state until bot logs activity
   }
 }
+
+// ── Auto-digest (bot's auto-created tasks today) ─────────────────────────────
+
+export interface AutoDigestItem {
+  id: number;
+  summary: string;
+  assignee_id: number | null;
+  assignee_name: string | null;
+  priority: string;
+  deadline: string | null;
+  category: string;
+  created_at: string;
+}
+
+export interface AutoDigestData {
+  count: number;
+  tasks: AutoDigestItem[];
+  ts: string;
+}
+
+export async function getAutoDigestData(): Promise<AutoDigestData> {
+  try {
+    return await fetchBotApi<AutoDigestData>("/api/auto-digest");
+  } catch {
+    return { count: 0, tasks: [], ts: new Date().toISOString() };
+  }
+}
