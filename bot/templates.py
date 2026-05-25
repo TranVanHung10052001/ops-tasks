@@ -228,12 +228,16 @@ def fmt_task_line(
 # ─── 2.1 / 2.2  Task được giao ────────────────────────────────────────────────
 
 def msg_task_new(task: dict, assigned_by_name: str = "") -> str:
-    """Tin nhắn khi task mới được giao tới member."""
+    """Tin nhắn khi task mới được giao tới member — Layer 1 coaching.
+
+    Render quick-start steps (breakdown từ classifier_meta) ngay trong card.
+    Nếu assignee muốn hướng dẫn sâu hơn → bấm nút '🎓 Hướng dẫn chi tiết'
+    (Layer 2 — gắn ngoài bởi caller).
+    """
     p       = task.get("priority", "P3")
     icon    = PRIORITY_ICON.get(p, "□")
     cat     = CAT_LABEL.get(task.get("category", "other"), "Khác")
     dl      = _deadline_line(task.get("deadline"))
-    divider = DIV_STRONG if p == "P0" else DIV_LIGHT
 
     meta_parts = [f"{icon} {p}", cat]
     if dl:
@@ -241,13 +245,17 @@ def msg_task_new(task: dict, assigned_by_name: str = "") -> str:
     if assigned_by_name:
         meta_parts.append(f"từ {assigned_by_name}")
 
+    # Extract OKR ref + breakdown from classifier_meta
     okr_ref = ""
+    breakdown: list = []
     try:
         import json as _j
         meta = task.get("classifier_meta") or {}
         if isinstance(meta, str):
             meta = _j.loads(meta)
-        okr_ref = meta.get("okr_ref") or meta.get("okr_tag") or task.get("okr_ref", "")
+        if isinstance(meta, dict):
+            okr_ref = meta.get("okr_ref") or meta.get("okr_tag") or task.get("okr_ref", "")
+            breakdown = meta.get("breakdown") or []
     except Exception:
         pass
 
@@ -259,8 +267,19 @@ def msg_task_new(task: dict, assigned_by_name: str = "") -> str:
         "  ·  ".join(meta_parts),
     ]
     if okr_ref:
-        lines.append(f"OKR · {okr_ref}")
-    lines += ["", f"`/done {task['id']}` xong · `/snooze {task['id']} 2h` hoãn"]
+        lines.append(f"🎯 OKR · {okr_ref}")
+
+    # Layer 1 coaching — concise steps inline (3-5 bullets from AI breakdown)
+    if breakdown:
+        lines += ["", "📋 *Bắt đầu thế nào:*"]
+        for step in breakdown[:5]:
+            lines.append(f"▸ {_md(str(step))}")
+
+    lines += [
+        "",
+        f"`/done {task['id']}` xong · `/snooze {task['id']} 2h` hoãn · "
+        f"`/coach {task['id']}` hướng dẫn",
+    ]
 
     return "\n".join(lines)
 
@@ -357,6 +376,71 @@ def msg_auto_assigned(
         f"{'  ·  '.join(bits)}\n"
         f"_Undo trong {undo_window_min}p nếu sai._"
     )
+
+
+def msg_coach_detail(task: dict, coach: dict) -> str:
+    """
+    Layer 2 — chi tiết coaching cho assignee sau khi bấm '🎓 Hướng dẫn chi tiết'.
+
+    `task`  : dict từ DB (cần id, summary, priority, deadline)
+    `coach` : output của classifier.coach_task()
+              {why_matters, steps, watch_out, tips, contacts, estimated_minutes}
+    """
+    tid     = task.get("id", "?")
+    summary = task.get("summary", "")[:90]
+    p       = task.get("priority", "P3")
+    icon    = PRIORITY_ICON.get(p, "□")
+    est     = coach.get("estimated_minutes") or task.get("estimated_minutes") or 0
+
+    lines = [
+        f"🎓 *Hướng dẫn chi tiết — Task #{tid}*",
+        DIV_LIGHT,
+        f"{icon} {p} · *{_md(summary)}*",
+    ]
+    if est:
+        lines.append(f"_~{est} phút_")
+
+    why = coach.get("why_matters", "").strip()
+    if why:
+        lines += ["", "💡 *Tại sao quan trọng*", _md(why)]
+
+    steps = coach.get("steps") or []
+    if steps:
+        lines += ["", f"📋 *{len(steps)} bước cụ thể*"]
+        for i, s in enumerate(steps[:6], 1):
+            lines.append(f"{i}. {_md(str(s))}")
+
+    watch = coach.get("watch_out") or []
+    if watch:
+        lines += ["", "⚠️ *Watch out*"]
+        for w in watch[:4]:
+            lines.append(f"• {_md(str(w))}")
+
+    tips = coach.get("tips", "").strip()
+    if tips:
+        lines += ["", f"💎 *Tip*: {_md(tips)}"]
+
+    contacts = coach.get("contacts") or []
+    if contacts:
+        lines += ["", "📎 *Cần hỗ trợ*"]
+        for c in contacts[:4]:
+            if not isinstance(c, dict):
+                continue
+            name = c.get("name", "?")
+            email = c.get("email", "")
+            when = c.get("when", "")
+            line = f"• *{_md(name)}*"
+            if email:
+                line += f" (`{email}`)"
+            if when:
+                line += f" — {_md(when)}"
+            lines.append(line)
+
+    lines += [
+        "",
+        f"_`/done {tid}` xong · `/snooze {tid} 2h` hoãn_",
+    ]
+    return "\n".join(lines)
 
 
 def msg_auto_digest_manager(tasks: list[dict]) -> str:

@@ -61,6 +61,14 @@ JSON_CONFIG = genai.GenerationConfig(
     max_output_tokens=2000,
 )
 
+# Coach responses are richer (why_matters + 5 steps + watch_out + tips + contacts)
+# — need more headroom so JSON doesn't truncate mid-string.
+COACH_CONFIG = genai.GenerationConfig(
+    response_mime_type="application/json",
+    temperature=0.2,
+    max_output_tokens=4000,
+)
+
 SAFETY = [
     {"category": c, "threshold": "BLOCK_NONE"}
     for c in [
@@ -82,6 +90,14 @@ _classify_model = genai.GenerativeModel(
 _router_model = genai.GenerativeModel(
     model_name="gemini-2.5-flash",
     generation_config=JSON_CONFIG,
+    safety_settings=SAFETY,
+    system_instruction=_ROUTER_SYSTEM,
+)
+
+# Coach model — same context as router, but with bigger output budget
+_coach_model = genai.GenerativeModel(
+    model_name="gemini-2.5-flash",
+    generation_config=COACH_CONFIG,
     safety_settings=SAFETY,
     system_instruction=_ROUTER_SYSTEM,
 )
@@ -258,10 +274,14 @@ def coach_task(
     priority: str = "P2",
     deadline_iso: str | None = None,
     assignee_name: str | None = None,
+    raw_message: str | None = None,
 ) -> dict:
     """
-    Generate AI coaching guide for a specific task.
-    Returns: {why_matters, steps, watch_out, tips, estimated_minutes}
+    Layer 2 coaching — generate deep guidance for a specific task.
+    Returns: {why_matters, steps, watch_out, tips, contacts, estimated_minutes}
+
+    Uses _router_model which has team_context.md + okr_truck_ops.md as system
+    instruction → can reference baselines/targets/owners by name.
     """
     context_parts = []
     if okr_ref:
@@ -273,31 +293,56 @@ def coach_task(
     if assignee_name:
         context_parts.append(f"Assignee: {assignee_name}")
     if breakdown:
-        context_parts.append("Breakdown gợi ý: " + " | ".join(breakdown))
+        context_parts.append("Breakdown đã có: " + " | ".join(breakdown))
+    if raw_message:
+        context_parts.append(f"Tin nhắn gốc: {raw_message[:300]}")
 
-    prompt = f"""Bạn là AI coach cho team Truck Ops Ahamove. Phân tích task sau và trả về JSON hướng dẫn thực tế.
+    prompt = f"""Bạn là AI coach cho team Truck Ops Ahamove. Assignee đang xin hướng dẫn
+chi tiết để làm task — họ ĐÃ có summary + 3-5 steps gốc, cần thêm coaching SÂU.
 
 TASK: {task_summary}
 CONTEXT: {", ".join(context_parts) if context_parts else "Không có thêm context"}
 
-Trả về JSON với cấu trúc:
+Trả về JSON:
 {{
-  "why_matters": "Tại sao task này quan trọng với team/OKR (1-2 câu súc tích)",
-  "steps": ["Bước 1 cụ thể...", "Bước 2...", "Bước 3..."],
-  "watch_out": ["Rủi ro/blockers cần lưu ý 1", "Rủi ro 2"],
-  "tips": "Mẹo hoặc shortcut để làm nhanh hơn (1 câu)",
-  "estimated_minutes": <số phút ước tính thực tế>
+  "why_matters": "1-2 câu — bám CỤ THỂ vào OKR target/baseline (vd: 'FR Core HAN đang 62% — dưới target 68%, cần đẩy thêm 6 điểm). Nêu rõ blocker nếu task này chậm",
+  "steps": ["5 bước CỤ THỂ — kèm dashboard/sheet path + công thức/macro nếu có"],
+  "watch_out": ["2-3 pitfalls quan trọng — vd: 'Hợp đồng VSIP mới ký 15/05 nên phụ lục giá đổi'"],
+  "tips": "1 shortcut/macro/template cụ thể tiết kiệm thời gian",
+  "contacts": [
+    {{"name": "tên người", "email": "email@ahamove.com", "when": "khi cần gì"}}
+  ],
+  "estimated_minutes": <số phút thực tế>
 }}
 
-Yêu cầu: steps phải cụ thể, actionable, phù hợp với nghiệp vụ logistics/truck ops. Tối đa 5 steps.
+**STEPS RULES (rất quan trọng):**
+- Mỗi step phải có: ĐỘNG TỪ + ĐỐI TƯỢNG + NƠI (dashboard/sheet/tool)
+- ✅ "Vào Redash > 'B2B Trip Logs Q2' > filter date 2026-05-19 → 2026-05-25 → Export CSV"
+- ✅ "Mở sheet 'B2B Cost Tracker T5/2026' tab 'W21' → paste data cột E-J"
+- ❌ "Kiểm tra số liệu" / "Liên hệ liên quan"
+
+**OKR DATA cụ thể nhúng vào why_matters và steps:**
+- O1.1 FR Core ≥68% (baseline 60.5%) | O1.2 FR LH ≥70% | O1.3 FR SME ≥65% (baseline 17% — gap lớn)
+- O2.1 KCN BDG live 30/04 + LAN Hub 15/05 | O2.4 Retention D30 ≥70% (baseline 65%)
+- O3.2 COGS GXT 75K/kiện (đang 80K) | O3.3 Vendor B2B 11 (đang 8) | O3.1 1st PU 80% (baseline 47.6%)
+- O4.3 AI Bot 40% auto | O5.1 GHN 9 tỉnh
+
+**CONTACTS — đối chiếu task scope với role:**
+- FR data HAN → Thương (thuonglth@) | FR SGN → Phú (phutn@)
+- KCN/EXP → Khâm (khamnd@) | Vendor B2B → Khánh (khanhlv@) hoặc Ngân (Nganntk1@)
+- COGS GXT planning → Thống (thonglhn@) | Retention HAN → Toàn (toanpt@) | SGN → Chiến (chienpd@)
+- Hợp đồng/giá → Ngân | Tech Ops/Dispatch → Thương | Phê duyệt cuối → Huy (huyle@)
+
+Liệt kê 2-4 contacts liên quan tới task này. Bỏ contacts không liên quan.
 """
-    result = _safe_call(_router_model, prompt)
+    result = _safe_call(_coach_model, prompt)
     if not result:
         return {
             "why_matters": "Task quan trọng cho OKR team.",
             "steps": breakdown or ["Thực hiện task theo mô tả."],
             "watch_out": [],
             "tips": "",
+            "contacts": [],
             "estimated_minutes": 30,
         }
     return {
@@ -305,6 +350,7 @@ Yêu cầu: steps phải cụ thể, actionable, phù hợp với nghiệp vụ 
         "steps":              result.get("steps", breakdown or []),
         "watch_out":          result.get("watch_out", []),
         "tips":               result.get("tips", ""),
+        "contacts":           result.get("contacts", []),
         "estimated_minutes":  result.get("estimated_minutes", 30),
     }
 

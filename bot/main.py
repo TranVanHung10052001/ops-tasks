@@ -20,7 +20,8 @@ load_dotenv()
 
 from bot import (
     cmd_start, cmd_help, cmd_add, cmd_mytasks, cmd_today, cmd_now,
-    cmd_done, cmd_snooze, cmd_cancel, cmd_undo, cmd_stats, cmd_skip,
+    cmd_done, cmd_snooze, cmd_cancel, cmd_undo, cmd_coach,
+    cmd_stats, cmd_skip,
     cmd_assign, cmd_team, cmd_pending, cmd_brief, cmd_ask,
     cmd_approve, cmd_users, cmd_setrole,
     handle_forward, handle_callback,
@@ -79,6 +80,7 @@ async def main():
         ("snooze",   cmd_snooze),
         ("cancel",   cmd_cancel),
         ("undo",     cmd_undo),
+        ("coach",    cmd_coach),
         ("stats",    cmd_stats),
         ("skip",     cmd_skip),
         ("assign",   cmd_assign),

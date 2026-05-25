@@ -30,7 +30,7 @@ from roles import (
     can_approve_users, can_see_task,
 )
 from classifier import (
-    extract_deadline, route_task, recommend_now,
+    extract_deadline, route_task, recommend_now, coach_task,
 )
 import templates as tpl
 
@@ -630,6 +630,66 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+async def cmd_coach(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Layer 2 coaching: `/coach <task_id>` — gen hướng dẫn chi tiết
+    (why_matters, steps, watch_out, tips, contacts) cho assignee.
+    """
+    user = await _require_approved(update)
+    if not user:
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            "Cú pháp: `/coach <task_id>`\nVD: `/coach 45`",
+            parse_mode="Markdown",
+        )
+        return
+
+    try:
+        task_id = int(context.args[0].lstrip("#"))
+    except ValueError:
+        await update.message.reply_text("Task ID phải là số.")
+        return
+
+    task = get_task(task_id)
+    if not task:
+        await update.message.reply_text(f"Task #{task_id} không tồn tại.")
+        return
+    if not can_see_task(user, task):
+        await update.message.reply_text("Bạn không có quyền xem task này.")
+        return
+
+    await update.message.reply_chat_action("typing")
+
+    import json as _j
+    meta = task.get("classifier_meta") or {}
+    if isinstance(meta, str):
+        try:
+            meta = _j.loads(meta)
+        except Exception:
+            meta = {}
+
+    coach = coach_task(
+        task_summary=task.get("summary", ""),
+        okr_ref=meta.get("okr_ref") if isinstance(meta, dict) else None,
+        okr_action_id=meta.get("okr_action_id") if isinstance(meta, dict) else None,
+        breakdown=meta.get("breakdown") if isinstance(meta, dict) else None,
+        priority=task.get("priority", "P2"),
+        deadline_iso=task.get("deadline"),
+        assignee_name=user["full_name"],
+        raw_message=task.get("raw_message"),
+    )
+
+    msg = tpl.msg_coach_detail(task, coach)
+    if len(msg) > 4000:
+        msg = msg[:3900] + "\n…(rút gọn)"
+    await update.message.reply_text(
+        msg, parse_mode="Markdown", reply_markup=_task_keyboard(task_id)
+    )
+    log_action(user["telegram_id"], "coach", "task", task_id)
+
+
 async def cmd_undo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Manager rút lại 1 task bot tự tạo (source='ai_auto') trong cửa sổ UNDO_WINDOW phút.
@@ -816,10 +876,13 @@ async def _do_assign_with_text(
     )
 
     # DM to assignee — task_new card
-    accept_kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("✓ Nhận việc", callback_data=f"accept:{task_id}"),
-        InlineKeyboardButton("✗ Từ chối", callback_data=f"decline:{task_id}"),
-    ]])
+    accept_kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✓ Nhận việc", callback_data=f"accept:{task_id}"),
+            InlineKeyboardButton("✗ Từ chối", callback_data=f"decline:{task_id}"),
+        ],
+        [InlineKeyboardButton("🎓 Hướng dẫn chi tiết", callback_data=f"coach:{task_id}")],
+    ])
     task_dict = {
         "id":       task_id,
         "summary":  result.get("summary", task_text[:100]),
@@ -981,10 +1044,13 @@ async def _auto_create_and_assign(
     )
 
     # DM to assignee (same shape as confirm-flow)
-    accept_kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("✓ Nhận việc", callback_data=f"accept:{task_id}"),
-        InlineKeyboardButton("✗ Từ chối",  callback_data=f"decline:{task_id}"),
-    ]])
+    accept_kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✓ Nhận việc", callback_data=f"accept:{task_id}"),
+            InlineKeyboardButton("✗ Từ chối",  callback_data=f"decline:{task_id}"),
+        ],
+        [InlineKeyboardButton("🎓 Hướng dẫn chi tiết", callback_data=f"coach:{task_id}")],
+    ])
     task_dict = {
         "id":              task_id,
         "summary":         routed.get("summary", task_text[:100]),
@@ -1534,10 +1600,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log_action(uid, "assign", "task", task_id, f"→ {assignee['full_name']}")
 
         # DM to assignee
-        accept_kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("✓ Nhận việc", callback_data=f"accept:{task_id}"),
-            InlineKeyboardButton("✗ Từ chối", callback_data=f"decline:{task_id}"),
-        ]])
+        accept_kb = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✓ Nhận việc", callback_data=f"accept:{task_id}"),
+                InlineKeyboardButton("✗ Từ chối", callback_data=f"decline:{task_id}"),
+            ],
+            [InlineKeyboardButton("🎓 Hướng dẫn chi tiết", callback_data=f"coach:{task_id}")],
+        ])
         assigner_name = user["full_name"] if user else "Manager"
         task_dict = {
             "id": task_id,
@@ -1646,6 +1715,50 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if task and can_see_task(user, task):
             unblock_task(task_id)
             await query.edit_message_text(f"✓ Task #{task_id} unblocked — back to pending.")
+
+    # ── coach:<id> — assignee xin Layer 2 coaching ──
+    elif data.startswith("coach:"):
+        task_id = int(data.split(":")[1])
+        task = get_task(task_id)
+        if not task:
+            await query.answer("Task không còn tồn tại.", show_alert=True)
+            return
+        if not can_see_task(user, task):
+            await query.answer("Bạn không có quyền xem task này.", show_alert=True)
+            return
+
+        await query.answer("⏳ Đang gen hướng dẫn...", show_alert=False)
+
+        # Extract OKR + breakdown from classifier_meta (parsed once)
+        import json as _j
+        meta = task.get("classifier_meta") or {}
+        if isinstance(meta, str):
+            try:
+                meta = _j.loads(meta)
+            except Exception:
+                meta = {}
+
+        coach = coach_task(
+            task_summary=task.get("summary", ""),
+            okr_ref=meta.get("okr_ref") if isinstance(meta, dict) else None,
+            okr_action_id=meta.get("okr_action_id") if isinstance(meta, dict) else None,
+            breakdown=meta.get("breakdown") if isinstance(meta, dict) else None,
+            priority=task.get("priority", "P2"),
+            deadline_iso=task.get("deadline"),
+            assignee_name=user["full_name"] if user else None,
+            raw_message=task.get("raw_message"),
+        )
+
+        msg = tpl.msg_coach_detail(task, coach)
+        # Coaching messages can be long — cap at Telegram's 4096 limit
+        if len(msg) > 4000:
+            msg = msg[:3900] + "\n…(rút gọn)"
+        try:
+            await query.edit_message_text(msg, parse_mode="Markdown")
+            log_action(uid, "coach", "task", task_id)
+        except Exception as e:
+            logger.error(f"coach edit failed: {e}")
+            await context.bot.send_message(chat_id=uid, text=msg, parse_mode="Markdown")
 
     # ── undo:<id> — undo auto-created task within window ──
     elif data.startswith("undo:"):
@@ -1778,10 +1891,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log_action(uid, "assign_ai", "task", task_id, f"→ {assignee['full_name']}")
 
         # DM to assignee
-        accept_kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("✓ Nhận việc", callback_data=f"accept:{task_id}"),
-            InlineKeyboardButton("✗ Từ chối", callback_data=f"decline:{task_id}"),
-        ]])
+        accept_kb = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✓ Nhận việc", callback_data=f"accept:{task_id}"),
+                InlineKeyboardButton("✗ Từ chối", callback_data=f"decline:{task_id}"),
+            ],
+            [InlineKeyboardButton("🎓 Hướng dẫn chi tiết", callback_data=f"coach:{task_id}")],
+        ])
         task_dict = {
             "id":       task_id,
             "summary":  routed.get("summary", task_text[:100]),
