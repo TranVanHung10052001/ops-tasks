@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import useSWR from "swr";
 import { ApiOkrResponse, ApiStats, ApiMetrics } from "@/lib/api";
 
@@ -216,9 +217,19 @@ export default function AIPanel() {
   const suggestions = buildQuickSuggestions(stats, metrics, okrRaw);
   const insight = buildSummaryInsight(okrRaw);
 
-  const now = new Date();
-  const timeStr = now.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
-  const dateStr = `${String(now.getDate()).padStart(2, "0")}·${String(now.getMonth() + 1).padStart(2, "0")}`;
+  // Client-only clock — avoids SSR/client hydration mismatch (#418)
+  const [timeStr, setTimeStr] = useState("");
+  const [dateStr, setDateStr] = useState("");
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date();
+      setTimeStr(now.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }));
+      setDateStr(`${String(now.getDate()).padStart(2, "0")}·${String(now.getMonth() + 1).padStart(2, "0")}`);
+    };
+    tick();
+    const id = setInterval(tick, 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   const isConnected = !!(
     (stats && stats.member_count > 0) ||
