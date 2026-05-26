@@ -154,12 +154,15 @@ def _fmt_task_card(task: dict, show_assignee: bool = True) -> str:
 
 
 def _task_keyboard(task_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton("✓ Done", callback_data=f"done:{task_id}"),
-        InlineKeyboardButton("◷ 2h", callback_data=f"snooze:{task_id}:2h"),
-        InlineKeyboardButton("◷ 1d", callback_data=f"snooze:{task_id}:1d"),
-        InlineKeyboardButton("✕ Drop", callback_data=f"cancel:{task_id}"),
-    ]])
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✓ Done",  callback_data=f"done:{task_id}"),
+            InlineKeyboardButton("◷ 2h",   callback_data=f"snooze:{task_id}:2h"),
+            InlineKeyboardButton("◷ 1d",   callback_data=f"snooze:{task_id}:1d"),
+            InlineKeyboardButton("✕ Drop", callback_data=f"cancel:{task_id}"),
+        ],
+        [InlineKeyboardButton("🎓 Hướng dẫn chi tiết", callback_data=f"coach:{task_id}")],
+    ])
 
 
 def _duration_keyboard(task_id: int) -> InlineKeyboardMarkup:

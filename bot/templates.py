@@ -259,10 +259,13 @@ def msg_task_new(task: dict, assigned_by_name: str = "") -> str:
     except Exception:
         pass
 
+    _q_task = {"priority": p, "deadline": task.get("deadline"), "okr_ref": okr_ref}
+    q_icon  = eisenhower_icon(_q_task)
+
     lines = [
         f"📬 *Task mới · {p}*",
         "",
-        f"`#{task['id']}` *{_md(task.get('summary', ''))}*",
+        f"{q_icon} `#{task['id']}` *{_md(task.get('summary', ''))}*",
         "",
         "  ·  ".join(meta_parts),
     ]
@@ -566,10 +569,14 @@ def msg_task_created(
     if conf_str:
         assignee_display += f" | {conf_str}"
 
+    # Eisenhower quadrant icon — hiện trên card để member biết ưu tiên ngay
+    _q_task = {"priority": p, "deadline": result.get("deadline_iso"), "okr_ref": okr_ref}
+    q_icon  = eisenhower_icon(_q_task)
+
     lines = [
         f"✅ *Task #{task_id}*",
         "─────────────────────────",
-        f"📝 *{_md(summary)}*",
+        f"{q_icon} *{_md(summary)}*",
         "",
         f"⚡ {p} | {cat}",
     ]
