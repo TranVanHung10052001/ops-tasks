@@ -30,6 +30,8 @@ EXTRACT_PROMPT  = (PROMPTS_DIR / "extract.md").read_text(encoding="utf-8")
 # System context: loaded once, cached by Gemini between calls
 _TEAM_CONTEXT    = (PROMPTS_DIR / "team_context.md").read_text(encoding="utf-8")
 _OKR_CONTEXT     = (PROMPTS_DIR / "okr_truck_ops.md").read_text(encoding="utf-8")
+_tools_path      = PROMPTS_DIR / "tools_context.md"
+_TOOLS_CONTEXT   = _tools_path.read_text(encoding="utf-8") if _tools_path.exists() else ""
 _ROUTER_SYSTEM   = f"""
 Bạn là AI assistant cho team Ops Truck của Ahamove. Nhiệm vụ: phân tích task text và
 trả về JSON routing hoàn chỉnh dựa trên team context và OKR Q2/2026 bên dưới.
@@ -41,6 +43,7 @@ trả về JSON routing hoàn chỉnh dựa trên team context và OKR Q2/2026 b
 {_OKR_CONTEXT}
 
 ---
+{("" + _TOOLS_CONTEXT + chr(10) + "---") if _TOOLS_CONTEXT.strip() else ""}
 
 NGUYÊN TẮC ROUTING:
 1. Detect assignee từ tên, nickname, role hint, OKR keyword, location keyword
