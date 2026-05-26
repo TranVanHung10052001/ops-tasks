@@ -23,6 +23,7 @@ from store import (
     log_action,
     get_user_by_name, find_users_by_name, reassign_task,
     get_adhoc_ratio_this_week,
+    claim_preseeded_user, find_preseeded_by_name,
 )
 from roles import (
     MANAGER, TEAM_LEAD, EMPLOYEE, ROLE_LABELS, MANAGER_CHAT_ID,
@@ -285,6 +286,34 @@ async def handle_name_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     tg_user = update.effective_user
     username = tg_user.username or ""
 
+    # ── Pre-seeded account claim ──────────────────────────────────────────
+    # Check if this name matches a pre-seeded team member record.
+    # If so, "claim" it: swap placeholder ID → real Telegram ID, skip approval.
+    claimed = claim_preseeded_user(uid, username, full_name)
+    if claimed:
+        role  = claimed.get("role", "employee")
+        team  = claimed.get("team") or ""
+        grade = claimed.get("grade") or ""
+        kb    = _get_keyboard(claimed)
+        team_str  = f" · {team}" if team else ""
+        grade_str = f" ({grade})" if grade else ""
+        await update.message.reply_text(
+            f"Xin chào *{claimed['full_name']}*{grade_str}! ✅\n"
+            f"Tài khoản đã được xác nhận tự động{team_str}.\n\n"
+            "Gõ /help để xem các lệnh, hoặc forward tin nhắn để tạo task.",
+            parse_mode="Markdown",
+            reply_markup=kb,
+        )
+        # Notify manager of claim (info only, no approval needed)
+        uname_str = f" (@{username})" if username else ""
+        await _notify_manager(
+            context.application,
+            f"✅ *{claimed['full_name']}*{uname_str} đã kích hoạt tài khoản "
+            f"({team}{grade_str}).\nID: `{uid}`",
+        )
+        return True
+    # ── End claim flow ────────────────────────────────────────────────────
+
     registered = register_user(uid, username, full_name)
     if not registered:
         # Already exists but not approved
@@ -304,12 +333,6 @@ async def handle_name_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         InlineKeyboardButton("✕ Từ chối", callback_data=f"reject:{uid}"),
     ]])
     uname_str = f" (@{username})" if username else ""
-    await _notify_manager(
-        context.application,
-        f"👤 *Đăng ký mới:* {full_name}{uname_str}\n"
-        f"ID: `{uid}`\n\nDuyệt tài khoản này?",
-    )
-    context.application.bot.send_message  # dummy to avoid unused
     try:
         await context.application.bot.send_message(
             chat_id=MANAGER_CHAT_ID,

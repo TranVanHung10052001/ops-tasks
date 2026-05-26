@@ -38,11 +38,14 @@ def init_db():
                 telegram_id   INTEGER PRIMARY KEY,
                 username      TEXT,
                 full_name     TEXT NOT NULL,
+                email         TEXT,
                 role          TEXT CHECK(role IN ('manager','team_lead','employee'))
                               DEFAULT 'employee',
                 team          TEXT,
+                grade         TEXT,
                 reports_to    INTEGER REFERENCES users(telegram_id),
                 is_approved   INTEGER DEFAULT 0,
+                is_preseeded  INTEGER DEFAULT 0,
                 joined_at     DATETIME DEFAULT (datetime('now', '+7 hours')),
                 last_seen_at  DATETIME
             );
@@ -97,6 +100,16 @@ def init_db():
                 updated_at DATETIME DEFAULT (datetime('now', '+7 hours'))
             );
         """)
+        # ── Schema migrations (idempotent) ──────────────────────────────────
+        for col, typedef in [
+            ("email",        "TEXT"),
+            ("grade",        "TEXT"),
+            ("is_preseeded", "INTEGER DEFAULT 0"),
+        ]:
+            try:
+                conn.execute(f"ALTER TABLE users ADD COLUMN {col} {typedef}")
+            except Exception:
+                pass  # column already exists
 
 
 # ─── User operations ──────────────────────────────────────────────────────────
@@ -114,6 +127,83 @@ def register_user(telegram_id: int, username: str, full_name: str) -> bool:
             VALUES (?, ?, ?)
         """, (telegram_id, username, full_name))
         return True
+
+
+def claim_preseeded_user(real_id: int, username: str, typed_name: str) -> dict | None:
+    """
+    If `typed_name` fuzzy-matches a pre-seeded record (telegram_id < 0),
+    update that record to use `real_id` and return the claimed user dict.
+    Returns None if no pre-seeded match found.
+
+    Matching priority:
+      1. Exact full_name match (case-insensitive)
+      2. Last-name token match (Vietnamese last token = given name)
+      3. Any part of typed_name contained in full_name
+    """
+    typed = typed_name.lower().strip()
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM users WHERE telegram_id < 0 AND is_preseeded = 1"
+        ).fetchall()
+
+    if not rows:
+        return None
+
+    def _score(row) -> int:
+        fn = row["full_name"].lower()
+        parts = fn.split()
+        if fn == typed:
+            return 3
+        # Vietnamese name: last token is the given name (most distinctive)
+        if parts and parts[-1] == typed:
+            return 2
+        if typed in fn or any(p == typed for p in parts):
+            return 1
+        return 0
+
+    best = max(rows, key=_score)
+    if _score(best) == 0:
+        return None  # No reasonable match
+
+    placeholder_id = best["telegram_id"]
+    with get_db() as conn:
+        # SQLite allows updating PRIMARY KEY when no FK references the old value
+        conn.execute("""
+            UPDATE users
+               SET telegram_id  = ?,
+                   username     = ?,
+                   is_preseeded = 0,
+                   last_seen_at = datetime('now', '+7 hours')
+             WHERE telegram_id = ?
+        """, (real_id, username, placeholder_id))
+    return get_user(real_id)
+
+
+def find_preseeded_by_name(typed_name: str) -> dict | None:
+    """Return the best matching pre-seeded record without claiming it (for preview)."""
+    typed = typed_name.lower().strip()
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM users WHERE telegram_id < 0 AND is_preseeded = 1"
+        ).fetchall()
+    if not rows:
+        return None
+    best = None
+    best_score = 0
+    for row in rows:
+        fn = row["full_name"].lower()
+        parts = fn.split()
+        score = 0
+        if fn == typed:
+            score = 3
+        elif parts and parts[-1] == typed:
+            score = 2
+        elif typed in fn or any(p == typed for p in parts):
+            score = 1
+        if score > best_score:
+            best_score = score
+            best = row
+    return dict(best) if best and best_score > 0 else None
 
 
 def get_user(telegram_id: int) -> dict | None:
@@ -393,8 +483,11 @@ def list_team_by_person(manager_id: int = None) -> list[dict]:
                 u.telegram_id,
                 u.full_name,
                 u.username,
+                u.email,
                 u.team,
                 u.role,
+                u.grade,
+                u.is_preseeded,
                 COUNT(CASE WHEN t.status IN ('pending','in_progress') THEN 1 END) as active_count,
                 COUNT(CASE WHEN t.status = 'done'
                       AND t.completed_at >= datetime('now', '+7 hours', '-1 day') THEN 1 END) as done_today,
