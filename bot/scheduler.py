@@ -12,7 +12,7 @@ from store import (
     get_upcoming_deadlines_for_user, get_stalled_tasks_for_user,
     list_team_by_person, get_team_stats, get_all_overdue_tasks,
     unsnooze_due_tasks, increment_reminder, increment_defer,
-    get_task, block_task, list_auto_created_today,
+    get_task, block_task, list_auto_created_today, list_team_tasks,
 )
 from roles import MANAGER, TEAM_LEAD, can_see_team
 import templates as tpl
@@ -233,15 +233,18 @@ async def eod_recap_all(app):
     # Manager gets richer team EOD
     if MANAGER_ID:
         try:
-            stats   = get_team_stats()
-            members = list_team_by_person()
-            all_ov  = get_all_overdue_tasks()
+            stats      = get_team_stats()
+            members    = list_team_by_person()
+            all_ov     = get_all_overdue_tasks()
+            # Top pending across all team — for tomorrow's Q1/Q2 preview
+            all_pending = list_team_tasks(statuses=["pending", "accepted"], limit=50)
             msg = tpl.msg_eod_manager(
                 stats=stats,
                 members=members,
                 overdue_tasks=all_ov,
+                top_pending=all_pending,
             )
-            await app.bot.send_message(chat_id=MANAGER_ID, text=msg)
+            await app.bot.send_message(chat_id=MANAGER_ID, text=msg, parse_mode="Markdown")
         except Exception as e:
             logger.error(f"manager eod digest failed: {e}")
 

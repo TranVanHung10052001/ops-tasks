@@ -832,34 +832,50 @@ def msg_morning_member(
 
 # ─── 4.3  Evening summary Member ──────────────────────────────────────────────
 
+def _progress_bar(done: int, total: int, width: int = 8) -> str:
+    if total == 0:
+        return "░" * width
+    filled = max(0, min(width, round(done / total * width)))
+    return "█" * filled + "░" * (width - filled)
+
+
 def msg_evening_member(
     name: str,
     done_count: int,
     total_count: int,
     pending_tomorrow: list[dict],
 ) -> str:
-    now = datetime.now()
-    pct = f"{int(done_count / total_count * 100)}%" if total_count else "—"
-    tomorrow_block = ""
-    if pending_tomorrow:
-        nums = ["01", "02", "03"]
-        rows = [
-            f"{nums[i]} · {fmt_task_line(t)}"
-            for i, t in enumerate(pending_tomorrow[:3])
-        ]
-        tomorrow_block = "\nMAI\n" + "\n".join(rows) + "\n"
+    now  = datetime.now()
+    wday = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "CN"][now.weekday()]
+    pct  = int(done_count / total_count * 100) if total_count else 0
+    bar  = _progress_bar(done_count, total_count)
 
-    return (
-        f"{AI_SIG} · TỔNG KẾT NGÀY\n"
-        f"{DIV_LIGHT}\n"
-        f"\n"
-        f"{name},\n"
-        f"\n"
-        f"HÔM NAY\n"
-        f"● {done_count}/{total_count} task hoàn thành ({pct})\n"
-        f"{tomorrow_block}\n"
-        f"Chúc anh nghỉ ngơi."
-    )
+    # Contextual note based on completion rate
+    if total_count == 0:
+        note = "Hôm nay không có task — nghỉ ngơi tốt! 🙌"
+    elif pct >= 80:
+        note = f"Tốt lắm! Hoàn thành {pct}% task hôm nay 💪"
+    elif pct >= 50:
+        note = f"Xong {pct}% — còn {total_count - done_count} task chuyển sang mai."
+    else:
+        note = f"Hôm nay bận — {total_count - done_count} task còn lại, ưu tiên Q1 sáng sớm nhé."
+
+    lines = [
+        f"🌇 *{wday} {now.strftime('%d/%m')} · {now.strftime('%H:%M')}*",
+        "",
+        f"*{name.split()[0]}* · {note}",
+        "",
+        f"Hôm nay: `{bar}` {done_count}/{total_count} task",
+    ]
+
+    if pending_tomorrow:
+        lines += ["", "📋 *Ngày mai:*"]
+        for t in pending_tomorrow[:4]:
+            lines.append(fmt_task_line(t))
+        lines.append("")
+        lines.append("_/done <id> · /snooze <id> 2h · /today_")
+
+    return "\n".join(lines)
 
 
 # ─── 4.4  EOD Team (Manager) ─────────────────────────────────────────────────
@@ -868,58 +884,87 @@ def msg_eod_manager(
     stats: dict,
     members: list[dict],
     overdue_tasks: list[dict],
+    top_pending: list[dict] | None = None,
 ) -> str:
     """
-    Manager nhận cuối ngày — member breakdown + overdue list.
+    Manager nhận cuối ngày — team health + member status + tomorrow preview.
     stats        = get_team_stats()
     members      = list_team_by_person()
     overdue_tasks= list of overdue task dicts (all team)
+    top_pending  = top Q1/Q2 tasks pending (optional, for tomorrow preview)
     """
     now        = datetime.now()
+    wday       = ["Thứ 2","Thứ 3","Thứ 4","Thứ 5","Thứ 6","Thứ 7","CN"][now.weekday()]
     done_today = stats.get("done_today", 0)
     active     = stats.get("active", 0)
     overdue    = stats.get("overdue", 0)
+    total      = done_today + active
+    bar        = _progress_bar(done_today, total)
+
+    # Health signal
+    if overdue == 0 and done_today >= active:
+        health = "✅ Team on track"
+    elif overdue <= 2:
+        health = f"⚠️ {overdue} task trễ — cần theo dõi"
+    else:
+        health = f"🔴 {overdue} task trễ — cần can thiệp ngay"
 
     lines = [
-        f"{AI_SIG} · EOD TEAM",
-        f"◷ {now.strftime('%H:%M')}  ⊡ {now.strftime('%d/%m')}",
+        f"🌇 *EOD Report · {wday} {now.strftime('%d/%m')} · {now.strftime('%H:%M')}*",
+        "",
+        health,
+        f"`{bar}` {done_today} xong · {active} đang chạy" + (f" · ‼️ {overdue} trễ" if overdue else ""),
+        "",
         DIV_LIGHT,
         "",
-        "HÔM NAY",
-        f"● {done_today} hoàn thành   ○ {active} đang chạy"
-        + (f"   ‼ {overdue} trễ" if overdue else ""),
-        "",
-        "THÀNH VIÊN",
+        "👥 *Team hôm nay*",
     ]
 
-    # compact 2-col grid
-    member_rows = []
+    # Per-member status — one per line, readable
     for m in members:
-        a  = m.get("active_count", 0)
-        od = m.get("overdue_count", 0)
-        dt = m.get("done_today", 0)
-        last = m.get("full_name", "?").split()[-1]
-        icon = "■" if od > 2 else ("▪" if od > 0 else ("▫" if a > 6 else "○"))
-        cell = f"{icon} {last}  {a}t"
-        if od:
-            cell += f" ‼{od}"
+        a   = m.get("active_count", 0)
+        od  = m.get("overdue_count", 0)
+        dt  = m.get("done_today", 0)
+        name = m.get("full_name", "?").split()[-1]
+
+        if od >= 2:
+            status_icon = "🔴"
+        elif od == 1:
+            status_icon = "🟠"
+        elif dt > 0 and a == 0:
+            status_icon = "✅"
+        elif dt > 0:
+            status_icon = "🟡"
+        else:
+            status_icon = "⚪"
+
+        parts = [f"{status_icon} *{name}*"]
         if dt:
-            cell += f" ●{dt}"
-        member_rows.append(cell)
+            parts.append(f"✅{dt}")
+        if a:
+            parts.append(f"🔄{a}")
+        if od:
+            parts.append(f"‼️{od} trễ")
+        if dt == 0 and a == 0:
+            parts.append("_(không có task)_")
+        lines.append("  ".join(parts))
 
-    for i in range(0, len(member_rows), 2):
-        left  = member_rows[i]
-        right = member_rows[i + 1] if i + 1 < len(member_rows) else ""
-        lines.append(f"{left:<28}{right}")
-
-    # overdue section
+    # Overdue section
     if overdue_tasks:
-        lines += ["", "CẦN XỬ LÝ SÁNG MAI"]
-        for t in overdue_tasks[:5]:
+        lines += ["", DIV_LIGHT, "", f"‼️ *Cần xử lý sáng mai ({len(overdue_tasks)})*"]
+        for t in overdue_tasks[:6]:
             lines.append(fmt_task_line(t, show_assignee=True))
 
-    lines += ["", DIV_LIGHT, "/brief chi tiết · /team · /pending"]
+    # Tomorrow's top priorities (Q1/Q2 tasks pending)
+    if top_pending:
+        q1q2 = [t for t in top_pending
+                if eisenhower_quadrant(t) in ("Q1", "Q2")][:5]
+        if q1q2:
+            lines += ["", DIV_LIGHT, "", "📋 *Ưu tiên sáng mai*"]
+            for t in q1q2:
+                lines.append(fmt_task_line(t, show_assignee=True))
 
+    lines += ["", DIV_LIGHT, "/brief · /team · /pending"]
     return "\n".join(lines)
 
 
