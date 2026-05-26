@@ -137,10 +137,14 @@ Phân tích task text sau và trả về JSON với đúng cấu trúc này:
 - Để `[]` nếu task đơn giản (1 hành động rõ ràng, ≤15 phút)
 - Dùng 2–5 bước nếu task phức tạp hoặc có nhiều giai đoạn
 - Mỗi bước PHẢI cụ thể và actionable: Động từ + Đối tượng + Nguồn/Tool cụ thể
-  ✅ "Vào Redash > Fill Rate dashboard > filter KCN VSIP, pull số liệu tuần hiện tại"
+  ✅ "Vào Metabase > card 'Fill Rate EXP' > filter KCN VSIP + tuần hiện tại → xem fill_rate_pct"
   ✅ "So sánh với target O1: FR EXP ≥65% (baseline ~55%) — note gap nếu có"
   ✅ "Liên hệ Khâm (khamnd@ahamove.com) qua Telegram xác nhận nguyên nhân supply gap"
   ❌ "Kiểm tra tình hình" / "Liên hệ liên quan" / "Xem xét vấn đề"
+
+- DATA SOURCE: Team dùng Metabase (có card/dashboard với filter, có thể download CSV hoặc sync về Google Sheet).
+  Khi nhắc đến data → dùng "Metabase > [tên card/dashboard]", KHÔNG nhắc Redash.
+  Nếu tools_context.md có tên card thật → dùng tên đó. Nếu không → dùng tên mô tả ngắn gọn.
 
 - Khi task liên quan OKR, nhúng số liệu thực vào bước:
   * O1 Fill Rate: target Core ≥68% (baseline 60.5%), EXP ≥65% (baseline ~55%), Long Haul ≥70%, SME ≥65% (baseline 17%)
@@ -158,7 +162,7 @@ Phân tích task text sau và trả về JSON với đúng cấu trúc này:
 
 Ví dụ breakdown tốt cho "Check fill rate VSIP tuần này và báo cáo":
 [
-  "Vào Redash > Fill Rate EXP dashboard > filter KCN VSIP, lấy số tuần hiện tại (MTD + W/W)",
+  "Vào Metabase > card 'Fill Rate EXP' > filter KCN VSIP + tuần 21 → lấy fill_rate_pct (MTD + W/W)",
   "So sánh với target O1: FR EXP ≥65% (baseline ~55%) — highlight gap nếu dưới target",
   "Liên hệ Khâm (khamnd@) qua Telegram xác nhận nguyên nhân nếu có supply gap",
   "Tổng hợp vào báo cáo FR tuần → gửi cho Huy (huyle@) trước EOD"
@@ -320,9 +324,11 @@ Trả về JSON:
 
 **STEPS RULES (rất quan trọng):**
 - Mỗi step phải có: ĐỘNG TỪ + ĐỐI TƯỢNG + NƠI (dashboard/sheet/tool)
-- ✅ "Vào Redash > 'B2B Trip Logs Q2' > filter date 2026-05-19 → 2026-05-25 → Export CSV"
-- ✅ "Mở sheet 'B2B Cost Tracker T5/2026' tab 'W21' → paste data cột E-J"
-- ❌ "Kiểm tra số liệu" / "Liên hệ liên quan"
+- DATA SOURCE: Team dùng Metabase (card/dashboard, có filter, download được CSV hoặc sync Google Sheet). KHÔNG nhắc Redash.
+  Nếu tools_context.md có tên card thật → dùng tên đó. Nếu không → dùng tên mô tả ngắn gọn trong ngoặc đơn.
+- ✅ "Vào Metabase > card 'B2B Trip Logs' > filter date 2026-05-19 → 2026-05-25 → Download CSV"
+- ✅ "Mở Google Sheet '[tên sheet B2B]' tab 'W21' → paste data vào cột tương ứng"
+- ❌ "Kiểm tra số liệu" / "Liên hệ liên quan" / "Vào Redash"
 
 **OKR DATA cụ thể nhúng vào why_matters và steps:**
 - O1.1 FR Core ≥68% (baseline 60.5%) | O1.2 FR LH ≥70% | O1.3 FR SME ≥65% (baseline 17% — gap lớn)

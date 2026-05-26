@@ -4,26 +4,28 @@
 
 ---
 
-## REDASH DASHBOARDS
+## METABASE DASHBOARDS / CARDS
+# Team dùng Metabase để xem data — có card theo từng chủ đề, filter được, download CSV được.
+# Điền tên card/dashboard thật để AI dùng đúng tên thay vì tự đặt.
 
 ### Fill Rate
-- Query: `[TÊN QUERY THẬT — vd: "FR Dashboard Q2 2026"]`
-- Filters: date_range, zone (Core/EXP/LH/SME), city (HAN/SGN)
+- Card/Dashboard: `[TÊN THẬT — vd: "Fill Rate EXP KCN"]`
+- Filters có sẵn: date_range, zone (Core/EXP/LH/SME), city (HAN/SGN), kcn
 - Key fields: fill_rate_pct, total_requests, matched_requests
 
 ### B2B / Vendor
-- Query: `[TÊN QUERY THẬT — vd: "B2B Trip Logs"]`
-- Filters: date_range, service_type, vendor_id
+- Card/Dashboard: `[TÊN THẬT — vd: "B2B Trip Logs"]`
+- Filters có sẵn: date_range, service_type, vendor_id
 - Key fields: order_id, driver_id, revenue, cost, vendor_name
 
 ### COGS / Cost
-- Query: `[TÊN QUERY THẬT — vd: "GXT Cost Tracker"]`
-- Filters: date_range, service_type
+- Card/Dashboard: `[TÊN THẬT — vd: "GXT Cost Tracker"]`
+- Filters có sẵn: date_range, service_type
 - Key fields: cost_per_order, total_cost, cogs_pct
 
 ### Driver Supply
-- Query: `[TÊN QUERY THẬT — vd: "Driver Active Daily"]`
-- Filters: date_range, tier (Station/Core/Hub/Mass), city
+- Card/Dashboard: `[TÊN THẬT — vd: "Driver Active Daily"]`
+- Filters có sẵn: date_range, tier (Station/Core/Hub/Mass), city
 - Key fields: active_count, retention_d30, avg_orders
 
 ---
