@@ -36,6 +36,7 @@ from redash_sync import sync_all as redash_sync_all
 from sheet_sync  import sync_all as sheet_sync_all
 from store import init_db
 from roles import MANAGER_CHAT_ID
+from seed_team import seed as seed_team
 
 logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
@@ -65,6 +66,12 @@ if not os.getenv("GEMINI_API_KEY"):
 async def main():
     init_db()
     logger.info("Database initialized")
+
+    # Auto-seed all 11 team members on every startup.
+    # Idempotent: skips already-claimed real accounts.
+    # Ensures pre-seeded records exist even after Railway wipes the ephemeral DB.
+    seed_team()
+    logger.info("Team seed applied")
 
     app = Application.builder().token(TOKEN).build()
 

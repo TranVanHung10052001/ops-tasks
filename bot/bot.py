@@ -1290,16 +1290,19 @@ async def cmd_setrole(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle forwarded messages and direct text."""
+    # ── Registration flow MUST run before require_approved ────────────────
+    # Unregistered users are not yet in the DB; they need to be able to type
+    # their name as the second step of the /start flow. If we call
+    # _require_approved first, they get blocked and can never finish registration.
+    if await handle_name_input(update, context):
+        return
+
     user = await _require_approved(update)
     if not user:
         return
 
     text = update.message.text or update.message.caption or ""
     if not text:
-        return
-
-    # Check registration flow
-    if await handle_name_input(update, context):
         return
 
     uid = update.effective_chat.id
