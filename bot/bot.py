@@ -1373,9 +1373,33 @@ async def handle_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
 
-    # Regular text — create task for self (route_task gives OKR-aware breakdown)
+    # Regular text — route_task (OKR-aware) then decide: self vs. assign flow
     result = route_task(text)
     if result.get("is_task") and result.get("confidence", 0) >= 0.6:
+
+        # ── Manager/TL direct-text assign ──────────────────────────────────
+        # e.g. "giao task cho Khánh tìm vendor Long An"
+        # Same 3-tier logic as forwarded messages, applied to direct typed text.
+        a_conf = result.get("assignee_confidence", 0)
+        a_name = result.get("assignee_name")
+        if can_assign(user) and a_name and a_conf >= 0.65:
+            # Tier 1: AUTO (≥0.85 + P2/P3 + resolvable in DB)
+            if _is_auto_eligible(result):
+                if await _auto_create_and_assign(update, context, user, text, result):
+                    return
+            # Tier 2: CONFIRM card
+            if a_conf >= 0.75:
+                await _show_confirm_card(update, context, user, text, result)
+            else:
+                # Tier 3: PICKER — low-confidence assignee
+                _pending_assign_who[uid] = {
+                    "task_text": text, "result": result, "ts": datetime.now(),
+                }
+                await _show_assignee_picker(update, context, user, text, result)
+            return
+        # ── End direct-text assign ─────────────────────────────────────────
+
+        # Default: create task for self
         task_id = add_task(
             raw_message=text,
             summary=result["summary"],
