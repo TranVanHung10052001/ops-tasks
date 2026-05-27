@@ -986,7 +986,7 @@ async def _show_confirm_card(
     ])
 
     await update.message.reply_text(
-        tpl.msg_ai_route_card(routed, assigner_name=user.get("full_name", "")),
+        tpl.msg_ai_route_card(routed, assigner_name=assigner.get("full_name", "")),
         reply_markup=confirm_kb,
     )
 
