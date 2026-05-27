@@ -32,11 +32,18 @@ from roles import MANAGER, TEAM_LEAD, EMPLOYEE, ROLE_LABELS
 
 DASHBOARD_SECRET = os.getenv("DASHBOARD_SECRET", "ops-tasks-secret-change-me")
 
+# Fix #8: CORS restricted to known origins (not wildcard)
+_ALLOWED_ORIGINS_RAW = os.getenv(
+    "ALLOWED_ORIGINS",
+    "https://ops-tasks-eight.vercel.app,http://localhost:3000,http://localhost:3002",
+)
+ALLOWED_ORIGINS = [o.strip() for o in _ALLOWED_ORIGINS_RAW.split(",") if o.strip()]
+
 app = FastAPI(title="Ops Tasks API", version="1.0.0", docs_url="/api/docs")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten in prod: ["https://ops.ahamove.com"]
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -145,6 +152,9 @@ def get_activity(
 @app.get("/api/team")
 def get_team(token: str = Depends(verify_token)):
     members = list_team_by_person()
+    # Fix #4: exclude pre-seeded placeholder records (telegram_id < 0)
+    # until the member has claimed their account via /start
+    members = [m for m in members if m["telegram_id"] > 0]
     return [_fmt_member(m) for m in members]
 
 
@@ -196,7 +206,10 @@ def get_done_tasks(
     days: int = Query(7, le=30),
     token: str = Depends(verify_token),
 ):
-    tasks = list_team_tasks(statuses=["done"], limit=200)
+    # Fix #5: actually apply the days filter
+    from datetime import timedelta
+    since = (datetime.now() - timedelta(days=days)).isoformat()
+    tasks = list_team_tasks(statuses=["done"], limit=200, since=since)
     return [_fmt_task(t) for t in tasks]
 
 
@@ -238,13 +251,8 @@ def update_task(task_id: int, body: TaskUpdate, token: str = Depends(verify_toke
         update_task_deadline(task_id, body.deadline, "dashboard")
 
     if body.assignee_id:
-        import sqlite3, json
-        from store import get_db, DB_PATH
-        with get_db() as conn:
-            conn.execute(
-                "UPDATE tasks SET assignee_id = ? WHERE id = ?",
-                (body.assignee_id, task_id)
-            )
+        # Fix #2: use reassign_task() so team field is also updated
+        reassign_task(task_id, body.assignee_id)
 
     log_action(0, "dashboard_update", "task", task_id, str(body.dict(exclude_none=True)))
     return {"ok": True, "task": _fmt_task(get_task(task_id))}
@@ -590,12 +598,15 @@ def _fmt_task(t: dict) -> dict:
 
 
 def _fmt_member(m: dict) -> dict:
+    # Fix #3: expose grade (G1/G2/G3/G4) and email from new DB columns
     return {
         "telegram_id": m["telegram_id"],
         "full_name": m["full_name"],
         "username": m.get("username"),
+        "email": m.get("email") or "",
         "role": m.get("role", EMPLOYEE),
         "role_label": ROLE_LABELS.get(m.get("role", EMPLOYEE), ""),
+        "grade": m.get("grade") or "",
         "team": m.get("team"),
         "active_count": m.get("active_count", 0),
         "done_today": m.get("done_today", 0),
@@ -623,13 +634,11 @@ def _fmt_user(u: dict) -> dict:
     }
 
 
-_user_cache: dict[int, str] = {}
-
-
 def _get_user_name(user_id: int | None) -> str | None:
+    """Look up user name without caching — names can change after account claim."""
+    # Fix #1: removed permanent module-level cache; after claim_preseeded_user()
+    # the telegram_id changes and cached names would be stale.
     if not user_id:
         return None
-    if user_id not in _user_cache:
-        u = get_user(user_id)
-        _user_cache[user_id] = u["full_name"] if u else str(user_id)
-    return _user_cache[user_id]
+    u = get_user(user_id)
+    return u["full_name"] if u else None

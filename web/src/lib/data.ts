@@ -39,10 +39,12 @@ export function apiTaskToOpsTask(t: ApiTask): OpsTask {
     channelLabel: CHANNEL_LABELS[channel],
     title: t.summary,
     description: t.block_reason ?? undefined,
-    assignee: t.assignee_id ? `m${t.assignee_id}` : "m0",
+    // Fix #4: pre-seeded unclaimed members have negative IDs — map to "m0" (unassigned)
+    assignee: t.assignee_id && t.assignee_id > 0 ? `m${t.assignee_id}` : "m0",
     priority: (["P0", "P1", "P2", "P3"].includes(t.priority) ? t.priority : "P2") as Priority,
     status: statusToTaskStatus(t.status),
-    deadline: t.deadline ?? new Date(Date.now() + 86_400_000).toISOString(),
+    // Fix #6: don't fabricate a deadline — use "" so components can check `if (deadline)`
+    deadline: t.deadline ?? "",
     estimateHours: t.estimated_minutes ? t.estimated_minutes / 60 : 2,
     tags: [t.category, t.team ?? ""].filter(Boolean),
     createdAt: t.created_at ?? new Date().toISOString(),
@@ -63,12 +65,13 @@ export function apiMemberToMember(m: ApiMember, index: number): Member {
   };
   return {
     id: `m${m.telegram_id}`,
-    callsign: `OPS-${String(index).padStart(2, "0")}`,
+    callsign: `OPS-${String(index + 1).padStart(2, "0")}`,
     initials,
     name: parts.length > 2 ? `${first} ${last}` : m.full_name,
     fullName: m.full_name,
-    email: m.username ? `${m.username}@ahamove.com` : "",
-    grade: m.role ?? "G1",
+    // Fix #3: use real email & grade from DB (seed_team.py populated these)
+    email: m.email || (m.username ? `${m.username}@ahamove.com` : ""),
+    grade: m.grade || m.role_label || m.role,
     role: m.role_label || m.role,
     status: statusMap[m.load] ?? "online",
     workload,
@@ -92,7 +95,9 @@ export async function getMembersData(): Promise<Member[]> {
     const members = await fetchBotApi<ApiMember[]>("/api/team");
     return members.map((m, i) => apiMemberToMember(m, i));
   } catch {
-    return MEMBERS;
+    // Fix #7: consistent with getTasksData — return empty when bot offline
+    // (previously returned MEMBERS mock, causing "team has members but no tasks" confusion)
+    return [];
   }
 }
 

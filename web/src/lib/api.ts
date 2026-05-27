@@ -25,8 +25,10 @@ export interface ApiMember {
   telegram_id: number;
   full_name: string;
   username: string | null;
+  email: string;
   role: string;
   role_label: string;
+  grade: string;
   team: string | null;
   active_count: number;
   done_today: number;
