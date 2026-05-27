@@ -55,6 +55,34 @@ _pending_confirm: dict[int, dict] = {}
 
 DEADLINE_TTL = 300  # 5 minutes
 
+# ─── Deadline-reply heuristic ─────────────────────────────────────────────────
+# Only treat incoming text as a deadline answer when it is SHORT (≤ 6 words)
+# AND contains a Vietnamese date/time token.  Anything longer is almost certainly
+# a new task message, not a deadline reply — fixes the "task 2 silently dropped"
+# bug where extract_deadline() consumed a task description as a deadline.
+_DEADLINE_TOKEN_RE = re.compile(
+    r'\b('
+    r't[2-8]'               # t2-t8 (thứ)
+    r'|thứ\s*[2-8hai ba tư năm sáu bảy]+'
+    r'|mai|ngày\s*mai|hôm\s*nay'
+    r'|sáng|chiều|tối|trưa|đêm'
+    r'|\d{1,2}\s*h\s*\d{0,2}'  # 5h, 17h30
+    r'|\d{1,2}:\d{2}'          # 17:30
+    r'|\d{1,2}/\d{1,2}'        # 31/05
+    r'|cuối\s*tuần|cuối\s*ngày|cuối\s*tháng'
+    r'|tuần\s*(này|sau|tới)'
+    r'|tháng\s*(này|sau)'
+    r'|eod|eow|asap'
+    r'|trước\s*\d'             # trước 5pm
+    r')',
+    re.IGNORECASE,
+)
+
+
+def _is_deadline_reply(text: str) -> bool:
+    """Return True iff text looks like a pure deadline response (≤ 6 words + date token)."""
+    return len(text.split()) <= 6 and bool(_DEADLINE_TOKEN_RE.search(text))
+
 # {chat_id: task_id} — last task touched/created in this session (NL follow-up context)
 _last_task: dict[int, int] = {}
 
@@ -1277,21 +1305,28 @@ async def handle_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_chat.id
 
     # Check pending deadline input
+    # GUARD: only consume text as a deadline reply when it is short (≤ 6 words)
+    # AND contains a date/time token.  Long/complex text is a new task — clear
+    # the prompt and fall through so the task gets created normally.
     if uid in _pending_deadline:
-        task_id, ts = _pending_deadline[uid]
-        if not _is_expired(ts):
+        task_id_dl, ts_dl = _pending_deadline[uid]
+        if _is_expired(ts_dl):
+            _pending_deadline.pop(uid)
+        elif _is_deadline_reply(text):
             deadline_data = extract_deadline(text)
             if deadline_data.get("deadline_iso"):
-                update_task_deadline(task_id, deadline_data["deadline_iso"],
+                update_task_deadline(task_id_dl, deadline_data["deadline_iso"],
                                      deadline_data.get("confidence", "asked"))
                 _pending_deadline.pop(uid)
                 dl = datetime.fromisoformat(deadline_data["deadline_iso"])
                 await update.message.reply_text(
-                    f"✓ Deadline task #{task_id}: *{dl.strftime('%d/%m %H:%M')}*",
+                    f"✓ Deadline task #{task_id_dl}: *{dl.strftime('%d/%m %H:%M')}*",
                     parse_mode="Markdown",
                 )
                 return
+            # else: not parseable — leave prompt open, fall through
         else:
+            # Text is too long/complex → user sent a new task, clear the prompt
             _pending_deadline.pop(uid)
 
     # Check pending assign description input (guided flow)
