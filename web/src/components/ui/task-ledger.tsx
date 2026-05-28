@@ -69,8 +69,10 @@ export default function TaskLedger({
   const now = Date.now();
   const tasks = (limit ? allTasks.slice(0, limit) : allTasks).sort((a, b) => {
     const order: Priority[] = ["P0", "P1", "P2", "P3", "P4"];
-    const aOverdue = new Date(a.deadline).getTime() < now ? -1 : 0;
-    const bOverdue = new Date(b.deadline).getTime() < now ? -1 : 0;
+    const aTs = a.deadline ? new Date(a.deadline).getTime() : Infinity;
+    const bTs = b.deadline ? new Date(b.deadline).getTime() : Infinity;
+    const aOverdue = aTs < now ? -1 : 0;
+    const bOverdue = bTs < now ? -1 : 0;
     const aBlocked = a.status === "bi_chan" ? -1 : 0;
     const bBlocked = b.status === "bi_chan" ? -1 : 0;
     const priorityDiff = order.indexOf(a.priority) - order.indexOf(b.priority);
