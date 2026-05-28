@@ -130,9 +130,10 @@ export default function TasksView({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          summary: taskData.title, priority: taskData.priority, status: "pending",
+          summary: taskData.title, priority: taskData.priority,
           category: taskData.channel.toLowerCase(), deadline: taskData.deadline,
-          assignee_id: taskData.assignee.replace(/\D/g, ""), block_reason: taskData.description,
+          assignee_id: parseInt(taskData.assignee.replace(/\D/g, ""), 10) || 0,
+          block_reason: taskData.description || undefined,
         }),
       });
     } catch {}
@@ -149,7 +150,8 @@ export default function TasksView({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           summary: taskData.title, priority: taskData.priority, deadline: taskData.deadline,
-          assignee_id: taskData.assignee.replace(/\D/g, ""), block_reason: taskData.description,
+          assignee_id: parseInt(taskData.assignee.replace(/\D/g, ""), 10) || undefined,
+          block_reason: taskData.description || undefined,
         }),
       });
     } catch {}

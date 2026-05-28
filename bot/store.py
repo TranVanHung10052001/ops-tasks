@@ -433,20 +433,22 @@ def add_task(
     estimated_minutes: int = 30,
     classifier_meta: dict = None,
     visibility: str = "team",
+    block_reason: str = None,
 ) -> int:
     with get_db() as conn:
         cursor = conn.execute("""
             INSERT INTO tasks (
                 assignee_id, assigned_by, team, raw_message, summary, source, sender,
                 deadline, deadline_confidence, priority, category,
-                estimated_minutes, classifier_meta, visibility
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                estimated_minutes, classifier_meta, visibility, block_reason
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             assignee_id, assigned_by, team, raw_message, summary, source, sender,
             deadline, deadline_confidence, priority, category,
             estimated_minutes,
             json.dumps(classifier_meta) if classifier_meta else None,
             visibility,
+            block_reason,
         ))
         return cursor.lastrowid
 
