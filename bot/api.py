@@ -213,6 +213,34 @@ def get_member_tasks(
     return [_fmt_task(t) for t in user_tasks]
 
 
+@app.get("/api/performance")
+def get_performance(
+    days: int = Query(30, ge=1, le=1095),
+    user_id: Optional[int] = Query(None),
+    token: str = Depends(verify_token),
+):
+    """Hiệu suất per-member để đánh giá. user_id rỗng → cả team."""
+    from store import get_member_performance
+    if user_id is not None:
+        u = get_user(user_id)
+        perf = get_member_performance(user_id, days=days)
+        perf["telegram_id"] = user_id
+        perf["full_name"] = u["full_name"] if u else str(user_id)
+        return perf
+
+    members = list_team_by_person()
+    out = []
+    for m in members:
+        tid = m.get("telegram_id")
+        if tid is None:
+            continue
+        p = get_member_performance(tid, days=days)
+        p["telegram_id"] = tid
+        p["full_name"] = m.get("full_name", str(tid))
+        out.append(p)
+    return {"days": days, "members": out}
+
+
 # ─── Tasks ────────────────────────────────────────────────────────────────────
 
 @app.get("/api/tasks")

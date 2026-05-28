@@ -90,6 +90,34 @@ export interface ApiOkrResponse {
   p0_actions: number;
 }
 
+// Performance report per-member (mirrors store.get_member_performance)
+export interface ApiPerformance {
+  telegram_id: number;
+  full_name: string;
+  days: number;
+  done: number;
+  assigned: number;
+  completion_pct: number | null;
+  on_time: number;
+  late: number;
+  with_deadline: number;
+  on_time_pct: number | null;
+  avg_cycle_h: number | null;
+  actual_minutes: number;
+  p0_done: number;
+  p1_done: number;
+  active: number;
+  overdue: number;
+  defer_total: number;
+  reminder_total: number;
+  declined: number;
+}
+
+export interface ApiPerformanceTeam {
+  days: number;
+  members: ApiPerformance[];
+}
+
 // KPI metrics synced from Redash / Google Sheets — all values are strings
 export interface ApiMetrics {
   // GSV

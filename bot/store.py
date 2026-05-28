@@ -292,10 +292,16 @@ def get_user_by_username(username: str) -> dict | None:
 
 
 def get_user_by_email(email: str) -> dict | None:
-    """Find user by Ahamove email (stored in username or full_name won't work — match on email field if exists, else skip)."""
-    # Email not stored in DB currently — match by known email→name mapping from team_context
-    # This is a best-effort lookup; falls back to get_user_by_name
-    return None
+    """Find user by Ahamove email (case-insensitive). `email` column exists on
+    the users table (added via migration). Returns None if no match."""
+    if not email:
+        return None
+    clean = email.strip().lower()
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE LOWER(email) = ?", (clean,)
+        ).fetchone()
+        return dict(row) if row else None
 
 
 def get_user_by_name(name: str) -> dict | None:
@@ -516,7 +522,9 @@ def list_team_tasks(
             q += " AND u.team = ?"
             params.append(team)
         if since:
-            q += " AND COALESCE(t.updated_at, t.created_at) >= ?"
+            # tasks has no `updated_at` column — use completed_at (for done tasks)
+            # falling back to created_at. Prevents OperationalError on /api/tasks/done.
+            q += " AND COALESCE(t.completed_at, t.created_at) >= ?"
             params.append(since)
         q += " ORDER BY u.full_name ASC, t.priority ASC, t.deadline ASC LIMIT ?"
         params.append(limit)
@@ -653,6 +661,99 @@ def get_user_stats(user_id: int) -> dict:
         return {"done_week": done_week, "pending": pending, "overdue": overdue}
 
 
+def get_member_performance(user_id: int, days: int = 30) -> dict:
+    """Long-range performance snapshot for ONE member — dùng cho /perf + đánh giá.
+
+    Tất cả data đã được ghi sẵn (tasks.completed_at/deadline/actual_minutes +
+    audit_log). Trả về dict các chỉ số throughput / đúng hạn / cycle-time.
+    Set days lớn (vd 365) để review cả năm.
+    """
+    since = (datetime.now() - timedelta(days=days)).isoformat()
+    with get_db() as conn:
+        done_rows = conn.execute("""
+            SELECT priority, deadline, created_at, completed_at, actual_minutes
+            FROM tasks
+            WHERE assignee_id = ? AND status = 'done' AND completed_at >= ?
+        """, (user_id, since)).fetchall()
+
+        done = len(done_rows)
+        on_time = late = with_dl = 0
+        cycle_sum = 0.0
+        cycle_n = 0
+        actual_min = 0
+        p0_done = p1_done = 0
+        for r in done_rows:
+            d = dict(r)
+            pr = d.get("priority")
+            if pr == "P0":
+                p0_done += 1
+            elif pr == "P1":
+                p1_done += 1
+            if d.get("actual_minutes"):
+                actual_min += d["actual_minutes"]
+            try:
+                ca = datetime.fromisoformat(d["created_at"]).replace(tzinfo=None)
+                co = datetime.fromisoformat(d["completed_at"]).replace(tzinfo=None)
+                cycle_sum += (co - ca).total_seconds() / 3600
+                cycle_n += 1
+            except (ValueError, TypeError, KeyError):
+                pass
+            if d.get("deadline") and d.get("completed_at"):
+                with_dl += 1
+                try:
+                    dl = datetime.fromisoformat(d["deadline"]).replace(tzinfo=None)
+                    co = datetime.fromisoformat(d["completed_at"]).replace(tzinfo=None)
+                    if co <= dl:
+                        on_time += 1
+                    else:
+                        late += 1
+                except (ValueError, TypeError):
+                    pass
+
+        snap = conn.execute("""
+            SELECT
+              COUNT(CASE WHEN status IN ('pending','in_progress') THEN 1 END) AS active,
+              COUNT(CASE WHEN status IN ('pending','in_progress','blocked')
+                          AND deadline IS NOT NULL
+                          AND deadline < datetime('now','+7 hours') THEN 1 END) AS overdue
+            FROM tasks WHERE assignee_id = ?
+        """, (user_id,)).fetchone()
+
+        assigned = conn.execute("""
+            SELECT COUNT(*) FROM tasks WHERE assignee_id = ? AND created_at >= ?
+        """, (user_id, since)).fetchone()[0]
+
+        defer_row = conn.execute("""
+            SELECT COALESCE(SUM(defer_count),0), COALESCE(SUM(reminder_count),0)
+            FROM tasks WHERE assignee_id = ? AND created_at >= ?
+        """, (user_id, since)).fetchone()
+
+        declined = conn.execute("""
+            SELECT COUNT(*) FROM audit_log
+            WHERE actor_id = ? AND action = 'decline_task' AND ts >= ?
+        """, (user_id, since)).fetchone()[0]
+
+    return {
+        "days":           days,
+        "done":           done,
+        "assigned":       assigned,
+        "completion_pct": round(done / assigned * 100) if assigned else None,
+        "on_time":        on_time,
+        "late":           late,
+        "with_deadline":  with_dl,
+        "on_time_pct":    round(on_time / with_dl * 100) if with_dl else None,
+        "avg_cycle_h":    round(cycle_sum / cycle_n, 1) if cycle_n else None,
+        "actual_minutes": actual_min,
+        "p0_done":        p0_done,
+        "p1_done":        p1_done,
+        "active":         snap["active"] if snap else 0,
+        "overdue":        snap["overdue"] if snap else 0,
+        "defer_total":    defer_row[0] if defer_row else 0,
+        "reminder_total": defer_row[1] if defer_row else 0,
+        "declined":       declined,
+    }
+
+
 # ─── Task status transitions ───────────────────────────────────────────────────
 
 def mark_done(task_id: int) -> bool:
@@ -662,6 +763,28 @@ def mark_done(task_id: int) -> bool:
             UPDATE tasks SET status = 'done', completed_at = ?
             WHERE id = ? AND status != 'done'
         """, (now, task_id))
+        return cursor.rowcount > 0
+
+
+def start_task(task_id: int) -> bool:
+    """Move a task into 'in_progress' (e.g. when assignee accepts).
+    Only transitions from pending/snoozed/blocked — never overrides done/cancelled."""
+    with get_db() as conn:
+        cursor = conn.execute("""
+            UPDATE tasks SET status = 'in_progress'
+            WHERE id = ? AND status IN ('pending', 'snoozed', 'blocked')
+        """, (task_id,))
+        return cursor.rowcount > 0
+
+
+def return_to_pool(task_id: int) -> bool:
+    """Return a declined task to the unassigned pending pool (clears assignee).
+    Used when an employee declines — manager can reassign via /assign."""
+    with get_db() as conn:
+        cursor = conn.execute("""
+            UPDATE tasks SET status = 'pending', assignee_id = NULL
+            WHERE id = ? AND status NOT IN ('done', 'cancelled')
+        """, (task_id,))
         return cursor.rowcount > 0
 
 

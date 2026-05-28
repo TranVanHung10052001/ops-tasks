@@ -136,6 +136,18 @@ async def deadline_check_all(app):
                     await app.bot.send_message(chat_id=uid, text=msg, parse_mode="HTML")
                     increment_reminder(task["id"])
 
+                    # Nhắc 2 chiều: tại mốc 1h, báo luôn NGƯỜI GIAO (nếu khác người làm)
+                    ab = task.get("assigned_by")
+                    if 0.75 <= hours <= 1.25 and ab and ab != uid:
+                        try:
+                            await app.bot.send_message(
+                                chat_id=ab,
+                                text=tpl.msg_assigner_alert(u["full_name"], task, hours_left=hours),
+                                parse_mode="HTML",
+                            )
+                        except Exception as e:
+                            logger.debug(f"assigner deadline-alert failed for {ab}: {e}")
+
             # Overdue check — smart reminder + P0 escalation
             overdue = get_overdue_tasks_for_user(uid)
             for task in overdue:
@@ -158,6 +170,18 @@ async def deadline_check_all(app):
                     msg = tpl.msg_overdue(task, hrs_over)
                     await app.bot.send_message(chat_id=uid, text=msg, parse_mode="HTML")
                     increment_reminder(task["id"])
+
+                    # Nhắc 2 chiều: báo NGƯỜI GIAO mỗi ~24h khi việc đã trễ
+                    ab = task.get("assigned_by")
+                    if ab and ab != uid and (hrs_over % 24 < 0.5):
+                        try:
+                            await app.bot.send_message(
+                                chat_id=ab,
+                                text=tpl.msg_assigner_alert(u["full_name"], task, hours_over=hrs_over),
+                                parse_mode="HTML",
+                            )
+                        except Exception as e:
+                            logger.debug(f"assigner overdue-alert failed for {ab}: {e}")
 
         except Exception as e:
             logger.error(f"deadline_check_all failed for {uid}: {e}")
@@ -240,7 +264,9 @@ async def eod_recap_all(app):
             members    = list_team_by_person()
             all_ov     = get_all_overdue_tasks()
             # Top pending across all team — for tomorrow's Q1/Q2 preview
-            all_pending = list_team_tasks(statuses=["pending", "accepted"], limit=50)
+            # 'accepted' is not a valid status (schema uses in_progress) — querying
+            # it returned nothing, so the manager EOD preview was always short.
+            all_pending = list_team_tasks(statuses=["pending", "in_progress"], limit=50)
             msg = tpl.msg_eod_manager(
                 stats=stats,
                 members=members,

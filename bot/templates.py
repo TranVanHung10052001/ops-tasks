@@ -780,6 +780,49 @@ def msg_overdue(task: dict, hours_over: float) -> str:
     )
 
 
+def msg_assigner_alert(
+    assignee_name: str,
+    task: dict,
+    hours_over: float | None = None,
+    hours_left: float | None = None,
+) -> str:
+    """Nhắc NGƯỜI GIAO khi việc họ giao cho người khác sắp trễ / đã trễ.
+
+    Dùng cho scheduler 'nhắc 2 chiều' — manager/TL biết việc mình delegate đang
+    có nguy cơ rớt mà không cần hỏi tay từng người."""
+    tid     = task.get("id", "?")
+    summary = task.get("summary", "")[:70]
+    p       = task.get("priority", "P3")
+    icon    = PRIORITY_ICON.get(p, "□")
+    who     = _md((assignee_name or "?").strip())
+
+    if hours_over is not None and hours_over > 0:
+        over_str = f"{int(hours_over)}h" if hours_over < 48 else f"{int(hours_over // 24)} ngày"
+        divider  = DIV_STRONG if p in ("P0", "P1") else DIV_LIGHT
+        return (
+            f"⚠ <b>Việc bạn giao đang TRỄ</b>\n"
+            f"{divider}\n"
+            f"\n"
+            f"{icon} <code>#{tid}</code> {_md(summary)}\n"
+            f"Người làm: <b>{who}</b> · trễ {over_str}\n"
+            f"\n"
+            f"<code>/assign</code> giao lại · nhắc <b>{who}</b> hoặc gỡ vướng giúp."
+        )
+
+    # Sắp tới hạn (chưa trễ)
+    left = hours_left if hours_left is not None else 0
+    left_str = f"{int(left * 60)}p" if left < 1 else f"{int(left)}h"
+    return (
+        f"⏰ <b>Việc bạn giao sắp tới hạn</b>\n"
+        f"{DIV_LIGHT}\n"
+        f"\n"
+        f"{icon} <code>#{tid}</code> {_md(summary)}\n"
+        f"Người làm: <b>{who}</b> · còn {left_str}\n"
+        f"\n"
+        f"Theo dõi giúp để không rớt."
+    )
+
+
 def msg_stalled(task: dict) -> str:
     """Task không có update trong N ngày."""
     tid     = task.get("id", "?")
@@ -1093,6 +1136,143 @@ def _quadrant_block(q: str, tasks: list[dict], max_tasks: int = 6) -> str:
         f"{meta['icon']} {meta['label']} ({n}{extra})\n"
         + "\n".join(rows)
     )
+
+
+def msg_mytasks(name: str, tasks: list[dict]) -> str:
+    """All pending tasks for a user, grouped by Eisenhower quadrant (Q1→Q4).
+
+    Replaces the old flat list — surfaces what to do FIRST instead of a wall."""
+    n = len(tasks)
+    if n == 0:
+        return (
+            f"✓ <b>{name.split()[0]}</b> — sạch bảng!\n"
+            f"{DIV_LIGHT}\n\nKhông có task pending. "
+            f"Gõ <code>/add &lt;nội dung&gt;</code> để tạo task mới."
+        )
+
+    groups = _group_by_quadrant(tasks)
+    lines = [
+        f"📋 <b>Task của {name.split()[0]}</b> — {n} pending",
+        DIV_LIGHT,
+    ]
+    for q in ("Q1", "Q2", "Q3", "Q4"):
+        block = _quadrant_block(q, groups[q])
+        if block:
+            lines += ["", block]
+    lines += [
+        "",
+        "<i>👉 /now để bot chọn việc nên làm trước · "
+        "/done &lt;id&gt; · /snooze &lt;id&gt; 2h</i>",
+    ]
+    return "\n".join(lines)
+
+
+def msg_my_stats(
+    name: str,
+    done_week: int,
+    pending: int,
+    overdue: int,
+    top_tasks: list[dict] | None = None,
+) -> str:
+    """Personal weekly stats with a visual progress bar + next-up preview."""
+    total = done_week + pending
+    pct   = int(done_week / total * 100) if total else 0
+    bar   = _progress_bar(done_week, total)
+
+    if total == 0:
+        note = "Chưa có task tuần này."
+    elif overdue > 0:
+        note = f"⚠ {overdue} task quá hạn — ưu tiên giải tỏa trước."
+    elif pct >= 80:
+        note = f"💪 Tiến độ tốt — {pct}% tuần này."
+    else:
+        note = f"Còn {pending} task pending — gõ /now để chọn việc tiếp theo."
+
+    lines = [
+        f"📊 <b>Thống kê · {name.split()[0]}</b>",
+        DIV_LIGHT,
+        "",
+        f"Tuần này: <code>{bar}</code> {done_week}/{total} ({pct}%)",
+        f"● {done_week} hoàn thành   ○ {pending} pending"
+        + (f"   ‼ {overdue} quá hạn" if overdue else ""),
+        "",
+        f"<i>{note}</i>",
+    ]
+
+    if top_tasks:
+        lines += ["", "🎯 <b>Nên làm tiếp:</b>"]
+        for t in top_tasks[:3]:
+            lines.append(fmt_task_line(t))
+
+    return "\n".join(lines)
+
+
+def _period_label(days: int) -> str:
+    if days >= 360:
+        return f"{round(days / 365)} năm" if days >= 365 else "~1 năm"
+    if days >= 28:
+        return f"{round(days / 30)} tháng"
+    if days >= 7:
+        return f"{round(days / 7)} tuần"
+    return f"{days} ngày"
+
+
+def msg_member_performance(name: str, perf: dict) -> str:
+    """Báo cáo hiệu suất 1 thành viên trong khoảng `days` — dùng cho /perf + đánh giá.
+
+    Pyramid: chấm điểm tổng trước, chi tiết sau. Số liệu đều từ data thật."""
+    days   = perf.get("days", 30)
+    period = _period_label(days)
+    done   = perf.get("done", 0)
+    on_pct = perf.get("on_time_pct")
+    comp   = perf.get("completion_pct")
+
+    # Đánh giá nhanh (chỉ khi đủ data)
+    if done == 0:
+        verdict = "Chưa có task hoàn thành trong kỳ — chưa đủ data để đánh giá."
+    elif on_pct is not None and on_pct >= 85 and done >= 5:
+        verdict = f"💪 Đáng tin — đúng hạn {on_pct}%, hoàn thành {done} task."
+    elif on_pct is not None and on_pct < 60:
+        verdict = f"⚠ Đúng hạn chỉ {on_pct}% — cần xem lại tải việc / deadline."
+    else:
+        verdict = f"Ổn định — {done} task xong trong {period}."
+
+    def _v(x, suffix=""):
+        return f"{x}{suffix}" if x is not None else "—"
+
+    cyc = perf.get("avg_cycle_h")
+    cyc_str = (f"{cyc}h" if cyc is not None and cyc < 48
+               else (f"{round(cyc / 24, 1)} ngày" if cyc is not None else "—"))
+    hrs = round(perf.get("actual_minutes", 0) / 60, 1)
+
+    lines = [
+        f"📈 <b>Hiệu suất · {_md(name)}</b>",
+        f"<i>Kỳ: {period} gần nhất</i>",
+        DIV_STRONG,
+        "",
+        f"<i>{verdict}</i>",
+        "",
+        "<b>Throughput</b>",
+        f"  · Hoàn thành: <b>{done}</b> / giao {perf.get('assigned', 0)} "
+        + (f"({comp}%)" if comp is not None else ""),
+        f"  · P0 xong: {perf.get('p0_done', 0)}   · P1 xong: {perf.get('p1_done', 0)}",
+        f"  · Giờ ghi nhận: {hrs}h",
+        "",
+        "<b>Đúng hạn</b>",
+        f"  · On-time: <b>{_v(on_pct, '%')}</b> "
+        + f"({perf.get('on_time', 0)}/{perf.get('with_deadline', 0)} task có deadline)",
+        f"  · Trễ hạn: {perf.get('late', 0)}",
+        f"  · Cycle-time TB: {cyc_str}",
+        "",
+        "<b>Hiện tại</b>",
+        f"  · Đang làm: {perf.get('active', 0)}   · Quá hạn: {perf.get('overdue', 0)}",
+        "",
+        "<b>Kỷ luật</b>",
+        f"  · Hoãn (defer): {perf.get('defer_total', 0)}   "
+        f"· Bị nhắc: {perf.get('reminder_total', 0)}   "
+        f"· Từ chối: {perf.get('declined', 0)}",
+    ]
+    return "\n".join(lines)
 
 
 # ─── 6.1  /today ──────────────────────────────────────────────────────────────

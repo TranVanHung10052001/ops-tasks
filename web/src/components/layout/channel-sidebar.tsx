@@ -16,8 +16,9 @@ const NAV_ITEMS = [
   { href: "/tasks",    label: "Bảng điều vận", code: "II"  },
   { href: "/okr",      label: "Theo dõi OKR",  code: "III" },
   { href: "/team",     label: "Nhóm điều vận", code: "IV"  },
-  { href: "/ask",      label: "Hỏi AI",        code: "V"   },
-  { href: "/telegram", label: "Telegram bot",  code: "VI"  },
+  { href: "/performance", label: "Hiệu suất",  code: "V"   },
+  { href: "/ask",      label: "Hỏi AI",        code: "VI"  },
+  { href: "/telegram", label: "Telegram bot",  code: "VII" },
 ];
 
 function workloadColor(ratio: number) {

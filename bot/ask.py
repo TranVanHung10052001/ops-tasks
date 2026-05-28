@@ -15,9 +15,11 @@ from pathlib import Path
 import google.generativeai as genai
 import yaml
 
+import re
+
 from store import (
     list_team_by_person, list_team_tasks, get_team_stats,
-    get_all_overdue_tasks, get_all_metrics,
+    get_all_overdue_tasks, get_all_metrics, get_task,
 )
 
 logger = logging.getLogger(__name__)
@@ -56,11 +58,12 @@ def _knowledge() -> str:
 def _live_context() -> str:
     """Pull current team state for grounding."""
     try:
-        stats   = get_team_stats()
-        members = list_team_by_person()
-        overdue = get_all_overdue_tasks()
-        recent  = list_team_tasks(statuses=["pending"])[:15]
-        metrics = get_all_metrics() if callable(globals().get("get_all_metrics")) else {}
+        stats    = get_team_stats()
+        members  = list_team_by_person()
+        overdue  = get_all_overdue_tasks()
+        recent   = list_team_tasks(statuses=["pending"])[:15]
+        inprog   = list_team_tasks(statuses=["in_progress"])[:12]
+        metrics  = get_all_metrics() if callable(globals().get("get_all_metrics")) else {}
 
         # Compact member view
         mem_lines = []
@@ -80,6 +83,12 @@ def _live_context() -> str:
                 f"→ {t.get('assignee_name','?')} (dl: {dl})"
             )
 
+        ip_lines = [
+            f"- #{t['id']} [{t.get('priority','P3')}] {t.get('summary','')[:55]} "
+            f"→ {t.get('assignee_name','?')}"
+            for t in inprog[:10]
+        ]
+
         ov_lines = [f"- #{t['id']} {t.get('summary','')[:50]} ({t.get('assignee_name','?')})"
                     for t in overdue[:5]]
 
@@ -95,12 +104,33 @@ def _live_context() -> str:
             f"· Overdue: {stats.get('overdue',0)} · Blocked: {stats.get('blocked',0)}\n\n"
             f"## MEMBERS\n" + "\n".join(mem_lines) + "\n\n"
             f"## RECENT PENDING TASKS\n" + ("\n".join(task_lines) if task_lines else "(none)") + "\n\n"
+            f"## IN PROGRESS\n" + ("\n".join(ip_lines) if ip_lines else "(none)") + "\n\n"
             f"## OVERDUE\n" + ("\n".join(ov_lines) if ov_lines else "(none)") + "\n\n"
             f"## METRICS\n" + ("\n".join(m_lines) if m_lines else "(no live KPIs)")
         )
     except Exception as e:
         logger.error(f"live_context failed: {e}", exc_info=True)
         return "(live context unavailable)"
+
+
+def _referenced_tasks(question: str) -> str:
+    """Nếu câu hỏi nhắc tới #<id>, nạp chi tiết task đó vào context để AI trả lời chính xác."""
+    ids = re.findall(r"#(\d{1,6})", question or "")
+    if not ids:
+        return ""
+    blocks = []
+    for raw in ids[:5]:
+        t = get_task(int(raw))
+        if not t:
+            blocks.append(f"- #{raw}: (không tồn tại)")
+            continue
+        blocks.append(
+            f"- #{t['id']} [{t.get('priority','P3')}/{t.get('status','?')}] "
+            f"{t.get('summary','')[:80]} · assignee={t.get('assignee_name') or t.get('assignee_id')} "
+            f"· deadline={t.get('deadline') or 'none'}"
+            + (f" · block={t['block_reason']}" if t.get('block_reason') else "")
+        )
+    return "## TASK ĐƯỢC HỎI\n" + "\n".join(blocks) + "\n\n"
 
 
 _SYSTEM_PROMPT = """Bạn là trợ lý điều vận cho team Truck Ops Ahamove (manager Lê Quang Huy + 10 thành viên).
@@ -128,7 +158,8 @@ def ask(question: str) -> dict:
         _SYSTEM_PROMPT
         + "\n\n## KNOWLEDGE\n" + _knowledge()
         + "\n\n" + _live_context()
-        + f"\n\n## QUESTION\n{q}\n\n## ANSWER\n"
+        + "\n\n" + _referenced_tasks(q)
+        + f"\n## QUESTION\n{q}\n\n## ANSWER\n"
     )
 
     try:
