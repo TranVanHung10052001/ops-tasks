@@ -100,12 +100,12 @@ function TaskCard({ task, members, onTaskClick, onDragStart }: { task: OpsTask; 
             <div className="w-5 h-5 border border-divider-strong bg-surface-deep mono text-2xs flex items-center justify-center text-accent-paper">
               {m.initials}
             </div>
-            <span className="mono text-2xs text-text-tertiary">{m.initials}</span>
+            <span className="text-xs text-text-secondary">{m.name}</span>
           </div>
         )}
         <div className="text-right">
           <div className="mono text-xs text-text-primary tabular">{d.date} {d.time}</div>
-          <div className={clsx("mono text-2xs font-bold", overdue ? "text-signal-p0" : "text-text-tertiary")}>
+          <div className={clsx("mono text-2xs", overdue ? "text-signal-p0" : "text-text-tertiary")}>
             {d.relative}
           </div>
         </div>

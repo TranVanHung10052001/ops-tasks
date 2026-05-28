@@ -174,7 +174,7 @@ export default function TaskLedger({
                     <div className="mono text-xs text-text-primary tabular">
                       {d.date} · {d.time}
                     </div>
-                    <div className={clsx("mono text-2xs font-bold", overdue ? "text-signal-p0" : "text-text-tertiary")}>
+                    <div className={clsx("mono text-2xs", overdue ? "text-signal-p0" : "text-text-tertiary")}>
                       {d.relative}
                     </div>
                     {overdue && (
