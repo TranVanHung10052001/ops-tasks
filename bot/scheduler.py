@@ -62,7 +62,7 @@ async def _send_personal_briefing(app, user_id: int, name: str):
     overdue = get_overdue_tasks_for_user(user_id)
     top3    = get_top_tasks_for_user(user_id, limit=3)
     msg = tpl.msg_morning_member(name, overdue, top3)
-    await app.bot.send_message(chat_id=user_id, text=msg, parse_mode="Markdown")
+    await app.bot.send_message(chat_id=user_id, text=msg, parse_mode="HTML")
 
 
 # ─── Manager team digest (8:30) ───────────────────────────────────────────────
@@ -89,7 +89,7 @@ async def manager_team_digest(app):
     )
     try:
         await app.bot.send_message(
-            chat_id=MANAGER_ID, text=msg, parse_mode="Markdown"
+            chat_id=MANAGER_ID, text=msg, parse_mode="HTML"
         )
     except Exception as e:
         logger.error(f"manager_team_digest failed: {e}")
@@ -130,7 +130,7 @@ async def deadline_check_all(app):
 
                 if should_remind:
                     msg = tpl.msg_reminder_deadline(task, hours)
-                    await app.bot.send_message(chat_id=uid, text=msg, parse_mode="Markdown")
+                    await app.bot.send_message(chat_id=uid, text=msg, parse_mode="HTML")
                     increment_reminder(task["id"])
 
             # Overdue check — smart reminder + P0 escalation
@@ -192,7 +192,7 @@ async def auto_digest_manager(app):
     try:
         await app.bot.send_message(
             chat_id=MANAGER_ID, text=msg,
-            parse_mode="Markdown", reply_markup=kb,
+            parse_mode="HTML", reply_markup=kb,
         )
         logger.info("auto_digest_manager: sent %d auto-created tasks", len(tasks))
     except Exception as e:
@@ -244,7 +244,7 @@ async def eod_recap_all(app):
                 overdue_tasks=all_ov,
                 top_pending=all_pending,
             )
-            await app.bot.send_message(chat_id=MANAGER_ID, text=msg, parse_mode="Markdown")
+            await app.bot.send_message(chat_id=MANAGER_ID, text=msg, parse_mode="HTML")
         except Exception as e:
             logger.error(f"manager eod digest failed: {e}")
 

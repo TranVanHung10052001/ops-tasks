@@ -120,8 +120,9 @@ CAT_LABEL = {
 # ─── Markdown helpers ─────────────────────────────────────────────────────────
 
 def _md(text: str) -> str:
-    """Escape * _ ` for Telegram Markdown v1 so bold wrapping doesn't break."""
-    return str(text).replace("*", "\\*").replace("_", "\\_").replace("`", "\\`")
+    """Escape HTML special chars for Telegram HTML parse_mode."""
+    import html as _html
+    return _html.escape(str(text))
 
 
 # ─── Time helpers ──────────────────────────────────────────────────────────────
@@ -215,7 +216,7 @@ def fmt_task_line(
     p    = task.get("priority", "P3")
     icon = PRIORITY_ICON.get(p, "□")
     q_prefix = eisenhower_icon(task) + " " if show_quadrant else ""
-    line = f"{q_prefix}{icon} `#{task['id']}` {task.get('summary','')[:60]}"
+    line = f"{q_prefix}{icon} <code>#{task['id']}</code> {task.get('summary','')[:60]}"
     if show_assignee and task.get("assignee_name"):
         short = task["assignee_name"].split()[-1]
         line += f"  [{short}]"
@@ -263,9 +264,9 @@ def msg_task_new(task: dict, assigned_by_name: str = "") -> str:
     q_icon  = eisenhower_icon(_q_task)
 
     lines = [
-        f"📬 *Task mới · {p}*",
+        f"📬 <b>Task mới · {p}</b>",
         "",
-        f"{q_icon} `#{task['id']}` *{_md(task.get('summary', ''))}*",
+        f"{q_icon} <code>#{task['id']}</code> <b>{_md(task.get('summary', ''))}</b>",
         "",
         "  ·  ".join(meta_parts),
     ]
@@ -274,14 +275,14 @@ def msg_task_new(task: dict, assigned_by_name: str = "") -> str:
 
     # Layer 1 coaching — concise steps inline (3-5 bullets from AI breakdown)
     if breakdown:
-        lines += ["", "📋 *Bắt đầu thế nào:*"]
+        lines += ["", "📋 <b>Bắt đầu thế nào:</b>"]
         for step in breakdown[:5]:
             lines.append(f"▸ {_md(str(step))}")
 
     lines += [
         "",
-        f"`/done {task['id']}` xong · `/snooze {task['id']} 2h` hoãn · "
-        f"`/coach {task['id']}` hướng dẫn",
+        f"<code>/done {task['id']}</code> xong · <code>/snooze {task['id']} 2h</code> hoãn · "
+        f"<code>/coach {task['id']}</code> hướng dẫn",
     ]
 
     return "\n".join(lines)
@@ -297,7 +298,7 @@ def msg_task_accepted(task: dict) -> str:
         f"● Đã nhận\n"
         f"{DIV_LIGHT}\n"
         f"\n"
-        f"`#{task['id']}` {task.get('summary','')[:70]}"
+        f"<code>#{task['id']}</code> {task.get('summary','')[:70]}"
         f"{dl_part}"
     )
 
@@ -310,8 +311,8 @@ def msg_task_transferred(task: dict, from_name: str, to_name: str, reason: str =
         f"↗ Đã chuyển\n"
         f"{DIV_LIGHT}\n"
         f"\n"
-        f"`#{task['id']}`\n"
-        f"`{from_name}` → `{to_name}`"
+        f"<code>#{task['id']}</code>\n"
+        f"<code>{from_name}</code> → <code>{to_name}</code>"
         f"{reason_line}"
     )
 
@@ -374,10 +375,10 @@ def msg_auto_assigned(
         bits.append(f"OKR {okr}")
 
     return (
-        f"🤖 *Auto* `#{task_id}` → *{_md(assignee_name)}* (AI {conf}%)\n"
+        f"🤖 <b>Auto</b> <code>#{task_id}</code> → <b>{_md(assignee_name)}</b> (AI {conf}%)\n"
         f"{_md(summary)}\n"
         f"{'  ·  '.join(bits)}\n"
-        f"_Undo trong {undo_window_min}p nếu sai._"
+        f"<i>Undo trong {undo_window_min}p nếu sai.</i>"
     )
 
 
@@ -396,52 +397,52 @@ def msg_coach_detail(task: dict, coach: dict) -> str:
     est     = coach.get("estimated_minutes") or task.get("estimated_minutes") or 0
 
     lines = [
-        f"🎓 *Hướng dẫn chi tiết — Task #{tid}*",
+        f"🎓 <b>Hướng dẫn chi tiết — Task #{tid}</b>",
         DIV_LIGHT,
-        f"{icon} {p} · *{_md(summary)}*",
+        f"{icon} {p} · <b>{_md(summary)}</b>",
     ]
     if est:
-        lines.append(f"_~{est} phút_")
+        lines.append(f"<i>~{est} phút</i>")
 
     why = coach.get("why_matters", "").strip()
     if why:
-        lines += ["", "💡 *Tại sao quan trọng*", _md(why)]
+        lines += ["", "💡 <b>Tại sao quan trọng</b>", _md(why)]
 
     steps = coach.get("steps") or []
     if steps:
-        lines += ["", f"📋 *{len(steps)} bước cụ thể*"]
+        lines += ["", f"📋 <b>{len(steps)} bước cụ thể</b>"]
         for i, s in enumerate(steps[:6], 1):
             lines.append(f"{i}. {_md(str(s))}")
 
     watch = coach.get("watch_out") or []
     if watch:
-        lines += ["", "⚠️ *Watch out*"]
+        lines += ["", "⚠️ <b>Watch out</b>"]
         for w in watch[:4]:
             lines.append(f"• {_md(str(w))}")
 
     tips = coach.get("tips", "").strip()
     if tips:
-        lines += ["", f"💎 *Tip*: {_md(tips)}"]
+        lines += ["", f"💎 <b>Tip</b>: {_md(tips)}"]
 
     contacts = coach.get("contacts") or []
     if contacts:
-        lines += ["", "📎 *Cần hỗ trợ*"]
+        lines += ["", "📎 <b>Cần hỗ trợ</b>"]
         for c in contacts[:4]:
             if not isinstance(c, dict):
                 continue
             name = c.get("name", "?")
             email = c.get("email", "")
             when = c.get("when", "")
-            line = f"• *{_md(name)}*"
+            line = f"• <b>{_md(name)}</b>"
             if email:
-                line += f" (`{email}`)"
+                line += f" (<code>{_md(email)}</code>)"
             if when:
                 line += f" — {_md(when)}"
             lines.append(line)
 
     lines += [
         "",
-        f"_`/done {tid}` xong · `/snooze {tid} 2h` hoãn_",
+        f"<i><code>/done {tid}</code> xong · <code>/snooze {tid} 2h</code> hoãn</i>",
     ]
     return "\n".join(lines)
 
@@ -453,7 +454,7 @@ def msg_auto_digest_manager(tasks: list[dict]) -> str:
     Inline buttons reassign per-task được thêm ngoài (do scheduler tạo).
     """
     if not tasks:
-        return "🤖 *Auto-digest hôm nay*\n\nKhông có task nào bot tự tạo."
+        return "🤖 <b>Auto-digest hôm nay</b>\n\nKhông có task nào bot tự tạo."
 
     # Group by assignee
     by_person: dict[str, list[dict]] = {}
@@ -463,12 +464,12 @@ def msg_auto_digest_manager(tasks: list[dict]) -> str:
 
     today = datetime.now().strftime("%d/%m")
     lines = [
-        f"🤖 *Auto-digest {today}* — {len(tasks)} task bot tự tạo",
+        f"🤖 <b>Auto-digest {today}</b> — {len(tasks)} task bot tự tạo",
         DIV_LIGHT,
     ]
 
     for person, items in by_person.items():
-        lines.append(f"\n*{_md(person)}* ({len(items)})")
+        lines.append(f"\n<b>{_md(person)}</b> ({len(items)})")
         for t in items[:5]:
             p_icon = PRIORITY_ICON.get(t.get("priority", "P3"), "□")
             summary = (t.get("summary") or "")[:55]
@@ -489,11 +490,11 @@ def msg_auto_digest_manager(tasks: list[dict]) -> str:
             if okr_ref:
                 extras.append(f"OKR {okr_ref}")
             extra_str = "  ·  " + "  ·  ".join(extras) if extras else ""
-            lines.append(f"  {p_icon} `#{t['id']}` {_md(summary)}{extra_str}")
+            lines.append(f"  {p_icon} <code>#{t['id']}</code> {_md(summary)}{extra_str}")
 
     lines.append(
-        f"\n_Bấm nút bên dưới để giao lại nếu sai person._"
-        f"\n_Dùng `/undo <id>` để hủy hẳn._"
+        f"\n<i>Bấm nút bên dưới để giao lại nếu sai person.</i>"
+        f"\n<i>Dùng <code>/undo &lt;id&gt;</code> để hủy hẳn.</i>"
     )
     return "\n".join(lines)
 
@@ -528,11 +529,11 @@ def msg_ai_route_card(result: dict, assigner_name: str = "") -> str:
         )
 
     return (
-        f"🤖 *AI đề xuất · {conf}%*\n"
+        f"🤖 <b>AI đề xuất · {conf}%</b>\n"
         f"\n"
-        f"*{_md(summary)}*\n"
+        f"<b>{_md(summary)}</b>\n"
         f"\n"
-        f"→ *{_md(assignee)}*\n"
+        f"→ <b>{_md(assignee)}</b>\n"
         + "  ·  ".join(meta_parts)
         + scope_line
         + step_block
@@ -574,9 +575,9 @@ def msg_task_created(
     q_icon  = eisenhower_icon(_q_task)
 
     lines = [
-        f"✅ *Task #{task_id}*",
+        f"✅ <b>Task #{task_id}</b>",
         "─────────────────────────",
-        f"{q_icon} *{_md(summary)}*",
+        f"{q_icon} <b>{_md(summary)}</b>",
         "",
         f"⚡ {p} | {cat}",
     ]
@@ -589,13 +590,13 @@ def msg_task_created(
         lines.append(f"🎯 OKR {okr_ref}")
 
     if steps:
-        lines += ["", "📋 *Lộ trình:*"]
+        lines += ["", "📋 <b>Lộ trình:</b>"]
         for s in steps[:4]:
             lines.append(f"▶ {_md(str(s))}")
 
     if adhoc_ratio and adhoc_ratio.get("ratio_pct", 0) > _ADHOC_CAP:
         r = adhoc_ratio["ratio_pct"]
-        lines += ["", f"⚠️ _Ad-hoc tuần này: {r}% (vượt cap {_ADHOC_CAP}%)_"]
+        lines += ["", f"⚠️ <i>Ad-hoc tuần này: {r}% (vượt cap {_ADHOC_CAP}%)</i>"]
 
     return "\n".join(lines)
 
@@ -614,7 +615,7 @@ def msg_task_done(task: dict, next_task: dict | None = None) -> str:
         dl_part = f"  {dl}" if dl else ""
         next_block = (
             f"\nTASK TIẾP THEO\n"
-            f"{PRIORITY_ICON.get(p,'□')} `#{next_task['id']}` "
+            f"{PRIORITY_ICON.get(p,'□')} <code>#{next_task['id']}</code> "
             f"{next_task.get('summary','')[:55]}{dl_part}\n"
         )
 
@@ -622,7 +623,7 @@ def msg_task_done(task: dict, next_task: dict | None = None) -> str:
         f"● Hoàn thành\n"
         f"{DIV_LIGHT}\n"
         f"\n"
-        f"`#{tid}` {summary}"
+        f"<code>#{tid}</code> {summary}"
         f"{next_block}"
     )
 
@@ -638,21 +639,21 @@ def msg_reminder_deadline(task: dict, hours_left: float) -> str:
     dl      = _deadline_line(task.get("deadline"))
 
     if hours_left <= 0.25:
-        header = f"🔴 *Còn {int(hours_left * 60)}p*"
+        header = f"🔴 <b>Còn {int(hours_left * 60)}p</b>"
     elif hours_left <= 4:
-        header = f"🔴 *Còn {int(hours_left)}h*"
+        header = f"🔴 <b>Còn {int(hours_left)}h</b>"
     elif hours_left <= 28:
-        header = "⏰ *Deadline hôm nay / mai*"
+        header = "⏰ <b>Deadline hôm nay / mai</b>"
     else:
-        header = "📅 *Nhắc trước 3 ngày*"
+        header = "📅 <b>Nhắc trước 3 ngày</b>"
 
     return (
         f"{header}\n"
         f"\n"
-        f"{icon} `#{tid}` *{_md(summary)}*\n"
+        f"{icon} <code>#{tid}</code> <b>{_md(summary)}</b>\n"
         f"{dl}\n"
         f"\n"
-        f"`/done {tid}` xong · `/snooze {tid} 2h` hoãn"
+        f"<code>/done {tid}</code> xong · <code>/snooze {tid} 2h</code> hoãn"
     )
 
 
@@ -669,11 +670,11 @@ def msg_overdue(task: dict, hours_over: float) -> str:
         f"{icon} QUÁ HẠN\n"
         f"{divider}\n"
         f"\n"
-        f"`#{tid}` {summary}\n"
+        f"<code>#{tid}</code> {summary}\n"
         f"\n"
         f"Trễ: {over_str}\n"
         f"\n"
-        f"`/done {tid}` xong · `/snooze {tid} 4h` xin gia hạn"
+        f"<code>/done {tid}</code> xong · <code>/snooze {tid} 4h</code> xin gia hạn"
     )
 
 
@@ -685,10 +686,10 @@ def msg_stalled(task: dict) -> str:
         f"◌ Chưa có cập nhật\n"
         f"{DIV_LIGHT}\n"
         f"\n"
-        f"`#{tid}` {summary}\n"
+        f"<code>#{tid}</code> {summary}\n"
         f"\n"
         f"Task im lặng. Cần gì không?\n"
-        f"Reply hoặc `/done {tid}`"
+        f"Reply hoặc <code>/done {tid}</code>"
     )
 
 
@@ -793,9 +794,9 @@ def msg_morning_member(
     q2_n = len(groups["Q2"])
 
     lines = [
-        f"☀️ *{wday} {date_s}*",
+        f"☀️ <b>{wday} {date_s}</b>",
         "",
-        f"Chào sáng, *{name}*.",
+        f"Chào sáng, <b>{name}</b>.",
         "",
     ]
 
@@ -826,7 +827,7 @@ def msg_morning_member(
     if okr_note:
         lines += [DIV_LIGHT, "", okr_note, ""]
 
-    lines += [DIV_LIGHT, "/done <id> · /snooze <id> 2h · /today"]
+    lines += [DIV_LIGHT, "<code>/done &lt;id&gt;</code> · <code>/snooze &lt;id&gt; 2h</code> · <code>/today</code>"]
     return "\n".join(lines)
 
 
@@ -861,19 +862,19 @@ def msg_evening_member(
         note = f"Hôm nay bận — {total_count - done_count} task còn lại, ưu tiên Q1 sáng sớm nhé."
 
     lines = [
-        f"🌇 *{wday} {now.strftime('%d/%m')} · {now.strftime('%H:%M')}*",
+        f"🌇 <b>{wday} {now.strftime('%d/%m')} · {now.strftime('%H:%M')}</b>",
         "",
-        f"*{name.split()[0]}* · {note}",
+        f"<b>{name.split()[0]}</b> · {note}",
         "",
-        f"Hôm nay: `{bar}` {done_count}/{total_count} task",
+        f"Hôm nay: <code>{bar}</code> {done_count}/{total_count} task",
     ]
 
     if pending_tomorrow:
-        lines += ["", "📋 *Ngày mai:*"]
+        lines += ["", "📋 <b>Ngày mai:</b>"]
         for t in pending_tomorrow[:4]:
             lines.append(fmt_task_line(t))
         lines.append("")
-        lines.append("_/done <id> · /snooze <id> 2h · /today_")
+        lines.append("<i>/done &lt;id&gt; · /snooze &lt;id&gt; 2h · /today</i>")
 
     return "\n".join(lines)
 
@@ -910,14 +911,14 @@ def msg_eod_manager(
         health = f"🔴 {overdue} task trễ — cần can thiệp ngay"
 
     lines = [
-        f"🌇 *EOD Report · {wday} {now.strftime('%d/%m')} · {now.strftime('%H:%M')}*",
+        f"🌇 <b>EOD Report · {wday} {now.strftime('%d/%m')} · {now.strftime('%H:%M')}</b>",
         "",
         health,
-        f"`{bar}` {done_today} xong · {active} đang chạy" + (f" · ‼️ {overdue} trễ" if overdue else ""),
+        f"<code>{bar}</code> {done_today} xong · {active} đang chạy" + (f" · ‼️ {overdue} trễ" if overdue else ""),
         "",
         DIV_LIGHT,
         "",
-        "👥 *Team hôm nay*",
+        "👥 <b>Team hôm nay</b>",
     ]
 
     # Per-member status — one per line, readable
@@ -938,7 +939,7 @@ def msg_eod_manager(
         else:
             status_icon = "⚪"
 
-        parts = [f"{status_icon} *{name}*"]
+        parts = [f"{status_icon} <b>{name}</b>"]
         if dt:
             parts.append(f"✅{dt}")
         if a:
@@ -946,12 +947,12 @@ def msg_eod_manager(
         if od:
             parts.append(f"‼️{od} trễ")
         if dt == 0 and a == 0:
-            parts.append("_(không có task)_")
+            parts.append("<i>(không có task)</i>")
         lines.append("  ".join(parts))
 
     # Overdue section
     if overdue_tasks:
-        lines += ["", DIV_LIGHT, "", f"‼️ *Cần xử lý sáng mai ({len(overdue_tasks)})*"]
+        lines += ["", DIV_LIGHT, "", f"‼️ <b>Cần xử lý sáng mai ({len(overdue_tasks)})</b>"]
         for t in overdue_tasks[:6]:
             lines.append(fmt_task_line(t, show_assignee=True))
 
@@ -960,7 +961,7 @@ def msg_eod_manager(
         q1q2 = [t for t in top_pending
                 if eisenhower_quadrant(t) in ("Q1", "Q2")][:5]
         if q1q2:
-            lines += ["", DIV_LIGHT, "", "📋 *Ưu tiên sáng mai*"]
+            lines += ["", DIV_LIGHT, "", "📋 <b>Ưu tiên sáng mai</b>"]
             for t in q1q2:
                 lines.append(fmt_task_line(t, show_assignee=True))
 
@@ -1028,11 +1029,11 @@ def msg_now_recommendation(
         bits.append(f"OKR {okr}")
 
     lines = [
-        f"🎯 *Làm ngay:* `#{primary_task['id']}`",
-        f"*{summary}*",
+        f"🎯 <b>Làm ngay:</b> <code>#{primary_task['id']}</code>",
+        f"<b>{summary}</b>",
         f"{'  ·  '.join(bits)}",
         "",
-        f"_💡 {_md(primary_reason)}_",
+        f"<i>💡 {_md(primary_reason)}</i>",
     ]
 
     if alternative_task:
@@ -1040,11 +1041,11 @@ def msg_now_recommendation(
         alt_icon = PRIORITY_ICON.get(alt_p, "□")
         lines += [
             "",
-            f"Backup: {alt_icon} `#{alternative_task['id']}` "
+            f"Backup: {alt_icon} <code>#{alternative_task['id']}</code> "
             f"{_md(alternative_task.get('summary','')[:60])}",
         ]
         if alternative_reason:
-            lines.append(f"_{_md(alternative_reason)}_")
+            lines.append(f"<i>{_md(alternative_reason)}</i>")
 
     return "\n".join(lines)
 
@@ -1067,7 +1068,7 @@ def msg_today(name: str, overdue_tasks: list[dict], today_tasks: list[dict]) -> 
             f"\n"
             f"Queue trống. Không có task nào hôm nay.\n"
             f"\n"
-            f"+ `/add <nội dung>` để tạo task mới"
+            f"+ <code>/add &lt;nội dung&gt;</code> để tạo task mới"
         )
 
     # Overdue tasks → always Q1 (already missed deadline = maximum urgency)
@@ -1103,7 +1104,7 @@ def msg_today(name: str, overdue_tasks: list[dict], today_tasks: list[dict]) -> 
             lines.append(block)
             lines.append("")
 
-    lines += [DIV_LIGHT, "/done <id> · /snooze <id> 2h · /add mới"]
+    lines += [DIV_LIGHT, "<code>/done &lt;id&gt;</code> · <code>/snooze &lt;id&gt; 2h</code> · <code>/add mới</code>"]
     return "\n".join(lines)
 
 
@@ -1115,7 +1116,7 @@ def msg_done_quick(task_id: int, summary: str) -> str:
         f"● Xong\n"
         f"{DIV_LIGHT}\n"
         f"\n"
-        f"`#{task_id}` {summary[:70]}\n"
+        f"<code>#{task_id}</code> {summary[:70]}\n"
         f"\n"
         f"Mất bao lâu?"
     )
