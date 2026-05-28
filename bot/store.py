@@ -108,6 +108,22 @@ def init_db():
                 expires_at DATETIME NOT NULL,
                 PRIMARY KEY (uid, kind)
             );
+            CREATE TABLE IF NOT EXISTS okr_progress (
+                okr_id     TEXT PRIMARY KEY,
+                progress   INTEGER,
+                current    TEXT,
+                status     TEXT NOT NULL DEFAULT 'on_track',
+                note       TEXT,
+                updated_at DATETIME DEFAULT (datetime('now', '+7 hours')),
+                source     TEXT DEFAULT 'dashboard'
+            );
+            CREATE TABLE IF NOT EXISTS okr_action_status (
+                action_id  TEXT PRIMARY KEY,
+                status     TEXT NOT NULL DEFAULT 'pending',
+                note       TEXT,
+                updated_at DATETIME DEFAULT (datetime('now', '+7 hours')),
+                source     TEXT DEFAULT 'dashboard'
+            );
         """)
         # ── Schema migrations (idempotent) ──────────────────────────────────
         for col, typedef in [
@@ -852,6 +868,92 @@ def get_all_metrics() -> dict:
             if ts_row and ts_row["ts"]:
                 result["updated_at"] = ts_row["ts"]
         return result
+
+
+# ─── OKR editable state ───────────────────────────────────────────────────────
+
+def upsert_okr_progress(
+    okr_id: str,
+    progress: int | None = None,
+    status: str | None = None,
+    current: str | None = None,
+    note: str | None = None,
+    source: str = "dashboard",
+) -> None:
+    """Upsert mutable progress state for an OKR objective."""
+    with get_db() as conn:
+        conn.execute("""
+            INSERT INTO okr_progress (okr_id, progress, current, status, note, updated_at, source)
+            VALUES (?, ?, ?, COALESCE(?, 'on_track'), ?, datetime('now', '+7 hours'), ?)
+            ON CONFLICT(okr_id) DO UPDATE SET
+                progress   = COALESCE(excluded.progress,  progress),
+                current    = COALESCE(excluded.current,   current),
+                status     = COALESCE(excluded.status,    status),
+                note       = COALESCE(excluded.note,      note),
+                updated_at = datetime('now', '+7 hours'),
+                source     = excluded.source
+        """, (okr_id, progress, current, status, note, source))
+
+
+def get_okr_overrides() -> dict:
+    """Return {okr_id: {progress, current, status, note}} from DB."""
+    with get_db() as conn:
+        rows = conn.execute("SELECT * FROM okr_progress").fetchall()
+        return {r["okr_id"]: dict(r) for r in rows}
+
+
+def upsert_action_status(
+    action_id: str,
+    status: str,
+    note: str | None = None,
+    source: str = "dashboard",
+) -> None:
+    """Upsert mutable status for an OKR action item."""
+    with get_db() as conn:
+        conn.execute("""
+            INSERT INTO okr_action_status (action_id, status, note, updated_at, source)
+            VALUES (?, ?, ?, datetime('now', '+7 hours'), ?)
+            ON CONFLICT(action_id) DO UPDATE SET
+                status     = excluded.status,
+                note       = COALESCE(excluded.note, note),
+                updated_at = datetime('now', '+7 hours'),
+                source     = excluded.source
+        """, (action_id, status, note, source))
+
+
+def get_action_overrides() -> dict:
+    """Return {action_id: {status, note}} from DB."""
+    with get_db() as conn:
+        rows = conn.execute("SELECT * FROM okr_action_status").fetchall()
+        return {r["action_id"]: dict(r) for r in rows}
+
+
+def bulk_sync_okr_from_sheet(objectives: list, actions: list) -> int:
+    """Bulk upsert OKR state from Google Sheets. Returns count of upserted rows."""
+    count = 0
+    for obj in objectives:
+        if "id" not in obj:
+            continue
+        upsert_okr_progress(
+            okr_id=str(obj["id"]).upper(),
+            progress=obj.get("progress"),
+            status=obj.get("status"),
+            current=obj.get("current"),
+            note=obj.get("note"),
+            source="sheets",
+        )
+        count += 1
+    for action in actions:
+        if "id" not in action or "status" not in action:
+            continue
+        upsert_action_status(
+            action_id=str(action["id"]),
+            status=str(action["status"]),
+            note=action.get("note"),
+            source="sheets",
+        )
+        count += 1
+    return count
 
 
 def get_adhoc_ratio_this_week(user_id: int) -> dict:

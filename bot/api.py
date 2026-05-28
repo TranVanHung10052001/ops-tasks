@@ -522,7 +522,11 @@ ACTIONS = [
 
 @app.get("/api/okr")
 def get_okr(token: str = Depends(verify_token)):
+    from store import get_okr_overrides, get_action_overrides
     now = datetime.now()
+    obj_overrides = get_okr_overrides()
+    action_overrides = get_action_overrides()
+
     actions_with_status = []
     for action in ACTIONS:
         dl_str = action.get("deadline", "")
@@ -536,14 +540,26 @@ def get_okr(token: str = Depends(verify_token)):
                 is_overdue = delta.total_seconds() < 0
             except Exception:
                 pass
+        override = action_overrides.get(action["id"], {})
         actions_with_status.append({
             **action,
             "is_overdue": is_overdue,
             "days_left": days_left,
+            "status": override.get("status", "pending"),
+        })
+
+    objectives_with_progress = []
+    for obj in OKR_TREE:
+        override = obj_overrides.get(obj["id"], {})
+        objectives_with_progress.append({
+            **obj,
+            "progress_override": override.get("progress"),   # None = not set
+            "current_override": override.get("current"),
+            "okr_status": override.get("status", "on_track"),
         })
 
     return {
-        "objectives": OKR_TREE,
+        "objectives": objectives_with_progress,
         "actions": actions_with_status,
         "north_star": "O5.KR5.1 — GSV Non-Bulky 70% YoY: 69B → 117.3B",
         "quarter": "Q2/2026",
@@ -551,6 +567,72 @@ def get_okr(token: str = Depends(verify_token)):
         "overdue_actions": sum(1 for a in actions_with_status if a["is_overdue"]),
         "p0_actions": sum(1 for a in ACTIONS if a["priority"] == "P0"),
     }
+
+
+# ─── OKR mutations ────────────────────────────────────────────────────────────
+
+class OkrProgressUpdate(BaseModel):
+    progress: int | None = None          # 0–100
+    status: str | None = None            # on_track|at_risk|behind|done
+    current: str | None = None           # human-readable current value e.g. "FR HAN 78%"
+    note: str | None = None
+
+
+@app.patch("/api/okr/objectives/{okr_id}")
+def patch_okr_objective(
+    okr_id: str,
+    body: OkrProgressUpdate,
+    token: str = Depends(verify_token),
+):
+    """Update progress/status for one OKR objective. Called from dashboard or sheet sync."""
+    from store import upsert_okr_progress
+    upsert_okr_progress(
+        okr_id=okr_id.upper(),
+        progress=body.progress,
+        status=body.status,
+        current=body.current,
+        note=body.note,
+        source="dashboard",
+    )
+    log_action(0, "okr_progress_update", detail=f"{okr_id} → {body.progress}% {body.status}")
+    return {"ok": True, "okr_id": okr_id}
+
+
+class ActionStatusUpdate(BaseModel):
+    status: str           # pending|in_progress|done|cancelled
+    note: str | None = None
+
+
+@app.patch("/api/okr/actions/{action_id}")
+def patch_okr_action(
+    action_id: str,
+    body: ActionStatusUpdate,
+    token: str = Depends(verify_token),
+):
+    """Update status for one OKR action item."""
+    from store import upsert_action_status
+    upsert_action_status(
+        action_id=action_id,
+        status=body.status,
+        note=body.note,
+        source="dashboard",
+    )
+    log_action(0, "okr_action_update", detail=f"{action_id} → {body.status}")
+    return {"ok": True, "action_id": action_id}
+
+
+class OkrSheetSync(BaseModel):
+    objectives: list = []
+    actions: list = []
+
+
+@app.post("/api/okr/sync")
+def okr_sync_from_sheet(body: OkrSheetSync, token: str = Depends(verify_token)):
+    """Receive bulk OKR update pushed from Google Sheets Apps Script."""
+    from store import bulk_sync_okr_from_sheet
+    count = bulk_sync_okr_from_sheet(body.objectives, body.actions)
+    log_action(0, "okr_sheet_sync", detail=f"{len(body.objectives)} obj + {len(body.actions)} actions from sheets")
+    return {"ok": True, "updated": count}
 
 
 # ─── Metrics (KPI sync from Redash / Google Sheets / manual) ─────────────────

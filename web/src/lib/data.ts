@@ -169,22 +169,31 @@ export async function getOkrData(): Promise<OkrObjective[]> {
         (a) => a.okr === obj.id || a.okr.startsWith(obj.id + ".")
       );
       const total = actions.length || 1;
-      const done = actions.filter((a) => !a.is_overdue).length;
-      const overdueCount = actions.filter((a) => a.is_overdue).length;
+      const doneActions = actions.filter((a) => a.status === "done" || (!a.is_overdue && a.status !== "pending"));
+      const done = doneActions.length;
+      const overdueCount = actions.filter((a) => a.is_overdue && a.status !== "done").length;
+      // progress_override from DB takes priority over calculated value
+      const calcProgress = Math.round((done / total) * 100);
+      const progress = obj.progress_override != null ? obj.progress_override : calcProgress;
+      const risk = obj.okr_status === "behind" ? "high"
+        : obj.okr_status === "at_risk" ? "medium"
+        : overdueCount > 2 ? "high"
+        : overdueCount > 0 ? "medium"
+        : "low" as const;
       return {
         id: obj.id.toLowerCase(),
         title: obj.label,
         subtitle: `${obj.krs.length} key result · Q2/2026`,
-        progress: Math.round((done / total) * 100),
+        progress,
         target: obj.krs.slice(0, 2).map((k) => k.target).join(" · "),
         baseline: obj.krs[0]?.baseline ?? "—",
-        current: `${done}/${total} action on-track`,
-        risk: overdueCount > 2 ? "high" : overdueCount > 0 ? "medium" : ("low" as const),
+        current: obj.current_override ?? `${done}/${total} action hoàn thành`,
+        risk: risk as "high" | "medium" | "low",
         owner: `OPS · ${obj.category}`,
         bsc: bscMap[obj.category] ?? "Vận hành",
         keyResults: obj.krs.map((kr) => {
           const krActions = actions.filter((a) => a.kr === kr.id);
-          const krDone = krActions.filter((a) => !a.is_overdue).length;
+          const krDone = krActions.filter((a) => a.status === "done").length;
           const krTotal = krActions.length || 1;
           return {
             id: kr.id,
