@@ -61,6 +61,9 @@ export interface ApiOkrObjective {
   label: string;
   krs: ApiOkrKR[];
   category: string;
+  progress_override?: number | null;   // null = not manually set
+  current_override?: string | null;
+  okr_status?: string;                 // on_track|at_risk|behind|done
 }
 
 export interface ApiOkrAction {
@@ -73,6 +76,7 @@ export interface ApiOkrAction {
   deadline: string;
   is_overdue: boolean;
   days_left: number | null;
+  status?: string;  // pending|in_progress|done|cancelled
 }
 
 export interface ApiOkrResponse {
