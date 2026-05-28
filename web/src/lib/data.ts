@@ -76,6 +76,7 @@ export function apiMemberToMember(m: ApiMember, index: number): Member {
     status: statusMap[m.load] ?? "online",
     workload,
     workloadMax: 10,
+    unclaimed: m.is_preseeded === true,  // telegram_id < 0 → no DM will be sent
   };
 }
 

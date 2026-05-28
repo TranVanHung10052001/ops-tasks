@@ -34,6 +34,7 @@ export interface ApiMember {
   done_today: number;
   overdue_count: number;
   blocked_count: number;
+  is_preseeded: boolean;   // true = hasn't /start bot yet, no DM will be sent
   load: "critical" | "high" | "normal" | "low";
 }
 

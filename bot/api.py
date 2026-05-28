@@ -195,9 +195,9 @@ def get_activity(
 @app.get("/api/team")
 def get_team(token: str = Depends(verify_token)):
     members = list_team_by_person()
-    # Fix #4: exclude pre-seeded placeholder records (telegram_id < 0)
-    # until the member has claimed their account via /start
-    members = [m for m in members if m["telegram_id"] > 0]
+    # Include ALL members (including pre-seeded with negative telegram_id)
+    # so managers can assign tasks to them before they join the bot.
+    # is_preseeded=True → dashboard shows ⚠ warning + no DM will be sent.
     return [_fmt_member(m) for m in members]
 
 
@@ -795,6 +795,7 @@ def _fmt_member(m: dict) -> dict:
         "done_today": m.get("done_today", 0),
         "overdue_count": m.get("overdue_count", 0),
         "blocked_count": m.get("blocked_count", 0),
+        "is_preseeded": bool(m.get("is_preseeded", 0)),  # True = hasn't /start bot yet
         "load": (
             "critical" if m.get("overdue_count", 0) > 2
             else "high" if m.get("active_count", 0) > 8
