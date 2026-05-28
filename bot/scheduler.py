@@ -121,7 +121,10 @@ async def deadline_check_all(app):
                 msg = None
 
                 should_remind = False
-                if 0 <= hours <= 4 and rc < 3:
+                if 0.75 <= hours <= 1.25 and rc < 4:
+                    # 1-hour mark — specific urgent reminder
+                    should_remind = True
+                elif 0 <= hours <= 4 and rc < 3:
                     should_remind = True
                 elif 20 <= hours <= 28 and rc < 2:
                     should_remind = True
