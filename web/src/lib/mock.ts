@@ -31,7 +31,7 @@ export interface OpsTask {
   assignee: string;
   priority: Priority;
   status: TaskStatus;
-  deadline: string;
+  deadline: string | null;
   estimateHours: number;
   tags: string[];
   createdAt: string;

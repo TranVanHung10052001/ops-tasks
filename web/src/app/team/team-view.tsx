@@ -99,7 +99,7 @@ export default function TeamView({ members: membersProp, tasks: tasksProp }: Pro
           const activeTasks = memberTasks.filter((t) => t.status !== "hoan_thanh" && t.status !== "tam_dung");
           const p0 = activeTasks.filter((t) => t.priority === "P0").length;
           const blocked = activeTasks.filter((t) => t.status === "bi_chan").length;
-          const overdue = activeTasks.filter((t) => new Date(t.deadline) < new Date()).length;
+          const overdue = activeTasks.filter((t) => t.deadline && new Date(t.deadline) < new Date()).length;
           const loadPct = (m.workload / m.workloadMax) * 100;
 
           return (

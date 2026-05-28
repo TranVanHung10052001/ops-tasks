@@ -15,6 +15,7 @@ const PRIORITY_COLOR: Record<string, string> = {
 };
 
 function blockFor(task: OpsTask) {
+  if (!task.deadline) return { left: "0%", width: "0%" };
   const d = new Date(task.deadline);
   const endH = d.getHours() + d.getMinutes() / 60;
   const startH = endH - task.estimateHours;

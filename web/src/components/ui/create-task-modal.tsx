@@ -20,24 +20,33 @@ const CHANNEL_OPTIONS: { key: Channel; label: string }[] = [
 interface Props {
   members: Member[];
   defaultAssignee?: string;
+  editTask?: OpsTask;
   onClose: () => void;
   onSubmit: (task: Omit<OpsTask, "id" | "createdAt">) => Promise<void>;
+  onUpdate?: (updates: Omit<OpsTask, "id" | "createdAt">) => Promise<void>;
 }
 
-export default function CreateTaskModal({ members, defaultAssignee, onClose, onSubmit }: Props) {
+function defaultDeadline() {
+  const d = new Date();
+  d.setDate(d.getDate() + 3);
+  d.setHours(17, 0, 0, 0);
+  return d.toISOString().slice(0, 16);
+}
+
+export default function CreateTaskModal({ members, defaultAssignee, editTask, onClose, onSubmit, onUpdate }: Props) {
+  const isEdit = !!editTask;
   const [saving, setSaving] = useState(false);
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [priority, setPriority] = useState<Priority>("P1");
-  const [channel, setChannel] = useState<Channel>("Adhoc");
-  const [assignee, setAssignee] = useState<string>(defaultAssignee ?? MEMBERS[0]?.id ?? "m0");
-  const [deadline, setDeadline] = useState<string>(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 3);
-    d.setHours(17, 0, 0, 0);
-    return d.toISOString().slice(0, 16); // "YYYY-MM-DDThh:mm"
-  });
-  const [tags, setTags] = useState("");
+  const [title, setTitle] = useState(editTask?.title ?? "");
+  const [description, setDescription] = useState(editTask?.description ?? "");
+  const [priority, setPriority] = useState<Priority>(editTask?.priority ?? "P1");
+  const [channel, setChannel] = useState<Channel>(editTask?.channel ?? "Adhoc");
+  const [assignee, setAssignee] = useState<string>(editTask?.assignee ?? defaultAssignee ?? MEMBERS[0]?.id ?? "m0");
+  const [deadline, setDeadline] = useState<string>(
+    editTask?.deadline
+      ? new Date(editTask.deadline).toISOString().slice(0, 16)
+      : defaultDeadline()
+  );
+  const [tags, setTags] = useState(editTask?.tags?.join(", ") ?? "");
   const [error, setError] = useState("");
 
   async function handleSubmit(e: React.FormEvent) {
@@ -45,23 +54,28 @@ export default function CreateTaskModal({ members, defaultAssignee, onClose, onS
     if (!title.trim()) { setError("Vui lòng nhập nội dung task."); return; }
     setSaving(true);
     setError("");
+    const payload: Omit<OpsTask, "id" | "createdAt"> = {
+      channel,
+      channelLabel: CHANNEL_OPTIONS.find(c => c.key === channel)?.label ?? channel,
+      title: title.trim(),
+      description: description.trim() || undefined,
+      assignee,
+      priority,
+      status: editTask?.status ?? ("can_lam" as TaskStatus),
+      deadline: deadline ? new Date(deadline).toISOString() : null,
+      estimateHours: editTask?.estimateHours ?? 2,
+      tags: tags ? tags.split(",").map(t => t.trim()).filter(Boolean) : [],
+      createdBy: editTask?.createdBy ?? "Web · OPS-10",
+    };
     try {
-      await onSubmit({
-        channel,
-        channelLabel: CHANNEL_OPTIONS.find(c => c.key === channel)?.label ?? channel,
-        title: title.trim(),
-        description: description.trim() || undefined,
-        assignee,
-        priority,
-        status: "can_lam" as TaskStatus,
-        deadline: new Date(deadline).toISOString(),
-        estimateHours: 2,
-        tags: tags ? tags.split(",").map(t => t.trim()).filter(Boolean) : [],
-        createdBy: "Web · OPS-10",
-      });
+      if (isEdit && onUpdate) {
+        await onUpdate(payload);
+      } else {
+        await onSubmit(payload);
+      }
       onClose();
     } catch {
-      setError("Không thể tạo task. Thử lại sau.");
+      setError(isEdit ? "Không thể lưu thay đổi. Thử lại sau." : "Không thể tạo task. Thử lại sau.");
       setSaving(false);
     }
   }
@@ -78,8 +92,8 @@ export default function CreateTaskModal({ members, defaultAssignee, onClose, onS
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-divider">
           <div>
-            <div className="label-ops text-2xs">Tạo task mới</div>
-            <div className="mono text-2xs text-text-tertiary mt-0.5">⌘N · Ops Center</div>
+            <div className="label-ops text-2xs">{isEdit ? "Sửa task" : "Tạo task mới"}</div>
+            <div className="mono text-2xs text-text-tertiary mt-0.5">{isEdit ? `${editTask?.id} · Ops Center` : "⌘N · Ops Center"}</div>
           </div>
           <button
             type="button"
@@ -219,7 +233,7 @@ export default function CreateTaskModal({ members, defaultAssignee, onClose, onS
         {/* Footer */}
         <div className="px-5 py-3 border-t border-divider flex items-center justify-between">
           <div className="mono text-2xs text-text-disabled">
-            Tạo bởi OPS-10 · Sẽ sync lên Telegram bot
+            {isEdit ? `Sửa bởi OPS-10 · Sync Telegram` : "Tạo bởi OPS-10 · Sẽ sync lên Telegram bot"}
           </div>
           <div className="flex gap-2">
             <button type="button" onClick={onClose} className="btn-ops">
@@ -233,7 +247,9 @@ export default function CreateTaskModal({ members, defaultAssignee, onClose, onS
                 saving && "opacity-50 cursor-not-allowed"
               )}
             >
-              {saving ? "Đang tạo…" : "+ Tạo task"}
+              {saving
+                ? (isEdit ? "Đang lưu…" : "Đang tạo…")
+                : (isEdit ? "✓ Lưu thay đổi" : "+ Tạo task")}
             </button>
           </div>
         </div>
