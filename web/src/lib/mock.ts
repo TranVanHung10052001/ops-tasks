@@ -616,8 +616,10 @@ export function channelLabel(c: Channel): string {
   return map[c];
 }
 
-export function formatDeadline(iso: string): { date: string; time: string; relative: string } {
+export function formatDeadline(iso: string | null | undefined): { date: string; time: string; relative: string } {
+  if (!iso) return { date: "—", time: "—", relative: "chưa đặt" };
   const d = new Date(iso);
+  if (isNaN(d.getTime())) return { date: "—", time: "—", relative: "chưa đặt" };
   const today = new Date();
   const dd = String(d.getDate()).padStart(2, "0");
   const mm = String(d.getMonth() + 1).padStart(2, "0");
