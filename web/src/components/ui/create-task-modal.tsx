@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { OpsTask, Member, TaskStatus, Priority, Channel, MEMBERS } from "@/lib/mock";
+import { OpsTask, Member, TaskStatus, Priority, Channel } from "@/lib/mock";
 import clsx from "clsx";
 
 const PRIORITY_OPTIONS: { key: Priority; label: string; color: string }[] = [
@@ -40,7 +40,7 @@ export default function CreateTaskModal({ members, defaultAssignee, editTask, on
   const [description, setDescription] = useState(editTask?.description ?? "");
   const [priority, setPriority] = useState<Priority>(editTask?.priority ?? "P1");
   const [channel, setChannel] = useState<Channel>(editTask?.channel ?? "Adhoc");
-  const [assignee, setAssignee] = useState<string>(editTask?.assignee ?? defaultAssignee ?? MEMBERS[0]?.id ?? "m0");
+  const [assignee, setAssignee] = useState<string>(editTask?.assignee ?? defaultAssignee ?? members[0]?.id ?? "m0");
   const [deadline, setDeadline] = useState<string>(
     editTask?.deadline
       ? new Date(editTask.deadline).toISOString().slice(0, 16)
@@ -192,7 +192,7 @@ export default function CreateTaskModal({ members, defaultAssignee, editTask, on
               >
                 {members.map(m => (
                   <option key={m.id} value={m.id}>
-                    {m.initials} · {m.name}
+                    {m.unclaimed ? "⚠ " : ""}{m.initials} · {m.name}{m.unclaimed ? " (chưa join bot)" : ""}
                   </option>
                 ))}
               </select>
@@ -233,7 +233,11 @@ export default function CreateTaskModal({ members, defaultAssignee, editTask, on
         {/* Footer */}
         <div className="px-5 py-3 border-t border-divider flex items-center justify-between">
           <div className="mono text-2xs text-text-disabled">
-            {isEdit ? `Sửa bởi OPS-10 · Sync Telegram` : "Tạo bởi OPS-10 · Sẽ sync lên Telegram bot"}
+            {(() => {
+              const sel = members.find(m => m.id === assignee);
+              if (sel?.unclaimed) return "⚠ Thành viên chưa join bot — task sẽ tạo, DM sẽ gửi sau khi họ /start";
+              return isEdit ? "Sửa bởi OPS-10 · Sync Telegram" : "Tạo bởi OPS-10 · Sẽ sync lên Telegram bot";
+            })()}
           </div>
           <div className="flex gap-2">
             <button type="button" onClick={onClose} className="btn-ops">

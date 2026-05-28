@@ -20,6 +20,7 @@ export interface Member {
   status: MemberStatus;
   workload: number;
   workloadMax: number;
+  unclaimed?: boolean;  // true = pre-seeded, hasn't /start bot yet — no DM will be sent
 }
 
 export interface OpsTask {

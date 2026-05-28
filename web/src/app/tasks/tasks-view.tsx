@@ -132,7 +132,7 @@ export default function TasksView({
         body: JSON.stringify({
           summary: taskData.title, priority: taskData.priority,
           category: taskData.channel.toLowerCase(), deadline: taskData.deadline,
-          assignee_id: parseInt(taskData.assignee.replace(/\D/g, ""), 10) || 0,
+          assignee_id: parseInt(taskData.assignee.replace(/^m/, ""), 10) || 0,
           block_reason: taskData.description || undefined,
         }),
       });
@@ -150,7 +150,7 @@ export default function TasksView({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           summary: taskData.title, priority: taskData.priority, deadline: taskData.deadline,
-          assignee_id: parseInt(taskData.assignee.replace(/\D/g, ""), 10) || undefined,
+          assignee_id: parseInt(taskData.assignee.replace(/^m/, ""), 10) || undefined,
           block_reason: taskData.description || undefined,
         }),
       });
