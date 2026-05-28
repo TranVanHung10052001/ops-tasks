@@ -153,7 +153,7 @@ async def deadline_check_all(app):
 
                 if should_ping:
                     msg = tpl.msg_overdue(task, hrs_over)
-                    await app.bot.send_message(chat_id=uid, text=msg)
+                    await app.bot.send_message(chat_id=uid, text=msg, parse_mode="HTML")
                     increment_reminder(task["id"])
 
         except Exception as e:
@@ -226,7 +226,7 @@ async def eod_recap_all(app):
                 total_count=s.get("done_today", 0) + s.get("pending", 0),
                 pending_tomorrow=top_pending,
             )
-            await app.bot.send_message(chat_id=uid, text=msg)
+            await app.bot.send_message(chat_id=uid, text=msg, parse_mode="HTML")
         except Exception as e:
             logger.error(f"eod_recap failed for {uid}: {e}")
 
