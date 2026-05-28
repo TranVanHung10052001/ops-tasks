@@ -40,6 +40,18 @@ TEAM = [
 ]
 
 
+def _resolve_reports_to(placeholder: int | None, id_map: dict) -> int | None:
+    """
+    Given a placeholder reports_to ID (negative), return:
+      - The REAL telegram_id if that person was already claimed
+      - The placeholder ID if they were freshly inserted
+      - None if placeholder is None or can't be resolved
+    """
+    if placeholder is None:
+        return None
+    return id_map.get(placeholder, placeholder)
+
+
 def seed():
     init_db()  # ensures schema + migrations are applied
 
@@ -47,7 +59,15 @@ def seed():
     updated  = 0
     skipped  = 0
 
+    # Build a mapping: placeholder_id → actual telegram_id (real or still placeholder)
+    # Process ALL members first in a read pass to build the map.
+    id_map: dict[int, int] = {}  # placeholder → real_id (if claimed) or placeholder (if not)
+
     with get_db() as conn:
+        # Disable FK checks for the duration of seed — we'll enforce integrity manually.
+        # This is safe because seed only inserts pre-approved placeholder rows.
+        conn.execute("PRAGMA defer_foreign_keys = ON")
+
         for (pid, name, email, role, team, grade, reports_to) in TEAM:
             # Check if a record with this full_name already exists
             existing = conn.execute(
@@ -57,6 +77,7 @@ def seed():
 
             if existing:
                 tid = existing["telegram_id"]
+                id_map[pid] = tid  # placeholder → real (or existing placeholder) id
                 if tid > 0:
                     # Already claimed by real user — update non-ID fields only
                     conn.execute("""
@@ -77,13 +98,15 @@ def seed():
                     print(f"  [updated]       {name} (placeholder id={tid})")
                     updated += 1
             else:
-                # Fresh insert
+                # Fresh insert — resolve reports_to using id_map built so far
+                resolved_rt = _resolve_reports_to(reports_to, id_map)
+                id_map[pid] = pid  # placeholder maps to itself (not yet claimed)
                 conn.execute("""
                     INSERT INTO users
                         (telegram_id, username, full_name, email, role, team, grade,
                          reports_to, is_approved, is_preseeded)
                     VALUES (?, '', ?, ?, ?, ?, ?, ?, 1, 1)
-                """, (pid, name, email, role, team, grade, reports_to))
+                """, (pid, name, email, role, team, grade, resolved_rt))
                 print(f"  [inserted]      {name} (placeholder id={pid})")
                 inserted += 1
 

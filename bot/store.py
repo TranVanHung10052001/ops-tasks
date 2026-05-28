@@ -141,10 +141,15 @@ def claim_preseeded_user(real_id: int, username: str, typed_name: str) -> dict |
       3. Any part of typed_name contained in full_name
     """
     typed = typed_name.lower().strip()
-    with get_db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM users WHERE telegram_id < 0 AND is_preseeded = 1"
-        ).fetchall()
+
+    # Guard: is_preseeded column might not exist in old DBs (pre-migration)
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT * FROM users WHERE telegram_id < 0 AND is_preseeded = 1"
+            ).fetchall()
+    except Exception:
+        return None  # Column missing — no preseeded records to claim
 
     if not rows:
         return None
@@ -167,7 +172,18 @@ def claim_preseeded_user(real_id: int, username: str, typed_name: str) -> dict |
 
     placeholder_id = best["telegram_id"]
     with get_db() as conn:
-        # SQLite allows updating PRIMARY KEY when no FK references the old value
+        # Disable FK checks for this transaction so we can:
+        #   1. Update the primary key (telegram_id) on the claimed row
+        #   2. Fix up any child rows that pointed to the old placeholder ID
+        conn.execute("PRAGMA defer_foreign_keys = ON")
+
+        # Fix children first — update reports_to to point to the new real_id
+        conn.execute(
+            "UPDATE users SET reports_to = ? WHERE reports_to = ?",
+            (real_id, placeholder_id)
+        )
+
+        # Now swap the placeholder telegram_id → real telegram_id
         conn.execute("""
             UPDATE users
                SET telegram_id  = ?,
@@ -176,6 +192,7 @@ def claim_preseeded_user(real_id: int, username: str, typed_name: str) -> dict |
                    last_seen_at = datetime('now', '+7 hours')
              WHERE telegram_id = ?
         """, (real_id, username, placeholder_id))
+
     return get_user(real_id)
 
 
