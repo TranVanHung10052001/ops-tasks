@@ -909,17 +909,18 @@ def _dt_decode(d):
 
 
 def set_pending(uid: int, kind: str, payload: dict, ttl_seconds: int = 3600):
-    expires = (datetime.now() + _timedelta(seconds=ttl_seconds)).isoformat()
+    """Store pending state. expires_at is computed by SQLite itself
+    so timezone comparison with get_pending always matches."""
     body = _json.dumps(payload or {}, default=_dt_encode)
     with get_db() as conn:
         conn.execute("""
             INSERT INTO pending_actions (uid, kind, payload, expires_at)
-            VALUES (?, ?, ?, ?)
+            VALUES (?, ?, ?, datetime('now', '+7 hours', ?))
             ON CONFLICT(uid, kind) DO UPDATE SET
                 payload    = excluded.payload,
                 expires_at = excluded.expires_at,
                 created_at = datetime('now', '+7 hours')
-        """, (uid, kind, body, expires))
+        """, (uid, kind, body, f'+{int(ttl_seconds)} seconds'))
 
 
 def get_pending(uid: int, kind: str):
