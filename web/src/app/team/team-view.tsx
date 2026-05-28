@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Member, OpsTask, TaskStatus, MEMBERS } from "@/lib/mock";
+import { Member, OpsTask, TaskStatus } from "@/lib/mock";
 import CreateTaskModal from "@/components/ui/create-task-modal";
 import TaskDetailModal from "@/components/ui/task-detail-modal";
 import SignalBadge from "@/components/ui/signal-badge";
@@ -22,7 +22,7 @@ interface Props {
 }
 
 export default function TeamView({ members: membersProp, tasks: tasksProp }: Props) {
-  const members = membersProp.length ? membersProp : MEMBERS;
+  const members = membersProp;
   const [tasks, setTasks] = useState<OpsTask[]>(tasksProp);
 
   // Create-task modal state: null = closed, string = defaultAssignee member ID
@@ -37,6 +37,19 @@ export default function TeamView({ members: membersProp, tasks: tasksProp }: Pro
   const online = members.filter((m) => m.status === "online" || m.status === "busy").length;
   const memberById = (id: string) => members.find((m) => m.id === id);
 
+  if (members.length === 0) {
+    return (
+      <div className="ops-surface p-10 text-center">
+        <div className="label-ops text-2xs mb-2">Nhóm điều vận</div>
+        <div className="text-md text-text-secondary mb-1">Chưa kết nối bot</div>
+        <div className="mono text-2xs text-text-tertiary">
+          Khởi động Telegram bot để đồng bộ thành viên · xem{" "}
+          <a href="/telegram" className="text-accent-amber hover:underline">/telegram</a>
+        </div>
+      </div>
+    );
+  }
+
   const handleCreateTask = useCallback(async (taskData: Omit<OpsTask, "id" | "createdAt">) => {
     const tempId = `T-${Date.now().toString().slice(-7)}`;
     const newTask: OpsTask = { ...taskData, id: tempId, createdAt: new Date().toISOString() };
@@ -48,11 +61,10 @@ export default function TeamView({ members: membersProp, tasks: tasksProp }: Pro
         body: JSON.stringify({
           summary: taskData.title,
           priority: taskData.priority,
-          status: "pending",
           category: taskData.channel.toLowerCase(),
           deadline: taskData.deadline,
-          assignee_id: taskData.assignee.replace("m", ""),
-          block_reason: taskData.description,
+          assignee_id: parseInt(taskData.assignee.replace(/^m/, ""), 10) || 0,
+          block_reason: taskData.description || undefined,
         }),
       });
     } catch { /* optimistic — no rollback */ }

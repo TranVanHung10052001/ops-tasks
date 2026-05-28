@@ -69,7 +69,7 @@ export default function OpsStatsRow({
             </>
           ) : (
             <div className="mono text-xs text-text-disabled mt-1">
-              Chờ kết nối Redash
+              Chưa kết nối Redash
             </div>
           )}
         </div>
@@ -96,7 +96,7 @@ export default function OpsStatsRow({
             </>
           )}
           {!stats && (
-            <div className="mono text-xs text-text-disabled mt-1">Chờ kết nối bot</div>
+            <div className="mono text-xs text-text-disabled mt-1">Chưa kết nối bot</div>
           )}
         </div>
 
@@ -116,7 +116,7 @@ export default function OpsStatsRow({
             ) : stats ? (
               <div className="text-text-disabled">Không có task overdue</div>
             ) : (
-              <div className="text-text-disabled">Chờ kết nối bot</div>
+              <div className="text-text-disabled">Chưa kết nối bot</div>
             )}
           </div>
         </div>
@@ -149,7 +149,7 @@ export default function OpsStatsRow({
               </div>
             </>
           ) : (
-            <div className="mono text-xs text-text-disabled mt-1">Chờ kết nối bot</div>
+            <div className="mono text-xs text-text-disabled mt-1">Chưa kết nối bot</div>
           )}
         </div>
       </div>

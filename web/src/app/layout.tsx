@@ -32,7 +32,7 @@ export default function RootLayout({
         <Suspense fallback={<aside className="w-[220px] bg-surface-deep border-r border-divider fixed left-0 top-10 bottom-0" />}>
           <ChannelSidebar />
         </Suspense>
-        <main className="ml-[220px] mr-[320px] mt-10 min-h-[calc(100vh-40px)]">
+        <main className="ml-[220px] mr-0 xl:mr-[320px] mt-10 min-h-[calc(100vh-40px)]">
           {children}
         </main>
         <AIPanel />
