@@ -116,6 +116,71 @@ CAT_LABEL = {
     "other":     "Khác",
 }
 
+# Color-coded priorities (more glanceable than geometric icons)
+PRIORITY_EMOJI = {
+    "P0": "🔴", "P1": "🔴",
+    "P2": "🟡",
+    "P3": "⚪", "P4": "⚪",
+}
+
+# OKR theme labels — expand "O3" → "O3 Cost/SLA" for readability
+OKR_LABEL = {
+    "O1": "Fill Rate",
+    "O2": "Supply",
+    "O3": "Cost/SLA",
+    "O4": "Tech",
+}
+
+
+# ─── Name + label cleaners ────────────────────────────────────────────────────
+
+import re as _re
+
+# Keep ASCII + Vietnamese letters + common name punctuation. Drops emoji,
+# kaomoji art like "(つ◉ヮ◉)つ", and any other non-name decorations.
+_NAME_KEEP_RE = _re.compile(r"[^a-zA-ZÀ-ỹ\s\-'\.]")
+
+
+def _clean_name(name: str | None) -> str:
+    """Strip emoji art / decorations from a Telegram display name."""
+    if not name:
+        return ""
+    cleaned = _NAME_KEEP_RE.sub("", str(name))
+    cleaned = " ".join(cleaned.split())  # collapse whitespace
+    return cleaned or str(name).strip()  # fallback if everything stripped
+
+
+def _okr_label(okr_ref: str | None) -> str:
+    """Expand 'O3' → 'O3 Cost/SLA', 'O1.2' → 'O1.2 Fill Rate'.
+    Returns empty string if okr_ref falsy."""
+    if not okr_ref:
+        return ""
+    base = okr_ref.split(".")[0].upper().strip()
+    theme = OKR_LABEL.get(base)
+    return f"{okr_ref} {theme}" if theme else okr_ref
+
+
+def _deadline_urgency(deadline_iso: str | None) -> str:
+    """Return short urgency chip if deadline < 24h. Empty otherwise.
+    Examples: '🔥 Còn 3h', '🔥 Còn 45p', '⚠️ Còn 18h'."""
+    if not deadline_iso:
+        return ""
+    try:
+        dl = datetime.fromisoformat(deadline_iso).replace(tzinfo=None)
+    except (ValueError, TypeError):
+        return ""
+    secs = (dl - datetime.now()).total_seconds()
+    if secs <= 0:
+        return ""
+    h = secs / 3600
+    if h < 1:
+        return f"🔥 Còn {int(secs / 60)}p"
+    if h < 4:
+        return f"🔥 Còn {int(h)}h"
+    if h < 24:
+        return f"⚠️ Còn {int(h)}h"
+    return ""
+
 
 # ─── Markdown helpers ─────────────────────────────────────────────────────────
 
@@ -321,37 +386,57 @@ def msg_task_transferred(task: dict, from_name: str, to_name: str, reason: str =
 
 def msg_assign_confirm(task_id: int, assignee_name: str, result: dict) -> str:
     """Gửi lại cho người giao sau khi task được tạo thành công."""
-    p       = result.get("priority", "P2")
-    icon    = PRIORITY_ICON.get(p, "□")
-    cat     = CAT_LABEL.get(result.get("category", "other"), "Khác")
-    summary = result.get("summary", "") or "(chưa có nội dung)"
-    dl      = _deadline_line(result.get("deadline_iso"))
-    okr     = result.get("okr_ref", "")
-    conf    = result.get("assignee_confidence", result.get("confidence", 0))
-    conf_str = f"  ·  {int(conf*100)}%" if conf else ""
+    p        = result.get("priority", "P2")
+    p_emoji  = PRIORITY_EMOJI.get(p, "⚪")
+    cat      = CAT_LABEL.get(result.get("category", "other"), "Khác")
+    summary  = result.get("summary", "") or "(chưa có nội dung)"
+    dl       = _deadline_line(result.get("deadline_iso"))
+    dl_urg   = _deadline_urgency(result.get("deadline_iso"))
+    okr_lbl  = _okr_label(result.get("okr_ref"))
+    conf     = result.get("assignee_confidence", result.get("confidence", 0))
+    conf_str = f"  ·  AI {int(conf*100)}%" if conf else ""
+    est      = result.get("estimated_minutes") or 0
+    clean    = _clean_name(assignee_name)
 
-    meta_parts = [f"{icon} {p}", cat]
+    # Eisenhower quadrant icon for the task title
+    _q_task = {
+        "priority": p,
+        "deadline": result.get("deadline_iso"),
+        "okr_ref":  result.get("okr_ref", ""),
+    }
+    q_icon = eisenhower_icon(_q_task)
+
+    meta_parts = [f"{p_emoji} {p}", cat]
     if dl:
-        meta_parts.append(dl)
-    if okr:
-        meta_parts.append(f"OKR {okr}")
+        meta_parts.append(dl)  # _deadline_line already includes ⏰/🔴/📅 icon
+    if okr_lbl:
+        meta_parts.append(f"🎯 {okr_lbl}")
+
+    lines = [
+        f"● <b>Task #{task_id}</b> → <b>{_md(clean)}</b>{conf_str}",
+        DIV_LIGHT,
+        "",
+        f"{q_icon} <b>{_md(summary)}</b>",
+        "",
+        "  ·  ".join(meta_parts),
+    ]
+
+    # Estimated time + deadline urgency on a second meta-row
+    extras = []
+    if est:
+        extras.append(f"⏱ ~{est} phút")
+    if dl_urg:
+        extras.append(dl_urg)
+    if extras:
+        lines.append("  ·  ".join(extras))
 
     steps = result.get("breakdown", [])
-    step_block = ""
     if steps:
-        step_block = "\n\ngợi ý:\n" + "\n".join(
-            f"{i}. {s}" for i, s in enumerate(steps[:3], 1)
-        )
+        lines += ["", "📋 <b>Đề xuất các bước:</b>"]
+        for s in steps[:5]:
+            lines.append(f"▸ {_md(str(s))}")
 
-    return (
-        f"● #{task_id} → {assignee_name}{conf_str}\n"
-        f"{DIV_LIGHT}\n"
-        f"\n"
-        f"{summary}\n"
-        f"\n"
-        + "  ·  ".join(meta_parts)
-        + step_block
-    )
+    return "\n".join(lines)
 
 
 def msg_auto_assigned(
@@ -555,39 +640,56 @@ def msg_task_created(
     adhoc_ratio: dict | None = None,
 ) -> str:
     """Xác nhận tạo task — rich card layout."""
-    p       = result.get("priority", "P3")
-    cat     = CAT_LABEL.get(result.get("category", "other"), "Khác")
-    conf    = result.get("confidence", result.get("classifier_confidence", 0))
+    p        = result.get("priority", "P3")
+    p_emoji  = PRIORITY_EMOJI.get(p, "⚪")
+    cat      = CAT_LABEL.get(result.get("category", "other"), "Khác")
+    conf     = result.get("confidence", result.get("classifier_confidence", 0))
     conf_str = f"AI {int(conf * 100)}%" if conf else ""
-    summary = result.get("summary") or text[:120]
-    dl      = _deadline_line(result.get("deadline_iso"), verbose=True)
-    est     = result.get("estimated_minutes") or 0
-    okr_ref = result.get("okr_ref", "")
-    steps   = result.get("breakdown", [])
+    summary  = result.get("summary") or text[:120]
+    dl       = _deadline_line(result.get("deadline_iso"), verbose=True)
+    dl_urg   = _deadline_urgency(result.get("deadline_iso"))
+    est      = result.get("estimated_minutes") or 0
+    okr_lbl  = _okr_label(result.get("okr_ref"))
+    steps    = result.get("breakdown", [])
 
-    name = assignee_name or "?"
+    name             = _clean_name(assignee_name) or "?"
     assignee_display = f"{name} (self)" if is_self else name
     if conf_str:
-        assignee_display += f" | {conf_str}"
+        assignee_display += f" · {conf_str}"
 
     # Eisenhower quadrant icon — hiện trên card để member biết ưu tiên ngay
-    _q_task = {"priority": p, "deadline": result.get("deadline_iso"), "okr_ref": okr_ref}
-    q_icon  = eisenhower_icon(_q_task)
+    _q_task = {
+        "priority": p,
+        "deadline": result.get("deadline_iso"),
+        "okr_ref":  result.get("okr_ref", ""),
+    }
+    q_icon = eisenhower_icon(_q_task)
+
+    # ── Meta row 1: priority + category + OKR ──
+    meta_parts = [f"{p_emoji} {p}", cat]
+    if okr_lbl:
+        meta_parts.append(f"🎯 {okr_lbl}")
+
+    # ── Meta row 2: time + deadline + urgency ──
+    time_parts = []
+    if est:
+        time_parts.append(f"⏱ ~{est} phút")
+    if dl:
+        time_parts.append(dl)  # _deadline_line already includes icon
+    if dl_urg:
+        time_parts.append(dl_urg)
 
     lines = [
         f"✅ <b>Task #{task_id}</b>",
-        "─────────────────────────",
+        DIV_LIGHT,
+        "",
         f"{q_icon} <b>{_md(summary)}</b>",
         "",
-        f"⚡ {p} | {cat}",
+        "  ·  ".join(meta_parts),
     ]
-    if est:
-        lines.append(f"⚙️ ~{est} phút")
-    if dl:
-        lines.append(f"⏰ {dl}")
-    lines.append(f"👤 {assignee_display}")
-    if okr_ref:
-        lines.append(f"🎯 OKR {okr_ref}")
+    if time_parts:
+        lines.append("  ·  ".join(time_parts))
+    lines.append(f"👤 {_md(assignee_display)}")
 
     if steps:
         lines += ["", "📋 <b>Đề xuất các bước:</b>"]
