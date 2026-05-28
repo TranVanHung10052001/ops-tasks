@@ -5,6 +5,7 @@ import useSWR from "swr";
 import { ApiTask } from "@/lib/api";
 import { apiTaskToOpsTask } from "@/lib/data";
 import { formatDeadline } from "@/lib/mock";
+import Logo from "./logo";
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -58,15 +59,12 @@ export default function TopBar() {
     <header className="h-10 bg-surface-deep border-b border-divider flex items-center justify-between px-4 fixed top-0 left-0 right-0 z-50">
       {/* Brand */}
       <div className="flex items-center gap-3 shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 bg-accent-amber" />
-          <span className="mono text-xs text-text-secondary tracking-widest uppercase">
-            AHAMOVE OPS <span className="text-text-tertiary">·</span>{" "}
-            <span className="text-accent-paper">TRUCK</span>
-          </span>
-        </div>
-        <span className="text-text-tertiary text-xs hidden lg:inline">·</span>
-        <span className="mono text-2xs text-text-tertiary tracking-wider uppercase hidden lg:inline">v1.4.2 · Truck</span>
+        <Logo />
+        <span className="text-text-tertiary text-xs hidden md:inline">·</span>
+        <span className="mono text-2xs text-text-tertiary tracking-widest uppercase hidden md:inline">
+          Ops <span className="text-accent-paper">Truck</span>
+        </span>
+        <span className="mono text-2xs text-text-disabled tracking-wider uppercase hidden lg:inline">v1.4.2</span>
       </div>
 
       {/* Live ticker — dispatch feed from real tasks */}
