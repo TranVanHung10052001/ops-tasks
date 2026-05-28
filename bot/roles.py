@@ -28,8 +28,26 @@ def is_team_lead(user: dict) -> bool:
 
 
 def can_assign(user: dict) -> bool:
-    """Manager and TL can assign tasks."""
-    return user and user.get("role") in (MANAGER, TEAM_LEAD)
+    """All approved users can assign tasks (employee can request task upward to manager too)."""
+    return bool(user and user.get("is_approved"))
+
+
+def can_assign_to(assigner: dict, assignee: dict) -> bool:
+    """
+    Who can assign to whom:
+    - Manager/TL: assign to anyone
+    - Employee: can assign upward to Manager/TL (request) or to themselves
+      (employees CANNOT assign tasks to other peer-level employees)
+    """
+    if not assigner or not assignee:
+        return False
+    role = assigner.get("role")
+    if role in (MANAGER, TEAM_LEAD):
+        return True
+    # Employee: only allowed upward (to manager/TL) or self
+    if assignee.get("telegram_id") == assigner.get("telegram_id"):
+        return True
+    return assignee.get("role") in (MANAGER, TEAM_LEAD)
 
 
 def can_see_team(user: dict) -> bool:

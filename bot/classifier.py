@@ -52,7 +52,7 @@ NGUYÊN TẮC ROUTING:
 4. Nếu task text có từ "B2B/vendor/hợp đồng" → ưu tiên Khánh/Ngân/Hùng
 5. Nếu task text có từ "tỉnh/KCN/expansion" → ưu tiên Khâm
 6. Map task sang OKR action gần nhất (nếu có) — dùng id từ OKR tree
-7. Chỉ đề xuất breakdown nếu task phức tạp (>1 bước rõ ràng)
+7. LUÔN đề xuất breakdown 3-5 bước (trừ task cực đơn giản ≤5 phút)
 8. Confidence: 0.9+ = chắc chắn, 0.7-0.9 = khá chắc, <0.7 = không rõ
 
 TODAY = {datetime.now().strftime("%Y-%m-%d (%A)")}
@@ -134,8 +134,9 @@ Phân tích task text sau và trả về JSON với đúng cấu trúc này:
 }
 
 **BREAKDOWN RULES — quan trọng nhất:**
-- Để `[]` nếu task đơn giản (1 hành động rõ ràng, ≤15 phút)
-- Dùng 2–5 bước nếu task phức tạp hoặc có nhiều giai đoạn
+- LUÔN tạo breakdown 3-5 bước, TRỪ KHI task cực kỳ đơn giản (gửi 1 tin nhắn, click 1 nút, ≤5 phút)
+- Khi nghi ngờ → tạo breakdown (user thường cần guidance dù task có vẻ đơn giản)
+- Mặc định 3-4 bước; chỉ dùng 5 bước nếu task thực sự dài
 - Mỗi bước PHẢI cụ thể và actionable: Động từ + Đối tượng + Nguồn/Tool cụ thể
   ✅ "Vào Metabase > card 'Fill Rate EXP' > filter KCN VSIP + tuần hiện tại → xem fill_rate_pct"
   ✅ "So sánh với target O1: FR EXP ≥65% (baseline ~55%) — note gap nếu có"

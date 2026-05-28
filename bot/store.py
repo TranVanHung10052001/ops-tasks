@@ -309,6 +309,16 @@ def approve_user(telegram_id: int) -> bool:
         return cursor.rowcount > 0
 
 
+def update_user_name(telegram_id: int, full_name: str) -> bool:
+    """Update full_name (used when user re-enters name before approval)."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            "UPDATE users SET full_name = ? WHERE telegram_id = ?",
+            (full_name, telegram_id),
+        )
+        return cursor.rowcount > 0
+
+
 def reject_user(telegram_id: int) -> bool:
     with get_db() as conn:
         cursor = conn.execute(

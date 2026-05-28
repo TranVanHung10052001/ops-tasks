@@ -270,8 +270,12 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if user and not user["is_approved"]:
+        # Allow re-entering name while waiting for approval (typo fix)
+        _pending_name[uid] = True
         await update.message.reply_text(
-            "Tài khoản của bạn đang chờ Manager duyệt. Vui lòng đợi thông báo."
+            f"Tài khoản <b>{user['full_name']}</b> đang chờ duyệt.\n\n"
+            "Nếu bạn nhập sai tên, gõ <b>họ tên đầy đủ</b> lại để cập nhật:",
+            parse_mode="HTML",
         )
         return
 
@@ -344,14 +348,40 @@ async def handle_name_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     registered = register_user(uid, username, full_name)
     if not registered:
-        # Already exists but not approved
-        await update.message.reply_text("Bạn đã đăng ký rồi, đang chờ duyệt.")
+        # Already exists — try claim flow again first, else update the name
+        # (user might be re-typing because they realized name was wrong)
+        from store import update_user_name
+        try:
+            update_user_name(uid, full_name)
+        except Exception:
+            pass
+        await update.message.reply_text(
+            f"Đã cập nhật tên: <b>{full_name}</b>\n\n"
+            "Đang chờ Manager duyệt.",
+            parse_mode="HTML",
+        )
+        # Re-notify manager with new name
+        try:
+            approve_kb = InlineKeyboardMarkup([[
+                InlineKeyboardButton("✓ Duyệt", callback_data=f"approve:{uid}"),
+                InlineKeyboardButton("✕ Từ chối", callback_data=f"reject:{uid}"),
+            ]])
+            uname_str = f" (@{username})" if username else ""
+            await context.application.bot.send_message(
+                chat_id=MANAGER_CHAT_ID,
+                text=f"✏️ <b>Đã cập nhật tên:</b> {full_name}{uname_str}\nID: <code>{uid}</code>\n\nDuyệt?",
+                parse_mode="HTML",
+                reply_markup=approve_kb,
+            )
+        except Exception:
+            pass
         return True
 
     await update.message.reply_text(
         f"Đã ghi nhận: <b>{full_name}</b>\n\n"
         "Vui lòng đợi Manager duyệt tài khoản. "
-        "Bot sẽ thông báo khi được duyệt.",
+        "Bot sẽ thông báo khi được duyệt.\n\n"
+        "<i>Nhập sai tên? Gõ /start để nhập lại.</i>",
         parse_mode="HTML",
     )
 
@@ -392,6 +422,14 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• <code>/stats</code> — thống kê tuần này\n"
         "• <code>/coach &lt;id&gt;</code> — AI hướng dẫn cách làm task\n"
     )
+
+    # Employee: can /assign upward to manager (request task)
+    if user.get("role") == EMPLOYEE:
+        personal += (
+            "\n<b>Gửi yêu cầu lên sếp:</b>\n"
+            "• <code>/assign &lt;mô tả&gt;</code> — gửi task lên Manager (request)\n"
+            "• <code>/assign @manager &lt;mô tả&gt;</code> — chỉ định Manager/TL cụ thể\n"
+        )
 
     manager_cmds = ""
     if can_see_team(user):
@@ -881,6 +919,14 @@ async def cmd_assign(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Dùng /users để xem danh sách."
             )
             return
+        # Permission: employee can only assign upward (to manager/TL) or self
+        from roles import can_assign_to
+        if not can_assign_to(user, assignee):
+            await update.message.reply_text(
+                "Nhân viên chỉ có thể giao task lên cho Manager/TL (request) "
+                "hoặc cho chính mình. Để giao cho đồng nghiệp, hãy nhờ sếp."
+            )
+            return
         await _do_assign_with_text(update, context, user, assignee, task_text)
         return
 
@@ -896,6 +942,20 @@ async def cmd_assign(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Has description but no assignee — try smart route first
     await update.message.reply_text("⏳ Đang phân tích...")
     routed = route_task(args_text)
+
+    # Employee path: auto-route to their manager (upward request) — skip picker
+    if user.get("role") == EMPLOYEE:
+        from store import get_user as _get_user
+        mgr_id = user.get("reports_to") or MANAGER_CHAT_ID
+        manager = _get_user(mgr_id) if mgr_id else None
+        if not manager:
+            await update.message.reply_text(
+                "Chưa biết Manager của bạn là ai. Liên hệ admin để cấu hình."
+            )
+            return
+        await _do_assign_with_text(update, context, user, manager, args_text)
+        return
+
     if routed.get("assignee_confidence", 0) >= 0.75 and routed.get("assignee_name"):
         await _show_confirm_card(update, context, user, args_text, routed)
     else:

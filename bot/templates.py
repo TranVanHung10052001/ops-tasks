@@ -590,9 +590,9 @@ def msg_task_created(
         lines.append(f"🎯 OKR {okr_ref}")
 
     if steps:
-        lines += ["", "📋 <b>Lộ trình:</b>"]
-        for s in steps[:4]:
-            lines.append(f"▶ {_md(str(s))}")
+        lines += ["", "📋 <b>Đề xuất các bước:</b>"]
+        for s in steps[:5]:
+            lines.append(f"▸ {_md(str(s))}")
 
     if adhoc_ratio and adhoc_ratio.get("ratio_pct", 0) > _ADHOC_CAP:
         r = adhoc_ratio["ratio_pct"]
