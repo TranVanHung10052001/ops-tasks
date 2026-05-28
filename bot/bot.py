@@ -21,7 +21,7 @@ from store import (
     update_task_deadline, set_actual_minutes, increment_reminder,
     increment_defer, get_overdue_tasks_for_user, get_stalled_tasks_for_user,
     log_action,
-    get_user_by_name, find_users_by_name, reassign_task,
+    get_user_by_name, get_user_by_email, find_users_by_name, reassign_task,
     get_adhoc_ratio_this_week,
     claim_preseeded_user, find_preseeded_by_name,
 )
@@ -2052,10 +2052,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Find assignee by email or name
         assignee = None
         if routed.get("assignee_email"):
-            from store import get_user_by_email
             assignee = get_user_by_email(routed["assignee_email"])
         if not assignee and routed.get("assignee_name"):
-            from store import get_user_by_name
             assignee = get_user_by_name(routed["assignee_name"])
 
         if not assignee:
