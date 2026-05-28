@@ -296,6 +296,21 @@ def update_task(task_id: int, body: TaskUpdate, token: str = Depends(verify_toke
     if body.assignee_id:
         # Fix #2: use reassign_task() so team field is also updated
         reassign_task(task_id, body.assignee_id)
+        # Notify new assignee on Telegram
+        new_assignee = get_user(body.assignee_id)
+        if new_assignee and new_assignee.get("telegram_id", 0) > 0:
+            updated_task = get_task(task_id)
+            if updated_task:
+                try:
+                    text = tpl.msg_task_new(updated_task, assigned_by_name="Dashboard")
+                    buttons = [
+                        [("✓ Nhận việc", f"accept:{task_id}"),
+                         ("✗ Từ chối",   f"decline:{task_id}")],
+                        [("🎓 Hướng dẫn chi tiết", f"coach:{task_id}")],
+                    ]
+                    _send_telegram(new_assignee["telegram_id"], text, buttons)
+                except Exception as e:
+                    logger.warning(f"notify reassign failed: {e}")
 
     log_action(0, "dashboard_update", "task", task_id, str(body.dict(exclude_none=True)))
     return {"ok": True, "task": _fmt_task(get_task(task_id))}
@@ -307,6 +322,7 @@ class CreateTaskBody(BaseModel):
     priority: str = "P2"
     deadline: Optional[str] = None
     category: str = "other"
+    block_reason: Optional[str] = None  # "Mô tả chi tiết" from dashboard form
 
 
 @app.post("/api/tasks")
@@ -345,6 +361,7 @@ def create_task(body: CreateTaskBody, token: str = Depends(verify_token)):
         category=final_category,
         estimated_minutes=est_minutes,
         classifier_meta=routed,
+        block_reason=body.block_reason,
     )
     log_action(0, "create_task", "task", task_id, body.summary)
 
