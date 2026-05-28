@@ -39,7 +39,7 @@ export default function TopBar() {
           <div className="w-2 h-2 bg-accent-amber" />
           <span className="mono text-xs text-text-secondary tracking-widest uppercase">
             AHAMOVE OPS <span className="text-text-tertiary">·</span>{" "}
-            <span className="text-accent-paper">OPS CENTER</span>
+            <span className="text-accent-paper">TRUCK</span>
           </span>
         </div>
         <span className="text-text-tertiary text-xs">·</span>

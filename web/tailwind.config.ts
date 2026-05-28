@@ -8,29 +8,33 @@ export default {
   ],
   theme: {
     extend: {
+      // Typography — 2 typefaces only:
+      //   sans/display → "Be Vietnam Pro" (body, headings, KPI numbers)
+      //   mono         → "JetBrains Mono" (codes, callsigns, tabular numbers)
+      // `display` is an alias of `sans` so existing `font-display` classes
+      // continue rendering Be Vietnam Pro (not Cormorant Garamond serif).
       fontFamily: {
-        display: ['"Be Vietnam Pro"', "sans-serif"],
-        ui: ['"Be Vietnam Pro"', "sans-serif"],
-        mono: ['"JetBrains Mono"', "monospace"],
-        editorial: ['"Cormorant Garamond"', "serif"],
-        sans: ['"Be Vietnam Pro"', "sans-serif"],
+        sans:    ['"Be Vietnam Pro"', "system-ui", "sans-serif"],
+        display: ['"Be Vietnam Pro"', "system-ui", "sans-serif"],
+        mono:    ['"JetBrains Mono"', "ui-monospace", "monospace"],
       },
       fontSize: {
         "2xs": "10px",
-        xs: "11px",
-        sm: "12px",
-        base: "13px",
-        md: "14px",
-        lg: "16px",
-        xl: "20px",
+        xs:    "11px",
+        sm:    "12px",
+        base:  "14px",   // bumped from 13px — better Vietnamese readability
+        md:    "15px",
+        lg:    "17px",
+        xl:    "20px",
         "2xl": "28px",
         "3xl": "40px",
         "4xl": "56px",
         "5xl": "80px",
       },
       letterSpacing: {
-        ops: "0.12em",
-        opswide: "0.18em",
+        // Tighter scale (was 0.05 / 0.08 / 0.12 mixed). Use `ops` for labels.
+        ops:     "0.06em",
+        opswide: "0.12em",
       },
       colors: {
         canvas: "var(--canvas)",

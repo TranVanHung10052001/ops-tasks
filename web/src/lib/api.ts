@@ -25,8 +25,10 @@ export interface ApiMember {
   telegram_id: number;
   full_name: string;
   username: string | null;
+  email: string;
   role: string;
   role_label: string;
+  grade: string;
   team: string | null;
   active_count: number;
   done_today: number;
@@ -95,6 +97,8 @@ export interface ApiMetrics {
   fill_rate_core_pct?: string;    // "78.0"
   fill_rate_han_pct?: string;     // "74.0"
   fill_rate_sgn_pct?: string;     // "68.0"
+  fill_rate_sme_pct?: string;     // "65.0"  (O1.3 — SME 100-300kg)
+  fill_rate_exp_pct?: string;     // "62.0"  (O1.2/O2.1 — KCN BDG/LAN/HPH/EXP)
   fill_rate_vsip_pct?: string;    // "84.0"
   fill_rate_songthan_pct?: string; // "71.0"
   fill_rate_longhau_pct?: string;  // "79.0"

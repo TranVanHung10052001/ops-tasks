@@ -1,0 +1,109 @@
+# =============================================================================
+# Layer 5b — VENDORS / PARTNERS
+# =============================================================================
+# Mục đích: AI biết vendor truck rental, fuel, insurance, tech là ai,
+# SLA, contract, contacts. Khi có issue vendor → AI biết escalate ai.
+#
+# Update: monthly (Ops Lead review)
+# =============================================================================
+
+vendors:
+
+  # ─── Truck rental partners ───
+  - id: "V001"
+    name: "(điền — vendor truck 1)"
+    category: "truck_rental"
+    services_provided: ["Truck rental 2.5T", "Driver crew"]
+    coverage:
+      cities: ["HCM", "Bình Dương"]
+    contract:
+      type: "Monthly retainer"
+      monthly_value_vnd: 250_000_000
+      sla:
+        truck_availability: ">95%"
+        driver_show_rate: ">90%"
+        response_to_complaint: "<2h"
+      contract_end: "2026-12-31"
+      auto_renew: true
+    contacts:
+      ahamove_owner: "khanh@ahamove.com"        # vendor manager
+      vendor_lead: "(điền)"
+      vendor_emergency: "(điền 24/7 hotline)"
+    notes: |
+      Vendor chiến lược cho zone HCM nam. SLA driver_show_rate < 88% trong
+      2 tháng liên tiếp → trigger contract review.
+    risks:
+      - "Driver pool aging, cần refresh Q3"
+
+  - id: "V002"
+    name: "(điền — vendor truck 2)"
+    category: "truck_rental"
+    coverage:
+      cities: ["HAN", "Hải Phòng"]
+
+  # ─── Fuel & maintenance ───
+  - id: "V010"
+    name: "(điền fuel partner)"
+    category: "fuel"
+    services_provided: ["Bulk diesel discount", "Fleet card"]
+    contract:
+      type: "Volume-based discount"
+      discount_pct: 0.03                       # 3% off list price
+    contacts:
+      ahamove_owner: "(email)"
+
+  # ─── Insurance ───
+  - id: "V020"
+    name: "(điền insurance — vd Bảo Việt, PVI...)"
+    category: "insurance"
+    services_provided: ["Cargo insurance", "Driver accident", "Vehicle"]
+    contract:
+      annual_premium_vnd: 800_000_000
+      max_coverage_per_incident: 500_000_000
+    contacts:
+      ahamove_owner: "(email)"
+      claim_hotline: "(điền)"
+
+  # ─── Tech vendors ───
+  - id: "V030"
+    name: "Google Cloud Platform"
+    category: "tech_infra"
+    services_provided: ["BigQuery", "GCS storage", "VM compute"]
+    monthly_spend_usd: 8_000
+    contacts:
+      ahamove_owner: "tech_lead@ahamove.com"
+
+  - id: "V031"
+    name: "(điền vendor data/BI)"
+    category: "tech_data"
+    services_provided: ["Redash hosting", "Looker", "etc"]
+
+  # ─── 3PL warehouse partners ───
+  - id: "V040"
+    name: "(điền warehouse partner)"
+    category: "warehouse"
+    services_provided: ["Sort center HCM south"]
+
+# ─── Vendor categories — for routing ─────────────────────────────────────────
+categories:
+  - id: "truck_rental"
+    description: "Cung cấp truck + driver theo retainer"
+    primary_member: "khanh@ahamove.com"      # vendor BD owner
+  - id: "fuel"
+    primary_member: "(email)"
+  - id: "insurance"
+    primary_member: "(email)"
+  - id: "tech_infra"
+    primary_member: "tech_lead@ahamove.com"
+  - id: "warehouse"
+    primary_member: "(email)"
+
+# ─── Health rules ────────────────────────────────────────────────────────────
+health_indicators:
+  - signal: "SLA breach 2 consecutive months"
+    severity: "P0"
+    action: "Trigger contract review, escalate to BD lead"
+  - signal: "Vendor cost +20% YoY without volume increase"
+    severity: "P1"
+  - signal: "Complaint count > 5 / month"
+    severity: "P2"

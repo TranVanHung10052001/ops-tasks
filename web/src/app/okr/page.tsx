@@ -80,13 +80,13 @@ export default async function OkrPage() {
         <div className="absolute top-0 left-0 right-0 h-[2px] bg-accent-amber" />
         <div className="grid grid-cols-2 gap-8">
           <div>
-            <div className="label-ops text-2xs mb-2">North Star · Q2/2026</div>
+            <div className="section-label mb-2">North Star · Q2/2026</div>
             <p className="editorial text-xl leading-snug text-text-primary">
               GSV Non-Bulky 70% YoY: 69B → 117.3B · Fill Rate toàn network ≥68%.
             </p>
           </div>
           <div>
-            <div className="label-ops text-2xs mb-2">Tóm tắt tiến độ</div>
+            <div className="section-label mb-2">Tóm tắt tiến độ</div>
             <ul className="space-y-2 text-md text-text-primary">
               {okrs.slice(0, 3).map((o) => (
                 <li key={o.id} className="flex gap-2.5 items-start">
@@ -119,7 +119,7 @@ export default async function OkrPage() {
       <section className="ops-surface">
         <header className="flex items-center justify-between px-5 py-3 border-b border-divider">
           <div className="flex items-baseline gap-3">
-            <span className="label-ops text-2xs">Action Items · Q2/2026</span>
+            <span className="section-label">Action Items · Q2/2026</span>
             <span className="mono text-2xs text-text-tertiary">{actions.length} actions</span>
             {overdueCount > 0 && (
               <span className="mono text-2xs text-signal-p0 flex items-center gap-1">
@@ -128,14 +128,14 @@ export default async function OkrPage() {
             )}
           </div>
           <div className="flex items-center gap-3 mono text-2xs text-text-tertiary">
-            <span>{p0Count} P0 · sorted by urgency</span>
+            <span>{p0Count} P0 · theo độ khẩn</span>
           </div>
         </header>
 
         <div className="overflow-x-auto scroll-ops">
           <table className="w-full text-left">
             <thead>
-              <tr className="border-b border-divider mono text-2xs uppercase tracking-wider text-text-tertiary">
+              <tr className="border-b border-divider mono text-2xs tracking-wider text-text-tertiary">
                 <th className="w-1 p-0" />
                 <th className="px-3 py-2 font-normal w-16">OKR</th>
                 <th className="px-3 py-2 font-normal">Action</th>

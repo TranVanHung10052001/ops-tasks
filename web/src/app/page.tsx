@@ -4,16 +4,18 @@ import OpsStatsRow from "@/components/ui/ops-stats-row";
 import TimelineTrack from "@/components/ui/timeline-track";
 import TaskLedger from "@/components/ui/task-ledger";
 import ClientGreeting from "@/components/ui/client-greeting";
+import AutoDigestCard from "@/components/ui/auto-digest-card";
 import { TODAY } from "@/lib/mock";
-import { getTasksData, getMembersData, getStatsData, getMetricsData, getActivityData } from "@/lib/data";
+import { getTasksData, getMembersData, getStatsData, getMetricsData, getActivityData, getAutoDigestData } from "@/lib/data";
 
 export default async function DashboardPage() {
-  const [tasks, members, stats, metrics, activity] = await Promise.all([
+  const [tasks, members, stats, metrics, activity, autoDigest] = await Promise.all([
     getTasksData(),
     getMembersData(),
     getStatsData(),
     getMetricsData(),
     getActivityData(),
+    getAutoDigestData(),
   ]);
 
   const topTasks = tasks
@@ -42,6 +44,8 @@ export default async function DashboardPage() {
       </header>
 
       <BriefingCard stats={stats} topTasks={topTasks} metrics={metrics} />
+
+      <AutoDigestCard digest={autoDigest} members={members} />
 
       <KpiRow metrics={metrics} />
 
