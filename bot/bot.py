@@ -1046,6 +1046,7 @@ async def _show_confirm_card(
         "routed": routed,
         "ts": datetime.now(),
     }
+    logger.info(f"_show_confirm_card stored _pending_confirm[{uid}] for chat={update.effective_chat.id}")
 
     assignee_name = routed.get("assignee_name", "?")
 
@@ -1286,6 +1287,33 @@ async def cmd_approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log_action(user["telegram_id"], "approve_user", "user", target_id)
     else:
         await update.message.reply_text("Không tìm thấy user này.")
+
+
+async def cmd_debug_state(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Dump all pending_actions rows for current user — diagnose 'Phiên hết hạn'."""
+    user = await _require_approved(update)
+    if not user:
+        return
+    uid = update.effective_chat.id
+    from store import get_db
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT kind, expires_at, length(payload) as len "
+            "FROM pending_actions WHERE uid = ?",
+            (uid,),
+        ).fetchall()
+    if not rows:
+        await update.message.reply_text(
+            f"Không có pending state cho uid={uid}.\n"
+            f"Effective chat id: <code>{update.effective_chat.id}</code>\n"
+            f"Effective user id: <code>{update.effective_user.id}</code>",
+            parse_mode="HTML",
+        )
+        return
+    lines = [f"<b>Pending state cho uid={uid}</b>"]
+    for r in rows:
+        lines.append(f"• <code>{r['kind']}</code> · expires {r['expires_at']} · {r['len']}B")
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
 async def cmd_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1704,8 +1732,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("pick:"):
         assignee_id = int(data.split(":")[1])
         state = _pending_assign_who.get(uid)
+        logger.info(f"pick uid={uid} assignee_id={assignee_id} state={'found' if state else 'NONE'} has_text={('task_text' in state) if state else 'n/a'}")
         if not state or "task_text" not in state:
-            await query.edit_message_text("Phiên giao việc đã hết hạn. Thử lại với /assign.")
+            await query.edit_message_text(
+                "Phiên giao việc đã hết hạn (state không tìm thấy).\n"
+                "Thử lại với /assign."
+            )
             return
         assignee = get_user(assignee_id)
         if not assignee:
@@ -2089,8 +2121,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── change_assignee — manager wants to override AI pick ──
     elif data == "change_assignee":
         state = _pending_confirm.get(uid)
+        logger.info(f"change_assignee uid={uid} chat={query.message.chat.id if query.message else '?'} state={'found' if state else 'NONE'}")
         if not state:
-            await query.edit_message_text("Phiên đã hết hạn.")
+            await query.edit_message_text(
+                "Phiên đã hết hạn (state không tìm thấy).\n"
+                "Gõ /assign lại để bắt đầu phiên mới."
+            )
             return
         task_text = state["task_text"]
         routed = state["routed"]

@@ -24,6 +24,7 @@ from bot import (
     cmd_stats, cmd_skip,
     cmd_assign, cmd_team, cmd_pending, cmd_brief, cmd_ask,
     cmd_approve, cmd_users, cmd_setrole,
+    cmd_debug_state,
     handle_forward, handle_callback,
     handle_keyboard_text, KEYBOARD_ROUTES,
 )
@@ -98,6 +99,7 @@ async def main():
         ("setrole",  cmd_setrole),
         ("brief",    cmd_brief),
         ("ask",      cmd_ask),
+        ("debug_state", cmd_debug_state),
     ]:
         app.add_handler(CommandHandler(cmd, handler))
 
