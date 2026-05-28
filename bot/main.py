@@ -126,14 +126,26 @@ async def main():
 
     # ── Error handler ─────────────────────────────────────────────────────
     async def error_handler(update, context):
-        logger.error(f"Unhandled error: {context.error}", exc_info=context.error)
+        err = context.error
+        logger.error(f"Unhandled error: {err}", exc_info=err)
         if update and update.effective_message:
             try:
+                err_type = type(err).__name__
+                err_msg = str(err)[:200] if err else "Unknown"
                 await update.effective_message.reply_text(
-                    "Bot gặp lỗi. Thử lại hoặc báo admin."
+                    f"⚠️ Bot gặp lỗi.\n"
+                    f"<code>{err_type}: {err_msg}</code>\n\n"
+                    f"<i>Báo admin nếu lặp lại.</i>",
+                    parse_mode="HTML",
                 )
             except Exception:
-                pass
+                # If HTML formatting fails, fall back to plain text
+                try:
+                    await update.effective_message.reply_text(
+                        "Bot gặp lỗi. Thử lại hoặc báo admin."
+                    )
+                except Exception:
+                    pass
 
     app.add_error_handler(error_handler)
 

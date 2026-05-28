@@ -1006,11 +1006,16 @@ class PersistedDict:
             return default
 
     def pop(self, uid, *args):
-        had = self.__contains__(uid)
-        if had:
+        """Pop entry. Returns default (or None if no default) when missing —
+        does NOT raise KeyError, unlike standard dict.pop(). Safer for our
+        code patterns where pop is often called inside `if uid in d:` guards
+        that race against TTL expiry."""
+        try:
             val = self[uid]
+        except KeyError:
+            return args[0] if args else None
+        try:
             pop_pending(int(uid), self.kind)
-            return val
-        if args:
-            return args[0]
-        raise KeyError(uid)
+        except Exception:
+            pass
+        return val

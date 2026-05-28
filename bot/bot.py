@@ -525,7 +525,7 @@ async def cmd_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     if not result.get("deadline_iso"):
         _pending_deadline[update.effective_chat.id] = (task_id, datetime.now())
-        msg += "\n\n⏰ _Deadline? Gõ T6 17h, mai 9h, hoặc /skip_"
+        msg += "\n\n⏰ <i>Deadline? Gõ T6 17h, mai 9h, hoặc /skip</i>"
 
     await update.message.reply_text(msg, parse_mode="HTML", reply_markup=_task_keyboard(task_id))
     log_action(uid, "add_task", "task", task_id, result.get("summary", ""))
@@ -1528,7 +1528,7 @@ async def handle_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         if not result.get("deadline_iso"):
             _pending_deadline[uid] = (task_id, datetime.now())
-            msg += "\n\n⏰ _Deadline? Gõ T6 17h, mai 9h, hoặc /skip_"
+            msg += "\n\n⏰ <i>Deadline? Gõ T6 17h, mai 9h, hoặc /skip</i>"
         await update.message.reply_text(msg, parse_mode="HTML", reply_markup=_task_keyboard(task_id))
 
     elif result.get("is_task"):
