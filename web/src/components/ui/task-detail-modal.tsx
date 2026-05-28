@@ -20,9 +20,10 @@ interface Props {
   onClose: () => void;
   onStatusChange: (taskId: string, newStatus: TaskStatus) => Promise<void>;
   onDelete?: (taskId: string) => Promise<void>;
+  onEdit?: (task: OpsTask) => void;
 }
 
-export default function TaskDetailModal({ task, members, onClose, onStatusChange, onDelete }: Props) {
+export default function TaskDetailModal({ task, members, onClose, onStatusChange, onDelete, onEdit }: Props) {
   const [saving, setSaving] = useState(false);
   const [savedStatus, setSavedStatus] = useState<TaskStatus>(task.status);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -134,7 +135,7 @@ export default function TaskDetailModal({ task, members, onClose, onStatusChange
               <div className={clsx("mono text-xs", overdue ? "text-signal-p0" : "text-text-primary")}>
                 {d.date} · {d.time}
               </div>
-              <div className={clsx("mono text-2xs font-bold mt-0.5", overdue ? "text-signal-p0" : "text-text-tertiary")}>
+              <div className={clsx("mono text-2xs mt-0.5", overdue ? "text-signal-p0" : "text-text-tertiary")}>
                 {d.relative}
                 {overdue && " · ⚠ OVERDUE"}
               </div>
@@ -240,6 +241,14 @@ export default function TaskDetailModal({ task, members, onClose, onStatusChange
                   ✕ Xoá task
                 </button>
               )
+            )}
+            {onEdit && (
+              <button
+                onClick={() => { onEdit(task); onClose(); }}
+                className="btn-ops mono text-2xs text-accent-paper border-accent-paper/40 hover:bg-accent-paper/10"
+              >
+                ✎ Sửa
+              </button>
             )}
             <button onClick={onClose} className="btn-ops">
               Đóng

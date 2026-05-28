@@ -35,7 +35,14 @@ const PRIORITY_ICON: Record<Priority, string> = {
   P4: "◻",
 };
 
-function TaskCard({ task, members, onTaskClick, onDragStart }: { task: OpsTask; members: Member[]; onTaskClick?: (t: OpsTask) => void; onDragStart?: (taskId: string) => void }) {
+function TaskCard({ task, members, onTaskClick, onDragStart, selected, onToggleSelect }: {
+  task: OpsTask;
+  members: Member[];
+  onTaskClick?: (t: OpsTask) => void;
+  onDragStart?: (taskId: string) => void;
+  selected?: boolean;
+  onToggleSelect?: (id: string) => void;
+}) {
   const m = members.find((mb) => mb.id === task.assignee);
   const d = formatDeadline(task.deadline);
   const overdue = d.relative.startsWith("quá");
@@ -48,21 +55,42 @@ function TaskCard({ task, members, onTaskClick, onDragStart }: { task: OpsTask; 
         e.dataTransfer.effectAllowed = "move";
         onDragStart?.(task.id);
       }}
-      onClick={() => onTaskClick?.(task)}
+      onClick={(e) => {
+        // Don't open detail when clicking checkbox
+        if ((e.target as HTMLElement).closest("[data-checkbox]")) return;
+        onTaskClick?.(task);
+      }}
       className={clsx(
         "ops-surface cursor-grab active:cursor-grabbing relative overflow-hidden select-none",
         "p-[10px]",
-        overdue && "border-signal-p0/60",
-        blocked && "border-signal-p1/60",
-        !overdue && !blocked && (task.aiClassified ? "ai-classified-card" : "hover:bg-surface-raised transition-colors")
+        selected ? "border-accent-amber bg-accent-amber/5" :
+        overdue ? "border-signal-p0/60" :
+        blocked ? "border-signal-p1/60" :
+        !task.aiClassified ? "hover:bg-surface-raised transition-colors" : "ai-classified-card"
       )}
     >
-      {/* Top accent bar for overdue/blocked */}
-      {overdue && <div className="absolute top-0 left-0 right-0 h-[2px] bg-signal-p0" />}
-      {blocked && !overdue && <div className="absolute top-0 left-0 right-0 h-[2px] bg-signal-p1" />}
+      {/* Top accent bar for overdue/blocked/selected */}
+      {selected && <div className="absolute top-0 left-0 right-0 h-[2px] bg-accent-amber" />}
+      {!selected && overdue && <div className="absolute top-0 left-0 right-0 h-[2px] bg-signal-p0" />}
+      {!selected && blocked && !overdue && <div className="absolute top-0 left-0 right-0 h-[2px] bg-signal-p1" />}
 
       <div className="flex items-center justify-between mb-1.5">
-        <span className="mono text-2xs text-text-tertiary tabular">{task.id}</span>
+        <div className="flex items-center gap-1.5">
+          {/* Checkbox — always visible when selected, hover-visible otherwise */}
+          <div
+            data-checkbox
+            onClick={(e) => { e.stopPropagation(); onToggleSelect?.(task.id); }}
+            className={clsx(
+              "w-3.5 h-3.5 border flex items-center justify-center shrink-0 cursor-pointer transition-all",
+              selected
+                ? "border-accent-amber bg-accent-amber text-canvas"
+                : "border-divider-strong bg-surface opacity-0 group-hover:opacity-100 hover:border-accent-amber"
+            )}
+          >
+            {selected && <span className="text-[8px] leading-none">✓</span>}
+          </div>
+          <span className="mono text-2xs text-text-tertiary tabular">{task.id}</span>
+        </div>{/* end left flex */}
         <div className="flex items-center gap-1">
           {overdue && (
             <span className="mono text-2xs text-signal-p0 uppercase tracking-wider border border-signal-p0/50 px-1 py-px">
@@ -119,11 +147,15 @@ export default function DispatchBoard({
   members: membersProp,
   onTaskClick,
   onPriorityChange,
+  selectedIds,
+  onToggleSelect,
 }: {
   tasks?: OpsTask[];
   members?: Member[];
   onTaskClick?: (task: OpsTask) => void;
   onPriorityChange?: (taskId: string, newPriority: Priority) => Promise<void>;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (id: string) => void;
 }) {
   const allTasks = tasksProp ?? TASKS;
   const allMembers = membersProp ?? MEMBERS;
@@ -200,6 +232,8 @@ export default function DispatchBoard({
                   members={allMembers}
                   onTaskClick={onTaskClick}
                   onDragStart={setDraggingId}
+                  selected={selectedIds?.has(t.id)}
+                  onToggleSelect={onToggleSelect}
                 />
               ))}
               {items.length === 0 && !isOver && (
