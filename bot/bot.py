@@ -321,7 +321,11 @@ async def handle_name_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     # ── Pre-seeded account claim ──────────────────────────────────────────
     # Check if this name matches a pre-seeded team member record.
     # If so, "claim" it: swap placeholder ID → real Telegram ID, skip approval.
-    claimed = claim_preseeded_user(uid, username, full_name)
+    try:
+        claimed = claim_preseeded_user(uid, username, full_name)
+    except Exception as e:
+        logger.error(f"claim_preseeded_user failed for {uid}: {e}", exc_info=True)
+        claimed = None
     if claimed:
         role  = claimed.get("role", "employee")
         team  = claimed.get("team") or ""

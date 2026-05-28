@@ -177,6 +177,32 @@ def claim_preseeded_user(real_id: int, username: str, typed_name: str) -> dict |
         #   2. Fix up any child rows that pointed to the old placeholder ID
         conn.execute("PRAGMA defer_foreign_keys = ON")
 
+        # ── Re-registration case ──
+        # If real_id already has a row (user typed wrong name first, then
+        # retyped correctly), we must clean it up before UPDATE'ing the
+        # placeholder's PK to real_id (UNIQUE constraint would fail).
+        # Move any child rows pointed at real_id → placeholder_id first,
+        # then they'll auto-resolve to real_id after the swap below.
+        existing = conn.execute(
+            "SELECT telegram_id FROM users WHERE telegram_id = ?",
+            (real_id,)
+        ).fetchone()
+        if existing:
+            for table, col in [
+                ("tasks", "assignee_id"),
+                ("tasks", "assigned_by"),
+                ("users", "reports_to"),
+                ("audit_log", "actor_id"),
+            ]:
+                try:
+                    conn.execute(
+                        f"UPDATE {table} SET {col} = ? WHERE {col} = ?",
+                        (placeholder_id, real_id),
+                    )
+                except Exception:
+                    pass  # table might not exist on older DBs
+            conn.execute("DELETE FROM users WHERE telegram_id = ?", (real_id,))
+
         # Fix children first — update reports_to to point to the new real_id
         conn.execute(
             "UPDATE users SET reports_to = ? WHERE reports_to = ?",
