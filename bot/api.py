@@ -30,6 +30,49 @@ from store import (
 )
 from roles import MANAGER, TEAM_LEAD, EMPLOYEE, ROLE_LABELS
 
+import logging
+import httpx
+import templates as tpl
+try:
+    from classifier import route_task
+except Exception:  # classifier may fail to import without GEMINI_API_KEY
+    route_task = None
+
+logger = logging.getLogger("api")
+
+
+def _send_telegram(chat_id: int, text: str, buttons: list | None = None) -> bool:
+    """Fire-and-forget Telegram DM via HTTP API.
+    `buttons` = [[(label, callback_data), ...], ...] for inline keyboard.
+    Returns True on success, False otherwise. Never raises."""
+    token = os.getenv("TELEGRAM_TOKEN")
+    if not token or not chat_id or chat_id <= 0:
+        return False
+    payload = {
+        "chat_id":    chat_id,
+        "text":       text,
+        "parse_mode": "HTML",
+    }
+    if buttons:
+        payload["reply_markup"] = {
+            "inline_keyboard": [
+                [{"text": t, "callback_data": cb} for (t, cb) in row]
+                for row in buttons
+            ]
+        }
+    try:
+        r = httpx.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json=payload, timeout=10,
+        )
+        if r.status_code != 200:
+            logger.warning(f"Telegram send {r.status_code}: {r.text[:200]}")
+            return False
+        return True
+    except Exception as e:
+        logger.warning(f"Telegram send error: {e}")
+        return False
+
 DASHBOARD_SECRET = os.getenv("DASHBOARD_SECRET", "ops-tasks-secret-change-me")
 
 # Fix #8: CORS restricted to known origins (not wildcard)
@@ -272,18 +315,59 @@ def create_task(body: CreateTaskBody, token: str = Depends(verify_token)):
     if not assignee:
         raise HTTPException(status_code=404, detail="Assignee not found")
 
+    # ── AI enrichment: breakdown, OKR ref, deadline parse, estimated time ──
+    # Falls back gracefully if Gemini is unavailable.
+    routed: dict = {}
+    if route_task is not None:
+        try:
+            routed = route_task(body.summary) or {}
+        except Exception as e:
+            logger.warning(f"route_task failed: {e}")
+            routed = {}
+
+    # User-provided values win over AI suggestions
+    final_summary  = routed.get("summary") or body.summary
+    final_priority = body.priority or routed.get("priority", "P2")
+    final_category = body.category if body.category != "other" else routed.get("category", "other")
+    final_deadline = body.deadline or routed.get("deadline_iso")
+    est_minutes    = routed.get("estimated_minutes", 30)
+
     task_id = add_task(
         raw_message=body.summary,
-        summary=body.summary,
+        summary=final_summary,
         assignee_id=body.assignee_id,
-        assigned_by=0,  # dashboard-created
+        assigned_by=0,  # 0 = dashboard
         team=assignee.get("team"),
         source="dashboard",
-        deadline=body.deadline,
-        priority=body.priority,
-        category=body.category,
+        sender="Dashboard",
+        deadline=final_deadline,
+        priority=final_priority,
+        category=final_category,
+        estimated_minutes=est_minutes,
+        classifier_meta=routed,
     )
     log_action(0, "create_task", "task", task_id, body.summary)
+
+    # ── Notify assignee on Telegram (DM with msg_task_new + Accept/Decline) ──
+    if assignee.get("telegram_id") and assignee["telegram_id"] > 0:
+        task_dict = {
+            "id":              task_id,
+            "summary":         final_summary,
+            "priority":        final_priority,
+            "deadline":        final_deadline,
+            "classifier_meta": routed,
+        }
+        try:
+            text = tpl.msg_task_new(task_dict, assigned_by_name="Dashboard")
+            buttons = [
+                [("✓ Nhận việc", f"accept:{task_id}"),
+                 ("✗ Từ chối",   f"decline:{task_id}")],
+                [("🎓 Hướng dẫn chi tiết", f"coach:{task_id}")],
+            ]
+            _send_telegram(assignee["telegram_id"], text, buttons)
+        except Exception as e:
+            logger.warning(f"notify assignee failed: {e}")
+
     return {"ok": True, "task_id": task_id}
 
 
