@@ -20,11 +20,11 @@ const PRIORITY_BORDER: Record<Priority, string> = {
 };
 
 const PRIORITY_TEXT: Record<Priority, string> = {
-  P0: "text-signal-p0/70",
-  P1: "text-signal-p1/70",
-  P2: "text-signal-p2/70",
-  P3: "text-signal-p3/70",
-  P4: "text-signal-p4/70",
+  P0: "text-signal-p0",
+  P1: "text-signal-p1",
+  P2: "text-signal-p2",
+  P3: "text-signal-p3",
+  P4: "text-signal-p4",
 };
 
 const PRIORITY_ICON: Record<Priority, string> = {
