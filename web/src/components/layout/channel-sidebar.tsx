@@ -171,7 +171,7 @@ export default function ChannelSidebar() {
 
       {/* FILTERS */}
       <div className="px-3 py-4">
-        <div className="px-3 mb-2 label-ops text-2xs">Bộ lọc tín hiệu</div>
+        <div className="px-3 mb-2 label-ops text-2xs">Lọc theo mức độ</div>
         <div className="space-y-1 px-3">
           {(["P0", "P1", "P2", "P3", "P4"] as const).map((p) => {
             const count = TASKS.filter((t) => t.priority === p).length;

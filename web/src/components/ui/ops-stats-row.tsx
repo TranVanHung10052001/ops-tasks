@@ -41,7 +41,7 @@ export default function OpsStatsRow({
     <section className="ops-surface">
       <header className="px-5 py-3 border-b border-divider flex items-center justify-between">
         <div className="flex items-baseline gap-3">
-          <span className="label-ops text-2xs">Tín hiệu vận hành</span>
+          <span className="section-label">Tín hiệu vận hành</span>
           <span className="mono text-2xs text-text-tertiary">cập nhật mỗi 60s</span>
         </div>
         <span className="mono text-2xs text-text-tertiary">truck-ops-realtime</span>
@@ -49,7 +49,7 @@ export default function OpsStatsRow({
       <div className="grid grid-cols-4 divide-x divide-divider">
         {/* Driver count */}
         <div className="p-5">
-          <div className="label-ops text-2xs mb-2">Driver truck đang hoạt động</div>
+          <div className="section-label mb-2">Driver truck đang hoạt động</div>
           <div className="flex items-baseline gap-2 mb-1">
             <span className="font-display text-2xl text-text-primary tabular leading-none">
               {activeDrivers}
@@ -76,7 +76,7 @@ export default function OpsStatsRow({
 
         {/* Active tasks */}
         <div className="p-5">
-          <div className="label-ops text-2xs mb-2">Task đang chạy</div>
+          <div className="section-label mb-2">Task đang chạy</div>
           <div className="flex items-baseline gap-2 mb-1">
             <span className="font-display text-2xl text-text-primary tabular leading-none">{activeCount || "—"}</span>
             {activeCount > 0 && <span className="mono text-xs text-text-tertiary">task</span>}
@@ -102,7 +102,7 @@ export default function OpsStatsRow({
 
         {/* P0 / overdue */}
         <div className="p-5">
-          <div className="label-ops text-2xs mb-2">P0 đang mở</div>
+          <div className="section-label mb-2">P0 đang mở</div>
           <div className="flex items-baseline gap-2 mb-1">
             <span className="font-display text-2xl text-signal-p0 tabular leading-none">{p0 || "—"}</span>
             {p0 > 0 && <span className="mono text-xs text-text-tertiary">task</span>}
@@ -123,7 +123,7 @@ export default function OpsStatsRow({
 
         {/* Capacity */}
         <div className="p-5">
-          <div className="label-ops text-2xs mb-2">Năng lực team</div>
+          <div className="section-label mb-2">Năng lực team</div>
           <div className="flex items-baseline gap-2 mb-1">
             <span className="font-display text-2xl text-text-primary tabular leading-none">
               {memberCount > 0 ? capacityPct : "—"}
@@ -132,7 +132,7 @@ export default function OpsStatsRow({
           </div>
           {memberCount > 0 ? (
             <>
-              <div className="mono text-xs text-text-secondary">{memberCount} thành viên · {overloadedCount} overload</div>
+              <div className="mono text-xs text-text-secondary">{memberCount} thành viên · {overloadedCount} quá tải</div>
               <div className="mt-3 flex gap-px h-1">
                 {Array.from({ length: memberCount }).map((_, i) => (
                   <div
@@ -145,7 +145,7 @@ export default function OpsStatsRow({
                 ))}
               </div>
               <div className="mt-2 text-2xs text-text-tertiary">
-                {overloadedCount > 0 ? `${overloadedCount} thành viên overload` : "Tải đồng đều"}
+                {overloadedCount > 0 ? `${overloadedCount} thành viên quá tải` : "Tải đồng đều"}
               </div>
             </>
           ) : (

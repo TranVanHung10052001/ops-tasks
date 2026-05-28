@@ -119,7 +119,7 @@ export default function BriefingCard({
       <div className="p-6 relative">
         <div className="flex items-baseline justify-between mb-5">
           <div className="flex items-center gap-3">
-            <span className="label-ops text-2xs">Báo cáo điều vận</span>
+            <span className="section-label">Báo cáo điều vận</span>
             <span className="text-text-tertiary">·</span>
             <span className="mono text-2xs text-text-tertiary tracking-wider">
               {TODAY.short} · {TODAY.dayName}
@@ -135,7 +135,7 @@ export default function BriefingCard({
         <div className="grid grid-cols-3 gap-8">
           {/* Overview */}
           <div>
-            <div className="label-ops text-2xs mb-2">Tổng quan</div>
+            <div className="section-label mb-2">Tổng quan</div>
             <p className="editorial text-xl leading-snug text-text-primary">
               {overviewText}
             </p>
@@ -143,7 +143,7 @@ export default function BriefingCard({
 
           {/* Priority tasks */}
           <div>
-            <div className="label-ops text-2xs mb-2">Ưu tiên hôm nay</div>
+            <div className="section-label mb-2">Ưu tiên hôm nay</div>
             <ol className="space-y-2 text-md text-text-primary">
               {p0Tasks.length > 0 ? (
                 p0Tasks.map((t, i) => (
@@ -164,7 +164,7 @@ export default function BriefingCard({
 
           {/* Signals */}
           <div>
-            <div className="label-ops text-2xs mb-2">Tín hiệu cần chú ý</div>
+            <div className="section-label mb-2">Tín hiệu cần chú ý</div>
             {signals.length > 0 ? (
               <ul className="space-y-2 text-md text-text-primary">
                 {signals.map((s, i) => (
@@ -188,7 +188,7 @@ export default function BriefingCard({
           <div className="flex items-center gap-2 text-2xs text-text-tertiary">
             <span className="text-accent-amber">⊙</span>
             <span className="mono uppercase tracking-wider">
-              Ahamove Ops · nguồn: Ops DB + Redash BI
+              Ahamove Ops · Nguồn: Ops DB + Redash BI
             </span>
           </div>
           <div />

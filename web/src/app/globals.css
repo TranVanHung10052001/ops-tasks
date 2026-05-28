@@ -214,6 +214,14 @@
     letter-spacing: 0.02em;
     color: var(--text-tertiary);
   }
+  /* Section header — Vietnamese-friendly: sentence case, slightly larger than label-ops */
+  .section-label {
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    color: var(--text-secondary);
+  }
 
   /* === CALLSIGN AVATAR === */
   .callsign {
@@ -338,8 +346,7 @@
     font-family: var(--font-sans);
     font-size: 11px;
     font-weight: 500;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    letter-spacing: 0.04em;
     cursor: pointer;
     transition: all 120ms ease;
   }

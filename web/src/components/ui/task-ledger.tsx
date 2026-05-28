@@ -82,8 +82,8 @@ export default function TaskLedger({
     <section className="ops-surface">
       <header className="flex items-center justify-between px-5 py-3 border-b border-divider">
         <div className="flex items-baseline gap-3">
-          <span className="label-ops text-2xs">{title}</span>
-          <span className="mono text-2xs text-text-tertiary">{tasks.length} dòng</span>
+          <span className="section-label">{title}</span>
+          <span className="mono text-2xs text-text-tertiary">{tasks.length} task</span>
         </div>
         <div className="flex items-center gap-2 mono text-2xs text-text-tertiary">
           <button className="btn-ops" onClick={() => window.history.back()}>⊞ Bảng điều vận</button>
@@ -95,7 +95,7 @@ export default function TaskLedger({
       <div className="overflow-x-auto scroll-ops">
         <table className="w-full text-left">
           <thead>
-            <tr className="border-b border-divider mono text-2xs uppercase tracking-wider text-text-tertiary">
+            <tr className="border-b border-divider mono text-2xs tracking-wider text-text-tertiary">
               <th className="w-1.5 p-0" />
               <th className="px-3 py-2 font-normal">Mã task</th>
               <th className="px-3 py-2 font-normal w-20">Kênh</th>
