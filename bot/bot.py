@@ -482,6 +482,7 @@ async def cmd_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # AI route card + [Assign] [Giữ] buttons
         await update.message.reply_text(
             tpl.msg_ai_route_card(result),
+            parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton(f"● Giao {detected_name.split()[-1]}", callback_data="confirm_assign"),
                 InlineKeyboardButton("○ Giữ cho mình", callback_data="self_keep"),
@@ -577,7 +578,8 @@ async def cmd_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not rec.get("task_id"):
         await update.message.reply_text(
-            tpl.msg_error("AI không chọn được task", rec.get("reason", "Thử /today để xem list."))
+            tpl.msg_error("AI không chọn được task", rec.get("reason", "Thử /today để xem list.")),
+            parse_mode="HTML",
         )
         return
 
@@ -645,7 +647,8 @@ async def cmd_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(
             tpl.msg_error("Không thể đánh dấu xong",
-                          f"Task #{task_id} không tồn tại hoặc đã xong.")
+                          f"Task #{task_id} không tồn tại hoặc đã xong."),
+            parse_mode="HTML",
         )
 
 
@@ -714,11 +717,13 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if cancel_task(task_id):
         await update.message.reply_text(
-            tpl.msg_confirm("Đã huỷ", f"<code>#{task_id}</code> {task.get('summary','')[:60]}")
+            tpl.msg_confirm("Đã huỷ", f"<code>#{task_id}</code> {task.get('summary','')[:60]}"),
+            parse_mode="HTML",
         )
     else:
         await update.message.reply_text(
-            tpl.msg_error("Không thể huỷ", f"Task #{task_id} không tồn tại hoặc đã xong.")
+            tpl.msg_error("Không thể huỷ", f"Task #{task_id} không tồn tại hoặc đã xong."),
+            parse_mode="HTML",
         )
 
 
@@ -986,7 +991,8 @@ async def _do_assign_with_text(
 
     # Confirm to assigner — rich card
     await update.message.reply_text(
-        tpl.msg_assign_confirm(task_id, assignee["full_name"], result)
+        tpl.msg_assign_confirm(task_id, assignee["full_name"], result),
+        parse_mode="HTML",
     )
 
     # DM to assignee — task_new card
@@ -1047,6 +1053,7 @@ async def _show_confirm_card(
 
     await update.message.reply_text(
         tpl.msg_ai_route_card(routed, assigner_name=assigner.get("full_name", "")),
+        parse_mode="HTML",
         reply_markup=confirm_kb,
     )
 
@@ -1208,7 +1215,8 @@ async def cmd_team(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         tpl.msg_brief_team(stats=stats, members=members,
                            cat_counts=cat_counts, p0_tasks=p0_tasks,
-                           all_tasks=all_tasks)
+                           all_tasks=all_tasks),
+        parse_mode="HTML",
     )
 
 
@@ -1578,7 +1586,7 @@ async def cmd_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    msg = await update.message.reply_text(tpl.msg_ai_thinking())
+    msg = await update.message.reply_text(tpl.msg_ai_thinking(), parse_mode="HTML")
     try:
         from ask import ask as ai_ask
         import asyncio
@@ -1586,11 +1594,11 @@ async def cmd_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
         result = await loop.run_in_executor(None, ai_ask, question)
     except Exception as e:
         logger.error(f"cmd_ask failed: {e}", exc_info=True)
-        await msg.edit_text(tpl.msg_error("AI lỗi", str(e)[:200], "Thử lại sau ít phút"))
+        await msg.edit_text(tpl.msg_error("AI lỗi", str(e)[:200], "Thử lại sau ít phút"), parse_mode="HTML")
         return
 
     if result.get("error"):
-        await msg.edit_text(tpl.msg_error("AI lỗi", result["error"]))
+        await msg.edit_text(tpl.msg_error("AI lỗi", result["error"]), parse_mode="HTML")
         return
 
     answer = result.get("answer") or "(không có câu trả lời)"
@@ -1743,7 +1751,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         await query.edit_message_text(
-            tpl.msg_assign_confirm(task_id, assignee["full_name"], result)
+            tpl.msg_assign_confirm(task_id, assignee["full_name"], result),
+            parse_mode="HTML",
         )
         log_action(uid, "assign", "task", task_id, f"→ {assignee['full_name']}")
 
@@ -1769,6 +1778,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=assignee_id,
                 text=tpl.msg_task_new(task_dict, assigned_by_name=assigner_name),
                 reply_markup=accept_kb,
+                parse_mode="HTML",
             )
         except Exception as e:
             logger.error(f"Failed to DM assignee: {e}")
@@ -1780,7 +1790,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not task:
             await query.edit_message_text("Task không còn tồn tại.")
             return
-        await query.edit_message_text(tpl.msg_task_accepted(task))
+        await query.edit_message_text(tpl.msg_task_accepted(task), parse_mode="HTML")
         if task.get("assigned_by"):
             receiver_name = user["full_name"] if user else "Nhân viên"
             try:
@@ -1790,6 +1800,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "Task đã được nhận",
                         f"<code>{receiver_name}</code> nhận <code>#{task_id}</code> {task['summary'][:60]}",
                     ),
+                    parse_mode="HTML",
                 )
             except Exception:
                 pass
@@ -1803,7 +1814,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         cancel_task(task_id)
         await query.edit_message_text(
-            tpl.msg_confirm("Đã từ chối", f"<code>#{task_id}</code> {task.get('summary','')[:60]}")
+            tpl.msg_confirm("Đã từ chối", f"<code>#{task_id}</code> {task.get('summary','')[:60]}"),
+            parse_mode="HTML",
         )
         if task.get("assigned_by"):
             decliner = user["full_name"] if user else "Nhân viên"
@@ -1815,6 +1827,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         f"<code>{decliner}</code> từ chối <code>#{task_id}</code>: {task['summary'][:60]}",
                         action="Cần giao lại cho người khác — /assign",
                     ),
+                    parse_mode="HTML",
                 )
             except Exception:
                 pass
@@ -2034,7 +2047,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Confirm to manager — replace card text
         await query.edit_message_text(
-            tpl.msg_assign_confirm(task_id, assignee["full_name"], routed)
+            tpl.msg_assign_confirm(task_id, assignee["full_name"], routed),
+            parse_mode="HTML",
         )
         log_action(uid, "assign_ai", "task", task_id, f"→ {assignee['full_name']}")
 
@@ -2060,6 +2074,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=assignee["telegram_id"],
                 text=tpl.msg_task_new(task_dict, assigned_by_name=sender_name),
                 reply_markup=accept_kb,
+                parse_mode="HTML",
             )
         except Exception as e:
             logger.error(f"DM to assignee failed: {e}")
@@ -2088,7 +2103,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "cancel_assign":
         _pending_confirm.pop(uid, None)
         _pending_assign_who.pop(uid, None)
-        await query.edit_message_text(tpl.msg_confirm("Đã huỷ", "Không tạo task."))
+        await query.edit_message_text(tpl.msg_confirm("Đã huỷ", "Không tạo task."), parse_mode="HTML")
 
     # ── self_keep — /add suggested assignee but user chose to keep for self ──
     elif data == "self_keep":
