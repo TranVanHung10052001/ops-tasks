@@ -20,11 +20,11 @@ const PRIORITY_BORDER: Record<Priority, string> = {
 };
 
 const PRIORITY_TEXT: Record<Priority, string> = {
-  P0: "text-signal-p0",
-  P1: "text-signal-p1",
-  P2: "text-signal-p2",
-  P3: "text-signal-p3",
-  P4: "text-signal-p4",
+  P0: "text-signal-p0/70",
+  P1: "text-signal-p1/70",
+  P2: "text-signal-p2/70",
+  P3: "text-signal-p3/70",
+  P4: "text-signal-p4/70",
 };
 
 const PRIORITY_ICON: Record<Priority, string> = {
@@ -93,13 +93,13 @@ function TaskCard({ task, members, onTaskClick, onDragStart, selected, onToggleS
         </div>{/* end left flex */}
         <div className="flex items-center gap-1">
           {overdue && (
-            <span className="mono text-2xs text-signal-p0 uppercase tracking-wider border border-signal-p0/50 px-1 py-px">
-              OVERDUE
+            <span className="mono text-2xs text-signal-p0/70 px-1 py-px">
+              ⚠ trễ
             </span>
           )}
           {blocked && !overdue && (
-            <span className="mono text-2xs text-signal-p1 uppercase tracking-wider border border-signal-p1/50 px-1 py-px">
-              CHẶN
+            <span className="mono text-2xs text-signal-p1/70 px-1 py-px">
+              ✕ chặn
             </span>
           )}
           <span className="mono text-2xs uppercase tracking-wider px-1 py-0.5 border border-divider-strong text-text-tertiary">
@@ -133,7 +133,7 @@ function TaskCard({ task, members, onTaskClick, onDragStart, selected, onToggleS
         )}
         <div className="text-right">
           <div className="mono text-xs text-text-primary tabular">{d.date} {d.time}</div>
-          <div className={clsx("mono text-2xs", overdue ? "text-signal-p0" : "text-text-tertiary")}>
+          <div className={clsx("mono text-2xs", overdue ? "text-signal-p0/75" : "text-text-tertiary")}>
             {d.relative}
           </div>
         </div>
@@ -212,7 +212,7 @@ export default function DispatchBoard({
               )}
             >
               <div>
-                <div className={clsx("mono text-xs uppercase tracking-wider", PRIORITY_TEXT[col.key])}>
+                <div className={clsx("mono text-xs tracking-wide", PRIORITY_TEXT[col.key])}>
                   {PRIORITY_ICON[col.key]} {col.label}
                 </div>
                 <div className="mono text-2xs text-text-tertiary mt-0.5">{col.sub}</div>

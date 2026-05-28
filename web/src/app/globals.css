@@ -161,27 +161,27 @@
     align-items: center;
     gap: 6px;
     padding: 2px 8px 2px 6px;
-    border: 1px solid currentColor;
+    border: 1px solid color-mix(in srgb, currentColor 45%, transparent);
     font-family: var(--font-mono);
     font-size: 10px;
-    font-weight: 500;
-    letter-spacing: 0.06em;
+    font-weight: 400;
+    letter-spacing: 0.04em;
     text-transform: uppercase;
     line-height: 18px;
     border-radius: 2px;
+    opacity: 0.82;
   }
   .signal-badge::before {
     content: "";
-    width: 6px;
-    height: 6px;
+    width: 5px;
+    height: 5px;
     border-radius: 50%;
     background: currentColor;
-    box-shadow: 0 0 6px currentColor;
+    /* removed glow — was causing harsh bloom effect on dark bg */
   }
   .signal-badge.outline::before {
     background: transparent;
     border: 1px solid currentColor;
-    box-shadow: none;
   }
 
   .signal-p0 { color: var(--signal-p0); }
@@ -190,13 +190,13 @@
   .signal-p3 { color: var(--signal-p3); }
   .signal-p4 { color: var(--signal-p4); }
 
-  /* P0 pulse */
+  /* P0 pulse — subtle opacity flicker only, no glow bloom */
   .signal-p0::before {
-    animation: pulseSignal 1.5s ease-in-out infinite;
+    animation: pulseSignal 2s ease-in-out infinite;
   }
   @keyframes pulseSignal {
-    0%, 100% { opacity: 1; box-shadow: 0 0 6px currentColor; }
-    50% { opacity: 0.5; box-shadow: 0 0 12px currentColor; }
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
   }
 
   /* === LABEL === uppercase labels share 0.06em spacing (was 0.04/0.05/0.08/0.12) */
