@@ -153,6 +153,10 @@ async def main():
     sched.add_job(redash_sync_all, "interval", minutes=30, id="redash_sync")
     sched.add_job(sheet_sync_all,  "interval", minutes=30, id="sheet_sync")
 
+    # Cleanup expired pending_actions rows every 30 min (sweeps stale callback state)
+    from store import cleanup_expired_pending
+    sched.add_job(cleanup_expired_pending, "interval", minutes=30, id="pending_cleanup")
+
     sched.start()
     logger.info("Scheduler started — 3 user-facing jobs + Redash + Sheet sync")
 

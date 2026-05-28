@@ -37,23 +37,26 @@ import templates as tpl
 
 logger = logging.getLogger(__name__)
 
-# ─── In-memory state ─────────────────────────────────────────────────────────
-# {chat_id: True} — waiting for user's full name input
-_pending_name: dict[int, bool] = {}
-
-# {manager_chat_id: {classified_task_data}} — forward-to-assign flow step 1
-_pending_assign_who: dict[int, dict] = {}
-
-# {manager_chat_id: {task_data, assignee_id}} — waiting for deadline after assignee picked
-_pending_assign_deadline: dict[int, dict] = {}
-
-# {user_chat_id: (task_id, ts)} — waiting for deadline on self-created task
-_pending_deadline: dict[int, tuple] = {}
-
-# {manager_chat_id: {routed task data}} — waiting for manager to confirm AI routing
-_pending_confirm: dict[int, dict] = {}
+# ─── Persisted state (survives bot restarts via SQLite) ──────────────────────
+# Replaces in-memory dicts so callback state doesn't get wiped on Railway redeploy
+from store import PersistedDict as _PersistedDict
 
 DEADLINE_TTL = 300  # 5 minutes
+
+# {chat_id: True} — waiting for user's full name input
+_pending_name = _PersistedDict("name", ttl_seconds=1800)
+
+# {chat_id: {classified_task_data}} — forward-to-assign flow step 1
+_pending_assign_who = _PersistedDict("assign_who", ttl_seconds=1800)
+
+# {chat_id: {task_data, assignee_id}} — waiting for deadline after assignee picked
+_pending_assign_deadline = _PersistedDict("assign_deadline", ttl_seconds=DEADLINE_TTL)
+
+# {chat_id: (task_id, ts)} — waiting for deadline on self-created task
+_pending_deadline = _PersistedDict("deadline", ttl_seconds=DEADLINE_TTL)
+
+# {chat_id: {routed task data}} — waiting for manager to confirm AI routing
+_pending_confirm = _PersistedDict("confirm", ttl_seconds=1800)
 
 # ─── Deadline-reply heuristic ─────────────────────────────────────────────────
 # Only treat incoming text as a deadline answer when it is SHORT (≤ 6 words)

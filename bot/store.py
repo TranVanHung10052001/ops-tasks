@@ -99,6 +99,15 @@ def init_db():
                 source     TEXT DEFAULT 'manual',
                 updated_at DATETIME DEFAULT (datetime('now', '+7 hours'))
             );
+
+            CREATE TABLE IF NOT EXISTS pending_actions (
+                uid        INTEGER NOT NULL,
+                kind       TEXT NOT NULL,
+                payload    TEXT,
+                created_at DATETIME DEFAULT (datetime('now', '+7 hours')),
+                expires_at DATETIME NOT NULL,
+                PRIMARY KEY (uid, kind)
+            );
         """)
         # ── Schema migrations (idempotent) ──────────────────────────────────
         for col, typedef in [
@@ -874,3 +883,133 @@ def get_adhoc_ratio_this_week(user_id: int) -> dict:
     adhoc = sum(1 for r in rows if (r["category"] or "").lower() in _ADHOC_CATEGORIES)
     ratio_pct = round(adhoc / total * 100, 1)
     return {"total": total, "adhoc": adhoc, "ratio_pct": ratio_pct}
+
+
+# ─── Pending actions (persisted across bot restarts) ─────────────────────────
+# Replaces in-memory dicts (_pending_name, _pending_confirm, etc) so callback
+# state survives Railway redeploys.
+
+import json as _json
+from datetime import timedelta as _timedelta
+
+
+def _dt_encode(o):
+    if isinstance(o, datetime):
+        return {"__dt__": o.isoformat()}
+    raise TypeError(repr(o) + " is not JSON serializable")
+
+
+def _dt_decode(d):
+    if "__dt__" in d:
+        try:
+            return datetime.fromisoformat(d["__dt__"])
+        except ValueError:
+            return d
+    return d
+
+
+def set_pending(uid: int, kind: str, payload: dict, ttl_seconds: int = 3600):
+    expires = (datetime.now() + _timedelta(seconds=ttl_seconds)).isoformat()
+    body = _json.dumps(payload or {}, default=_dt_encode)
+    with get_db() as conn:
+        conn.execute("""
+            INSERT INTO pending_actions (uid, kind, payload, expires_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(uid, kind) DO UPDATE SET
+                payload    = excluded.payload,
+                expires_at = excluded.expires_at,
+                created_at = datetime('now', '+7 hours')
+        """, (uid, kind, body, expires))
+
+
+def get_pending(uid: int, kind: str):
+    """Return payload dict if present and not expired, else None."""
+    with get_db() as conn:
+        row = conn.execute("""
+            SELECT payload FROM pending_actions
+            WHERE uid = ? AND kind = ?
+              AND datetime(expires_at) > datetime('now', '+7 hours')
+        """, (uid, kind)).fetchone()
+    if not row:
+        return None
+    try:
+        return _json.loads(row["payload"], object_hook=_dt_decode)
+    except Exception:
+        return None
+
+
+def pop_pending(uid: int, kind: str):
+    val = get_pending(uid, kind)
+    with get_db() as conn:
+        conn.execute(
+            "DELETE FROM pending_actions WHERE uid = ? AND kind = ?",
+            (uid, kind),
+        )
+    return val
+
+
+def cleanup_expired_pending():
+    with get_db() as conn:
+        conn.execute("""
+            DELETE FROM pending_actions
+            WHERE datetime(expires_at) <= datetime('now', '+7 hours')
+        """)
+
+
+class PersistedDict:
+    """
+    Dict-like wrapper that persists each entry to pending_actions table.
+    Survives bot restarts (Railway redeploys).
+
+    Usage:
+        _pending_confirm = PersistedDict('confirm', ttl_seconds=1800)
+        _pending_confirm[uid] = {'task_text': text, 'routed': result}
+        if uid in _pending_confirm:
+            state = _pending_confirm[uid]
+            _pending_confirm.pop(uid)
+    """
+
+    def __init__(self, kind: str, ttl_seconds: int = 3600):
+        self.kind = kind
+        self.ttl = ttl_seconds
+
+    def __setitem__(self, uid, value):
+        if isinstance(value, bool):
+            value = {"_flag": value}
+        elif isinstance(value, tuple):
+            value = {"_tuple": list(value)}
+        elif not isinstance(value, dict):
+            value = {"_value": value}
+        set_pending(int(uid), self.kind, value, self.ttl)
+
+    def __getitem__(self, uid):
+        val = get_pending(int(uid), self.kind)
+        if val is None:
+            raise KeyError(uid)
+        if isinstance(val, dict):
+            if "_flag" in val and len(val) == 1:
+                return val["_flag"]
+            if "_tuple" in val and len(val) == 1:
+                return tuple(val["_tuple"])
+            if "_value" in val and len(val) == 1:
+                return val["_value"]
+        return val
+
+    def __contains__(self, uid):
+        return get_pending(int(uid), self.kind) is not None
+
+    def get(self, uid, default=None):
+        try:
+            return self[uid]
+        except KeyError:
+            return default
+
+    def pop(self, uid, *args):
+        had = self.__contains__(uid)
+        if had:
+            val = self[uid]
+            pop_pending(int(uid), self.kind)
+            return val
+        if args:
+            return args[0]
+        raise KeyError(uid)
