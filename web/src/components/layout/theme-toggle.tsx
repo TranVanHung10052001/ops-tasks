@@ -6,18 +6,19 @@ import clsx from "clsx";
 type Theme = "toi" | "sang";
 
 export default function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>("toi");
+  // Light ("sang") is now the default theme; dark ("toi") is opt-in.
+  const [theme, setTheme] = useState<Theme>("sang");
 
   useEffect(() => {
-    const stored = (localStorage.getItem("ops-theme") as Theme | null) ?? "toi";
+    const stored = (localStorage.getItem("ops-theme") as Theme | null) ?? "sang";
     setTheme(stored);
   }, []);
 
   const change = (next: Theme) => {
     setTheme(next);
     localStorage.setItem("ops-theme", next);
-    if (next === "sang") {
-      document.documentElement.setAttribute("data-theme", "sang");
+    if (next === "toi") {
+      document.documentElement.setAttribute("data-theme", "toi");
     } else {
       document.documentElement.removeAttribute("data-theme");
     }

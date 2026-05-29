@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 const themeInit = `
 try {
   var t = localStorage.getItem('ops-theme');
-  if (t === 'sang') document.documentElement.setAttribute('data-theme','sang');
+  if (t === 'toi') document.documentElement.setAttribute('data-theme','toi');
 } catch(e) {}
 `;
 
