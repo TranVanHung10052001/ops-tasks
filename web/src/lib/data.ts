@@ -1,4 +1,4 @@
-import { fetchBotApi, ApiTask, ApiMember, ApiStats, ApiOkrResponse, ApiOkrAction, ApiMetrics } from "./api";
+import { fetchBotApi, ApiTask, ApiMember, ApiStats, ApiOkrResponse, ApiOkrAction, ApiMetrics, ApiPerformanceTeam } from "./api";
 import {
   MEMBERS, OKRS,
   OpsTask, Member, OkrObjective,
@@ -116,6 +116,14 @@ export async function getStatsData(): Promise<ApiStats> {
       member_count: MEMBERS.length,
       overdue_tasks: [],
     };
+  }
+}
+
+export async function getPerformanceData(days = 30): Promise<ApiPerformanceTeam> {
+  try {
+    return await fetchBotApi<ApiPerformanceTeam>(`/api/performance?days=${days}`);
+  } catch {
+    return { days, members: [] }; // empty state until bot connected
   }
 }
 

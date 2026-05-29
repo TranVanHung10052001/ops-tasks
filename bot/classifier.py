@@ -16,10 +16,24 @@ import json
 import os
 import logging
 import time
+import hashlib
 from datetime import datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# ─── AI response cache ──────────────────────────────────────────────────────
+# Identical prompts (e.g. the same forwarded message re-processed, or a duplicate
+# /assign) hit Gemini repeatedly — same input, same output, wasted latency + quota.
+# Cache by sha1(model + prompt) with a 1h TTL. {key: (result_dict, expiry_ts)}
+_CALL_CACHE: dict[str, tuple[dict, float]] = {}
+_CACHE_TTL = 3600.0  # seconds
+_CACHE_MAX = 500     # cap entries to bound memory
+
+
+def _cache_key(model, prompt: str) -> str:
+    name = getattr(model, "model_name", str(id(model)))
+    return hashlib.sha1(f"{name}\x00{prompt}".encode("utf-8")).hexdigest()
 
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
@@ -173,11 +187,24 @@ TASK TEXT:
 """
 
 
-def _safe_call(model, prompt: str, retries: int = 2) -> dict:
+def _safe_call(model, prompt: str, retries: int = 2, use_cache: bool = True) -> dict:
+    key = _cache_key(model, prompt) if use_cache else None
+    if key is not None:
+        hit = _CALL_CACHE.get(key)
+        if hit and hit[1] > time.time():
+            return dict(hit[0])  # copy so callers can't mutate the cached dict
+        if hit:
+            _CALL_CACHE.pop(key, None)  # expired
+
     for attempt in range(retries + 1):
         try:
             resp = model.generate_content(prompt)
-            return json.loads(resp.text)
+            result = json.loads(resp.text)
+            if key is not None and isinstance(result, dict) and result:
+                if len(_CALL_CACHE) >= _CACHE_MAX:
+                    _CALL_CACHE.clear()  # simple bound — cheap, infrequent
+                _CALL_CACHE[key] = (dict(result), time.time() + _CACHE_TTL)
+            return result
         except Exception as e:
             if attempt < retries:
                 time.sleep(1.5 ** attempt)
@@ -214,6 +241,35 @@ def extract_deadline(text: str) -> dict:
     }
 
 
+def _live_roster() -> str:
+    """Currently-approved members from the DB, formatted for the router prompt.
+
+    The baked-in ROUTER_PROMPT lists the *expected* team, but people get
+    claimed/added over time. Injecting the live roster lets the AI route only to
+    real, active accounts (and avoids hallucinating someone who left).
+    Degrades to '' if store is unavailable (e.g. classifier imported standalone).
+    """
+    try:
+        from store import list_users
+        users = list_users(approved_only=True)
+        if not users:
+            return ""
+        lines = [
+            f"- {u['full_name']}"
+            + (f" <{u['email']}>" if u.get("email") else "")
+            + (f" · {u['team']}" if u.get("team") else "")
+            + (f" · {u['role']}" if u.get("role") else "")
+            for u in users
+        ]
+        return (
+            "\n\nROSTER ĐANG HOẠT ĐỘNG (chỉ giao cho người trong danh sách này, "
+            "ưu tiên khớp email):\n" + "\n".join(lines) + "\n"
+        )
+    except Exception as e:
+        logger.debug(f"_live_roster unavailable: {e}")
+        return ""
+
+
 def route_task(text: str) -> dict:
     """
     Full routing pipeline with team context (cached system instruction).
@@ -224,7 +280,7 @@ def route_task(text: str) -> dict:
       deadline_iso, priority, category, okr_ref, okr_action_id,
       in_scope, scope_note, breakdown, confidence
     """
-    result = _safe_call(_router_model, ROUTER_PROMPT + text)
+    result = _safe_call(_router_model, ROUTER_PROMPT + _live_roster() + "\n\nTASK:\n" + text)
 
     if not result:
         # Fallback to basic classify

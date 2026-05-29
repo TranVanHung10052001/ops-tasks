@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { TASKS, MEMBERS, formatDeadline, statusLabel, OpsTask, Member, Priority } from "@/lib/mock";
 import SignalBadge from "./signal-badge";
 import clsx from "clsx";
@@ -88,7 +89,7 @@ export default function TaskLedger({
           <span className="mono text-2xs text-text-tertiary">{tasks.length} task</span>
         </div>
         <div className="flex items-center gap-2 mono text-2xs text-text-tertiary">
-          <button className="btn-ops" onClick={() => window.history.back()}>⊞ Bảng điều vận</button>
+          <Link href="/tasks" className="btn-ops">⊞ Bảng điều vận</Link>
           <button className="btn-ops" onClick={() => exportCsv(tasks, allMembers)}>↧ Xuất CSV</button>
           <button className="btn-ops primary" onClick={onCreateTask}>+ Tạo task</button>
         </div>

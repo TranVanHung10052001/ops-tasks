@@ -237,7 +237,7 @@ export default function AIPanel() {
   );
 
   return (
-    <aside className="w-[320px] bg-surface-deep border-l border-divider flex flex-col h-full fixed right-0 top-10 bottom-0 overflow-hidden">
+    <aside className="w-[320px] bg-surface-deep border-l border-divider hidden xl:flex flex-col h-full fixed right-0 top-10 bottom-0 overflow-hidden">
       {/* Header */}
       <div className="px-4 py-3 border-b border-divider">
         <div className="flex items-center justify-between mb-1">
@@ -250,7 +250,7 @@ export default function AIPanel() {
         <div className="label-mono text-2xs text-text-tertiary">
           {isConnected
             ? `phiên ${timeStr} · ${dateStr} · sẵn sàng nhận lệnh`
-            : `${timeStr} · ${dateStr} · chờ kết nối bot`}
+            : `${timeStr} · ${dateStr} · chưa kết nối bot`}
         </div>
       </div>
 

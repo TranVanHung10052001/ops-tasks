@@ -8,38 +8,38 @@
 
 @layer base {
   :root {
-    /* === BASE === */
-    --canvas: #0E1014;
-    --surface: #14171D;
-    --surface-raised: #1B1F27;
-    --surface-deep: #0A0C10;
-    --divider: #232830;
-    --divider-strong: #2D3340;
+    /* === BASE === Ahamove Gray-Neutral, dark end (Gray 70 #121619) */
+    --canvas: #0F1316;
+    --surface: #161B21;
+    --surface-raised: #1E242B;
+    --surface-deep: #0A0D10;
+    --divider: #242B33;
+    --divider-strong: #313A44;
 
-    /* === TEXT === */
-    --text-primary: #E8E6E1;
-    --text-secondary: #A8A59F;
-    --text-tertiary: #6B6862;
-    --text-disabled: #3F3D38;
+    /* === TEXT === Ahamove Gray scale (10/40/50/60) */
+    --text-primary: #EAECEF;
+    --text-secondary: #99A0AA;
+    --text-tertiary: #757D86;
+    --text-disabled: #4C5158;
 
-    /* === SIGNAL === */
-    --signal-p0: #FF3B30;
-    --signal-p1: #FF9500;
+    /* === SIGNAL === P1 → brand orange, P4 → Trust blue */
+    --signal-p0: #F5333F;
+    --signal-p1: #FF7F32;
     --signal-p2: #FFCC00;
     --signal-p3: #34C759;
-    --signal-p4: #5856D6;
+    --signal-p4: #0089FF;
 
-    /* === STATE === */
+    /* === STATE === done → Trust blue */
     --state-active: #30D158;
     --state-pending: #FFD60A;
-    --state-blocked: #FF453A;
-    --state-done: #64D2FF;
+    --state-blocked: #F5333F;
+    --state-done: #0089FF;
     --state-paused: #BF5AF2;
 
-    /* === ACCENT === */
-    --accent-amber: #E8923C;
-    --accent-amber-deep: #B26A22;
-    --accent-paper: #D4B896;
+    /* === ACCENT === Ahamove Brand orange + Trust blue */
+    --accent-amber: #FF7F32;       /* Orange 50 — pops on dark */
+    --accent-amber-deep: #F55F00;  /* Orange 60 — core brand */
+    --accent-paper: #76C0FF;       /* Blue 30 — Trust secondary */
 
     /* Typography tokens — only 2 actual typefaces.
        --font-display kept as alias for backwards-compat with .kpi-number etc. */
@@ -49,29 +49,30 @@
   }
 
   [data-theme="sang"] {
-    --canvas: #F2EFE7;
-    --surface: #FAF7EF;
+    /* Ahamove Gray-Neutral, light end */
+    --canvas: #F4F5F7;
+    --surface: #FFFFFF;
     --surface-raised: #FFFFFF;
-    --surface-deep: #E8E4D6;
-    --text-primary: #1A1814;
-    --text-secondary: #5A574F;
-    --text-tertiary: #8A8780;
-    --text-disabled: #BBB5A5;
-    --divider: #D9D4C7;
-    --divider-strong: #B5AE9C;
-    --signal-p0: #D70015;
-    --signal-p1: #C76900;
+    --surface-deep: #EAECEF;
+    --text-primary: #121619;
+    --text-secondary: #4C5158;
+    --text-tertiary: #757D86;
+    --text-disabled: #C1C7CD;
+    --divider: #DDE1E6;
+    --divider-strong: #C1C7CD;
+    --signal-p0: #E11D2E;
+    --signal-p1: #E35600;
     --signal-p2: #B58500;
     --signal-p3: #248A3D;
-    --signal-p4: #3634A3;
+    --signal-p4: #005BAA;
     --state-active: #248A3D;
     --state-pending: #B58500;
-    --state-blocked: #D70015;
-    --state-done: #0071A4;
+    --state-blocked: #E11D2E;
+    --state-done: #005BAA;
     --state-paused: #8944AB;
-    --accent-amber: #B26A22;
-    --accent-amber-deep: #8F4F0F;
-    --accent-paper: #5A4530;
+    --accent-amber: #F55F00;       /* Orange 60 — core brand, on light */
+    --accent-amber-deep: #E35600;  /* Orange 70 */
+    --accent-paper: #005BAA;       /* Blue 50 — Trust secondary */
   }
 
   * {
@@ -143,8 +144,8 @@
     inset: 0;
     pointer-events: none;
     background:
-      radial-gradient(ellipse 52% 42% at 0% 0%, rgba(232, 146, 60, 0.04) 0%, transparent 100%),
-      radial-gradient(ellipse 46% 38% at 100% 0%, rgba(88, 86, 214, 0.03) 0%, transparent 100%);
+      radial-gradient(ellipse 52% 42% at 0% 0%, rgba(245, 95, 0, 0.05) 0%, transparent 100%),
+      radial-gradient(ellipse 46% 38% at 100% 0%, rgba(0, 137, 255, 0.04) 0%, transparent 100%);
     z-index: 9996;
   }
   html[data-theme="sang"]::before {
@@ -417,10 +418,10 @@
   }
   .ai-classified-card:hover {
     box-shadow: inset 3px 0 0 var(--accent-amber);
-    background-color: rgba(232, 146, 60, 0.04);
+    background-color: rgba(255, 127, 50, 0.05);
   }
   [data-theme="sang"] .ai-classified-card:hover {
-    background-color: rgba(178, 106, 34, 0.05);
+    background-color: rgba(245, 95, 0, 0.06);
   }
 }
 
@@ -487,8 +488,8 @@
       45deg,
       transparent,
       transparent 4px,
-      rgba(232, 146, 60, 0.08) 4px,
-      rgba(232, 146, 60, 0.08) 5px
+      rgba(245, 95, 0, 0.08) 4px,
+      rgba(245, 95, 0, 0.08) 5px
     );
   }
   [data-theme="sang"] .hatch {
@@ -500,4 +501,25 @@
       rgba(143, 79, 15, 0.12) 5px
     );
   }
+}
+
+/* ── Accessibility: visible keyboard focus ─────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--accent-amber);
+  outline-offset: 2px;
+}
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ── Respect reduced-motion: kill marquee/pulses/decorative grain ──────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .marquee-track { animation: none !important; }
+  body::before, body::after { display: none !important; }
 }

@@ -128,7 +128,7 @@ export default function BriefingCard({
           <div className="mono text-2xs text-text-tertiary">
             {metrics?.updated_at
               ? `cập nhật ${new Date(metrics.updated_at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}`
-              : "chờ kết nối dữ liệu"}
+              : "chưa kết nối Redash"}
           </div>
         </div>
 
@@ -156,7 +156,7 @@ export default function BriefingCard({
                 <li className="text-text-disabled text-sm">
                   {topTasks !== undefined
                     ? "Không có task P0 đang mở"
-                    : "Chờ kết nối Telegram bot để lấy task"}
+                    : "Chưa kết nối bot — chưa có task"}
                 </li>
               )}
             </ol>
@@ -176,7 +176,7 @@ export default function BriefingCard({
               </ul>
             ) : (
               <p className="text-text-disabled text-sm">
-                {stats ? "Không có tín hiệu bất thường." : "Chờ kết nối dữ liệu."}
+                {stats ? "Không có tín hiệu bất thường." : "Chưa kết nối bot."}
               </p>
             )}
           </div>
