@@ -91,6 +91,17 @@ export async function getTasksData(): Promise<OpsTask[]> {
   }
 }
 
+// Done tasks completed recently (last 24h ≈ "hôm nay") — for the status board's
+// HOÀN THÀNH column. /api/tasks default excludes done, so we fetch it separately.
+export async function getDoneTodayData(): Promise<OpsTask[]> {
+  try {
+    const res = await fetchBotApi<ApiTask[]>("/api/tasks/done?days=1");
+    return res.map(apiTaskToOpsTask);
+  } catch {
+    return [];
+  }
+}
+
 export async function getMembersData(): Promise<Member[]> {
   try {
     const members = await fetchBotApi<ApiMember[]>("/api/team");

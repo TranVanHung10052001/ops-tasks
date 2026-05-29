@@ -1,4 +1,4 @@
-import { getTasksData, getMembersData } from "@/lib/data";
+import { getTasksData, getMembersData, getDoneTodayData } from "@/lib/data";
 import { Channel } from "@/lib/mock";
 import TasksView from "./tasks-view";
 
@@ -7,9 +7,10 @@ export default async function TasksPage({
 }: {
   searchParams: Promise<{ channel?: string; member?: string; priority?: string }>;
 }) {
-  const [tasks, members, params] = await Promise.all([
+  const [tasks, members, doneToday, params] = await Promise.all([
     getTasksData(),
     getMembersData(),
+    getDoneTodayData(),
     searchParams,
   ]);
 
@@ -21,13 +22,17 @@ export default async function TasksPage({
     (t) => t.status !== "hoan_thanh" && t.status !== "tam_dung"
   );
 
-  // Apply sidebar filters
-  const filteredTasks = activeTasks.filter((t) => {
+  // Shared sidebar filter
+  const matchesFilters = (t: { channel: Channel; assignee: string; priority: string }) => {
     if (channel && t.channel !== channel) return false;
     if (memberId && t.assignee !== memberId) return false;
     if (priorities.length > 0 && !priorities.includes(t.priority)) return false;
     return true;
-  });
+  };
+
+  const filteredTasks = activeTasks.filter(matchesFilters);
+  // Done-today only flows to the status board's HOÀN THÀNH column.
+  const filteredDone = doneToday.filter(matchesFilters);
 
   // Count helpers for sidebar highlight
   const filterActive = !!(channel || memberId || priorities.length);
@@ -52,7 +57,7 @@ export default async function TasksPage({
         </div>
       </header>
 
-      <TasksView key={`${channel ?? "all"}-${memberId ?? "all"}`} tasks={filteredTasks} members={members} />
+      <TasksView key={`${channel ?? "all"}-${memberId ?? "all"}`} tasks={filteredTasks} doneToday={filteredDone} members={members} />
     </div>
   );
 }

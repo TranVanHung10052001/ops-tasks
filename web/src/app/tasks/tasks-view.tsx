@@ -58,16 +58,20 @@ function isInDateRange(task: OpsTask, filter: DateFilter): boolean {
 
 export default function TasksView({
   tasks: tasksProp,
+  doneToday: doneTodayProp,
   members: membersProp,
 }: {
   tasks?: OpsTask[];
+  doneToday?: OpsTask[];
   members?: Member[];
 }) {
   const [view, setView]           = useState<(typeof VIEWS)[number]["key"]>("board");
   const [tasks, setTasks]         = useState<OpsTask[]>(tasksProp ?? TASKS);
+  const [doneToday, setDoneToday] = useState<OpsTask[]>(doneTodayProp ?? []);
   const members                   = membersProp ?? MEMBERS;
 
   useEffect(() => { if (tasksProp) setTasks(tasksProp); }, [tasksProp]);
+  useEffect(() => { if (doneTodayProp) setDoneToday(doneTodayProp); }, [doneTodayProp]);
 
   const [selectedTask, setSelectedTask] = useState<OpsTask | null>(null);
   const [editTask, setEditTask]         = useState<OpsTask | null>(null);
@@ -98,6 +102,23 @@ export default function TasksView({
     }
     return result;
   }, [tasks, searchQuery, dateFilter, members]);
+
+  // Status board also shows done-today in the HOÀN THÀNH column. Apply the same
+  // search filter; dedupe by id (a task dragged to done lives in `tasks` already).
+  const statusBoardTasks = useMemo(() => {
+    let done = doneToday;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      done = done.filter((t) =>
+        t.title.toLowerCase().includes(q) ||
+        t.id.toLowerCase().includes(q) ||
+        t.tags.some((tag) => tag.toLowerCase().includes(q)) ||
+        members.find((m) => m.id === t.assignee)?.name.toLowerCase().includes(q)
+      );
+    }
+    const seen = new Set(filteredTasks.map((t) => t.id));
+    return [...filteredTasks, ...done.filter((t) => !seen.has(t.id))];
+  }, [filteredTasks, doneToday, searchQuery, members]);
 
   const handleTaskClick = useCallback((task: OpsTask) => setSelectedTask(task), []);
 
@@ -358,7 +379,7 @@ export default function TasksView({
       </div>
 
       {view === "status-board" && (
-        <StatusBoard tasks={filteredTasks} members={members} onTaskClick={handleTaskClick}
+        <StatusBoard tasks={statusBoardTasks} members={members} onTaskClick={handleTaskClick}
           onStatusChange={handleStatusChange} onQuickCreate={handleQuickCreateWithStatus} />
       )}
       {view === "ledger" && (
