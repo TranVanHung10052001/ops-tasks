@@ -40,16 +40,27 @@ TEAM = [
 ]
 
 
-def _resolve_reports_to(placeholder: int | None, id_map: dict) -> int | None:
-    """
-    Given a placeholder reports_to ID (negative), return:
-      - The REAL telegram_id if that person was already claimed
-      - The placeholder ID if they were freshly inserted
-      - None if placeholder is None or can't be resolved
-    """
-    if placeholder is None:
-        return None
-    return id_map.get(placeholder, placeholder)
+def _name_key(name: str) -> str:
+    """Vietnamese 'họ + tên' identity key — first token + last token, lowercased.
+    'Lê Hoàng Nhất Thống' → 'lê thống', and the shorthand 'Lê Thống' → 'lê thống'."""
+    parts = (name or "").lower().split()
+    if not parts:
+        return ""
+    return f"{parts[0]} {parts[-1]}" if len(parts) >= 2 else parts[0]
+
+
+def _find_matches(conn, name: str, email: str) -> list:
+    """All user rows that refer to the same person: exact name, same email, or
+    matching họ+tên key. Used to detect + merge duplicate accounts."""
+    key = _name_key(name)
+    rows = conn.execute("SELECT * FROM users").fetchall()
+    out = []
+    for r in rows:
+        rn = (r["full_name"] or "").strip().lower()
+        re_ = (r["email"] or "").strip().lower()
+        if rn == name.lower() or (re_ and re_ == email.lower()) or _name_key(r["full_name"]) == key:
+            out.append(r)
+    return out
 
 
 def seed():
@@ -57,50 +68,65 @@ def seed():
 
     inserted = 0
     updated  = 0
-    skipped  = 0
+    merged   = 0
 
-    # Build a mapping: placeholder_id → actual telegram_id (real or still placeholder)
-    # Process ALL members first in a read pass to build the map.
-    id_map: dict[int, int] = {}  # placeholder → real_id (if claimed) or placeholder (if not)
+    # placeholder_id → resolved telegram_id (real if claimed, else placeholder)
+    id_map: dict[int, int] = {}
 
     with get_db() as conn:
-        # Disable FK checks for the duration of seed — we'll enforce integrity manually.
-        # This is safe because seed only inserts pre-approved placeholder rows.
+        # Disable FK checks for the duration of seed — we enforce integrity manually
+        # (we repoint child rows before deleting duplicate parents).
         conn.execute("PRAGMA defer_foreign_keys = ON")
 
         for (pid, name, email, role, team, grade, reports_to) in TEAM:
-            # Check if a record with this full_name already exists
-            existing = conn.execute(
-                "SELECT telegram_id, is_preseeded FROM users WHERE full_name = ?",
-                (name,)
-            ).fetchone()
+            matches = _find_matches(conn, name, email)
 
-            if existing:
-                tid = existing["telegram_id"]
-                id_map[pid] = tid  # placeholder → real (or existing placeholder) id
-                if tid > 0:
-                    # Already claimed by real user — update non-ID fields only
+            if matches:
+                # Keeper = a CLAIMED row (telegram_id > 0, needed for bot DMs) if any,
+                # else the existing placeholder row.
+                claimed = [m for m in matches if m["telegram_id"] > 0]
+                keeper_id = (claimed[0] if claimed else matches[0])["telegram_id"]
+
+                # Merge any duplicate rows into the keeper: repoint children, delete dup.
+                for m in matches:
+                    old = m["telegram_id"]
+                    if old == keeper_id:
+                        continue
+                    for table, col in [
+                        ("tasks", "assignee_id"), ("tasks", "assigned_by"),
+                        ("users", "reports_to"), ("audit_log", "actor_id"),
+                    ]:
+                        try:
+                            conn.execute(f"UPDATE {table} SET {col} = ? WHERE {col} = ?",
+                                         (keeper_id, old))
+                        except Exception:
+                            pass
+                    conn.execute("DELETE FROM users WHERE telegram_id = ?", (old,))
+                    print(f"  [merged dup]    {m['full_name']} ({old}) → keeper {keeper_id}")
+                    merged += 1
+
+                id_map[pid] = keeper_id
+                # Restore canonical fields (also fixes shorthand names like 'Lê Thống').
+                # Preserve is_preseeded=0 if the keeper is a real claimed account.
+                if keeper_id > 0:
                     conn.execute("""
-                        UPDATE users
-                           SET email = ?, role = ?, team = ?, grade = ?
-                         WHERE full_name = ?
-                    """, (email, role, team, grade, name))
-                    print(f"  [skip-claimed]  {name} (real id={tid})")
-                    skipped += 1
+                        UPDATE users SET full_name=?, email=?, role=?, team=?, grade=?,
+                                         is_approved=1
+                         WHERE telegram_id=?
+                    """, (name, email, role, team, grade, keeper_id))
+                    print(f"  [claimed]       {name} (real id={keeper_id})")
                 else:
-                    # Still placeholder — refresh data
                     conn.execute("""
-                        UPDATE users
-                           SET email = ?, role = ?, team = ?, grade = ?,
-                               is_approved = 1, is_preseeded = 1
-                         WHERE full_name = ?
-                    """, (email, role, team, grade, name))
-                    print(f"  [updated]       {name} (placeholder id={tid})")
-                    updated += 1
+                        UPDATE users SET full_name=?, email=?, role=?, team=?, grade=?,
+                                         is_approved=1, is_preseeded=1
+                         WHERE telegram_id=?
+                    """, (name, email, role, team, grade, keeper_id))
+                    print(f"  [updated]       {name} (placeholder id={keeper_id})")
+                updated += 1
             else:
                 # Fresh insert — resolve reports_to using id_map built so far
-                resolved_rt = _resolve_reports_to(reports_to, id_map)
-                id_map[pid] = pid  # placeholder maps to itself (not yet claimed)
+                resolved_rt = id_map.get(reports_to, reports_to) if reports_to is not None else None
+                id_map[pid] = pid
                 conn.execute("""
                     INSERT INTO users
                         (telegram_id, username, full_name, email, role, team, grade,
@@ -110,7 +136,15 @@ def seed():
                 print(f"  [inserted]      {name} (placeholder id={pid})")
                 inserted += 1
 
-    print(f"\nDone. inserted={inserted}  updated={updated}  skipped={skipped}")
+        # Second pass: fix reports_to now that every person resolves to a final id.
+        for (pid, name, email, role, team, grade, reports_to) in TEAM:
+            if reports_to is None:
+                continue
+            tid = id_map.get(pid, pid)
+            rt  = id_map.get(reports_to, reports_to)
+            conn.execute("UPDATE users SET reports_to = ? WHERE telegram_id = ?", (rt, tid))
+
+    print(f"\nDone. inserted={inserted}  updated={updated}  merged_dups={merged}")
     print("All pre-seeded members will be auto-approved when they /start the bot.")
 
 

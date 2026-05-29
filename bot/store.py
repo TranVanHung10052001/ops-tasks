@@ -182,9 +182,14 @@ def claim_preseeded_user(real_id: int, username: str, typed_name: str) -> dict |
     def _score(row) -> int:
         fn = row["full_name"].lower()
         parts = fn.split()
+        tparts = typed.split()
         if fn == typed:
             return 3
-        # Vietnamese name: last token is the given name (most distinctive)
+        # Vietnamese "họ + tên" shorthand: e.g. "Lê Thống" ↔ "Lê Hoàng Nhất Thống"
+        # (first token = surname, last token = given name). Most common shorthand.
+        if len(tparts) >= 2 and len(parts) >= 2 and tparts[0] == parts[0] and tparts[-1] == parts[-1]:
+            return 3
+        # Last token (given name) alone
         if parts and parts[-1] == typed:
             return 2
         if typed in fn or any(p == typed for p in parts):
@@ -261,8 +266,11 @@ def find_preseeded_by_name(typed_name: str) -> dict | None:
     for row in rows:
         fn = row["full_name"].lower()
         parts = fn.split()
+        tparts = typed.split()
         score = 0
         if fn == typed:
+            score = 3
+        elif len(tparts) >= 2 and len(parts) >= 2 and tparts[0] == parts[0] and tparts[-1] == parts[-1]:
             score = 3
         elif parts and parts[-1] == typed:
             score = 2
