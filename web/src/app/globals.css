@@ -8,38 +8,40 @@
 
 @layer base {
   :root {
-    /* === BASE === Ahamove Gray-Neutral, dark end (Gray 70 #121619) */
-    --canvas: #0F1316;
-    --surface: #161B21;
-    --surface-raised: #1E242B;
-    --surface-deep: #0A0D10;
-    --divider: #242B33;
-    --divider-strong: #313A44;
+    /* === BASE === Ahamove light — clean white/gray (DEFAULT) === */
+    --canvas: #F4F6F8;          /* app background — light neutral */
+    --surface: #FFFFFF;         /* cards */
+    --surface-raised: #FFFFFF;  /* elevated — shadow does the lifting */
+    --surface-deep: #ECEFF2;    /* sidebar / wells */
+    --divider: #E4E8EC;
+    --divider-strong: #CFD5DB;
 
-    /* === TEXT === Ahamove Gray scale (10/40/50/60) */
-    --text-primary: #EAECEF;
-    --text-secondary: #99A0AA;
-    --text-tertiary: #757D86;
-    --text-disabled: #4C5158;
+    /* === TEXT === Ahamove gray scale === */
+    --text-primary: #15191E;
+    --text-secondary: #515A65;
+    --text-tertiary: #828B95;
+    --text-disabled: #B6BCC3;
 
-    /* === SIGNAL === P1 → brand orange, P4 → Trust blue */
-    --signal-p0: #F5333F;
-    --signal-p1: #FF7F32;
-    --signal-p2: #FFCC00;
-    --signal-p3: #34C759;
-    --signal-p4: #0089FF;
+    /* === SIGNAL === P1 = Ahamove orange === */
+    --signal-p0: #E11D2E;
+    --signal-p1: #FF6A00;
+    --signal-p2: #C98A00;
+    --signal-p3: #1F9D52;
+    --signal-p4: #0A7CD6;
 
-    /* === STATE === done → Trust blue */
-    --state-active: #30D158;
-    --state-pending: #FFD60A;
-    --state-blocked: #F5333F;
-    --state-done: #0089FF;
-    --state-paused: #BF5AF2;
+    /* === STATE === */
+    --state-active: #1F9D52;
+    --state-pending: #C98A00;
+    --state-blocked: #E11D2E;
+    --state-done: #0A7CD6;
+    --state-paused: #8944AB;
 
-    /* === ACCENT === Ahamove Brand orange + Trust blue */
-    --accent-amber: #FF7F32;       /* Orange 50 — pops on dark */
-    --accent-amber-deep: #F55F00;  /* Orange 60 — core brand */
-    --accent-paper: #76C0FF;       /* Blue 30 — Trust secondary */
+    /* === ACCENT === Ahamove brand orange + trust blue === */
+    --accent-amber: #FF6A00;       /* primary brand orange */
+    --accent-amber-deep: #E55C00;  /* hover / orange text on white */
+    --accent-paper: #0A7CD6;       /* trust blue secondary */
+
+    --shadow-card: 0 1px 2px rgba(16, 24, 32, 0.05), 0 1px 3px rgba(16, 24, 32, 0.05);
 
     /* Typography tokens — only 2 actual typefaces.
        --font-display kept as alias for backwards-compat with .kpi-number etc. */
@@ -48,31 +50,32 @@
     --font-mono:    "JetBrains Mono", ui-monospace, monospace;
   }
 
-  [data-theme="sang"] {
-    /* Ahamove Gray-Neutral, light end */
-    --canvas: #F4F5F7;
-    --surface: #FFFFFF;
-    --surface-raised: #FFFFFF;
-    --surface-deep: #EAECEF;
-    --text-primary: #121619;
-    --text-secondary: #4C5158;
+  [data-theme="toi"] {
+    /* Ahamove gray-neutral, dark end — clean (vintage overlays removed) */
+    --canvas: #0F1316;
+    --surface: #161B21;
+    --surface-raised: #1E242B;
+    --surface-deep: #0A0D10;
+    --divider: #242B33;
+    --divider-strong: #313A44;
+    --text-primary: #EAECEF;
+    --text-secondary: #99A0AA;
     --text-tertiary: #757D86;
-    --text-disabled: #C1C7CD;
-    --divider: #DDE1E6;
-    --divider-strong: #C1C7CD;
-    --signal-p0: #E11D2E;
-    --signal-p1: #E35600;
-    --signal-p2: #B58500;
-    --signal-p3: #248A3D;
-    --signal-p4: #005BAA;
-    --state-active: #248A3D;
-    --state-pending: #B58500;
-    --state-blocked: #E11D2E;
-    --state-done: #005BAA;
-    --state-paused: #8944AB;
-    --accent-amber: #F55F00;       /* Orange 60 — core brand, on light */
-    --accent-amber-deep: #E35600;  /* Orange 70 */
-    --accent-paper: #005BAA;       /* Blue 50 — Trust secondary */
+    --text-disabled: #4C5158;
+    --signal-p0: #F5333F;
+    --signal-p1: #FF7F32;
+    --signal-p2: #FFCC00;
+    --signal-p3: #34C759;
+    --signal-p4: #0089FF;
+    --state-active: #30D158;
+    --state-pending: #FFD60A;
+    --state-blocked: #F5333F;
+    --state-done: #0089FF;
+    --state-paused: #BF5AF2;
+    --accent-amber: #FF7F32;
+    --accent-amber-deep: #FF6A00;
+    --accent-paper: #76C0FF;
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35);
   }
 
   * {
@@ -91,68 +94,8 @@
     font-feature-settings: "ss01", "cv11";
     text-rendering: optimizeLegibility;
   }
-
-  /* Subtle scanline overlay - CRT terminal feel */
-  body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    background-image: repeating-linear-gradient(
-      0deg,
-      rgba(255, 255, 255, 0.008) 0,
-      rgba(255, 255, 255, 0.008) 1px,
-      transparent 1px,
-      transparent 4px
-    );
-    z-index: 9999;
-    mix-blend-mode: overlay;
-  }
-
-  /* Dark stripes when light theme */
-  [data-theme="sang"] body::before {
-    background-image: repeating-linear-gradient(
-      0deg,
-      rgba(0, 0, 0, 0.015) 0,
-      rgba(0, 0, 0, 0.015) 1px,
-      transparent 1px,
-      transparent 4px
-    );
-    mix-blend-mode: multiply;
-  }
-
-  /* Subtle noise grain */
-  body::after {
-    content: "";
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    opacity: 0.02;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-    z-index: 9998;
-  }
-
-  [data-theme="sang"] body::after {
-    opacity: 0.06;
-    mix-blend-mode: multiply;
-  }
-
-  /* Subtle corner vignette — amber top-left, indigo top-right */
-  html::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    background:
-      radial-gradient(ellipse 52% 42% at 0% 0%, rgba(245, 95, 0, 0.05) 0%, transparent 100%),
-      radial-gradient(ellipse 46% 38% at 100% 0%, rgba(0, 137, 255, 0.04) 0%, transparent 100%);
-    z-index: 9996;
-  }
-  html[data-theme="sang"]::before {
-    background:
-      radial-gradient(ellipse 52% 42% at 0% 0%, rgba(178, 106, 34, 0.05) 0%, transparent 100%),
-      radial-gradient(ellipse 46% 38% at 100% 0%, rgba(54, 52, 163, 0.04) 0%, transparent 100%);
-  }
+  /* Vintage CRT scanlines / film grain / corner vignette removed for a clean,
+     modern Ahamove look. */
 }
 
 @layer components {
@@ -170,7 +113,6 @@
     text-transform: uppercase;
     line-height: 18px;
     border-radius: 2px;
-    opacity: 0.82;
   }
   .signal-badge::before {
     content: "";
@@ -249,10 +191,12 @@
   .ops-surface {
     background: var(--surface);
     border: 1px solid var(--divider);
+    box-shadow: var(--shadow-card);
   }
   .ops-surface-raised {
     background: var(--surface-raised);
     border: 1px solid var(--divider-strong);
+    box-shadow: var(--shadow-card);
   }
   .ops-divider {
     border-color: var(--divider);
@@ -264,6 +208,7 @@
     background: var(--surface);
     border: 1px solid var(--divider);
     padding: 16px;
+    box-shadow: var(--shadow-card);
   }
   .kpi-box::before {
     content: "";
@@ -273,7 +218,6 @@
     right: 0;
     height: 2px;
     background: var(--accent-amber);
-    opacity: 0.7;
   }
   .kpi-number {
     font-family: var(--font-display);
@@ -332,7 +276,6 @@
   .channel-radio.active .dot {
     border-color: var(--accent-amber);
     background: var(--accent-amber);
-    box-shadow: 0 0 8px var(--accent-amber-deep);
   }
 
   /* === BUTTON === */
@@ -357,12 +300,13 @@
     color: var(--accent-paper);
   }
   .btn-ops.primary {
-    background: var(--accent-amber-deep);
+    background: var(--accent-amber);
     border-color: var(--accent-amber);
-    color: #0E1014;
+    color: #FFFFFF;
   }
   .btn-ops.primary:hover {
-    background: var(--accent-amber);
+    background: var(--accent-amber-deep);
+    border-color: var(--accent-amber-deep);
   }
 
   /* === KBD === */
@@ -388,7 +332,7 @@
     height: 8px;
     border-radius: 50%;
   }
-  .status-dot.active { background: var(--state-active); box-shadow: 0 0 6px var(--state-active); }
+  .status-dot.active { background: var(--state-active); }
   .status-dot.pending { background: var(--state-pending); }
   .status-dot.blocked { background: var(--state-blocked); }
   .status-dot.done { background: var(--state-done); }
@@ -418,10 +362,10 @@
   }
   .ai-classified-card:hover {
     box-shadow: inset 3px 0 0 var(--accent-amber);
-    background-color: rgba(255, 127, 50, 0.05);
+    background-color: rgba(255, 106, 0, 0.06);
   }
-  [data-theme="sang"] .ai-classified-card:hover {
-    background-color: rgba(245, 95, 0, 0.06);
+  [data-theme="toi"] .ai-classified-card:hover {
+    background-color: rgba(255, 127, 50, 0.06);
   }
 }
 
@@ -488,17 +432,17 @@
       45deg,
       transparent,
       transparent 4px,
-      rgba(245, 95, 0, 0.08) 4px,
-      rgba(245, 95, 0, 0.08) 5px
+      rgba(255, 106, 0, 0.07) 4px,
+      rgba(255, 106, 0, 0.07) 5px
     );
   }
-  [data-theme="sang"] .hatch {
+  [data-theme="toi"] .hatch {
     background-image: repeating-linear-gradient(
       45deg,
       transparent,
       transparent 4px,
-      rgba(143, 79, 15, 0.12) 4px,
-      rgba(143, 79, 15, 0.12) 5px
+      rgba(255, 127, 50, 0.08) 4px,
+      rgba(255, 127, 50, 0.08) 5px
     );
   }
 }
