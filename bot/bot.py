@@ -1099,37 +1099,56 @@ async def _do_assign_with_text(
                f"→ {assignee['full_name']}")
 
 
+def _confirm_kb(routed: dict) -> InlineKeyboardMarkup:
+    """Inline keyboard for the pre-assign confirm card.
+
+    Lets the manager edit content / note / priority / deadline before assigning,
+    so the AI's generic-or-wrong summary can be corrected first."""
+    name = (routed.get("assignee_name") or "?").split()[-1]
+    cur_p = routed.get("priority", "P2")
+
+    def _pbtn(x: str) -> InlineKeyboardButton:
+        label = f"● {x}" if x == cur_p else x
+        return InlineKeyboardButton(label, callback_data=f"edit_prio:{x}")
+
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(f"✓ Giao {name}", callback_data="confirm_assign"),
+            InlineKeyboardButton("↗ Đổi người", callback_data="change_assignee"),
+        ],
+        [
+            InlineKeyboardButton("✏️ Nội dung", callback_data="edit_summary"),
+            InlineKeyboardButton("📝 Ghi chú", callback_data="edit_note"),
+        ],
+        [_pbtn("P0"), _pbtn("P1"), _pbtn("P2"), _pbtn("P3")],
+        [
+            InlineKeyboardButton("⏰ Deadline", callback_data="edit_deadline"),
+            InlineKeyboardButton("⊘ Huỷ", callback_data="cancel_assign"),
+        ],
+    ])
+
+
 async def _show_confirm_card(
     update: Update, context: ContextTypes.DEFAULT_TYPE,
     assigner: dict, task_text: str, routed: dict,
 ):
     """
     Show AI-routed task confirm card when assignee detected with high confidence.
-    Manager taps [✅ Assign] to confirm or [✏️ Đổi người] to open picker.
+    Manager can edit content/note/priority/deadline, then tap Giao (or Đổi người).
     """
     uid = update.effective_chat.id
     _pending_confirm[uid] = {
         "task_text": task_text,
         "routed": routed,
+        "assigner_name": assigner.get("full_name", ""),
         "ts": datetime.now(),
     }
     logger.info(f"_show_confirm_card stored _pending_confirm[{uid}] for chat={update.effective_chat.id}")
 
-    assignee_name = routed.get("assignee_name", "?")
-
-    confirm_kb = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(f"● Assign {assignee_name.split()[-1]}",
-                                 callback_data="confirm_assign"),
-            InlineKeyboardButton("↗ Đổi người", callback_data="change_assignee"),
-        ],
-        [InlineKeyboardButton("⊘ Huỷ", callback_data="cancel_assign")],
-    ])
-
     await update.message.reply_text(
         tpl.msg_ai_route_card(routed, assigner_name=assigner.get("full_name", "")),
         parse_mode="HTML",
-        reply_markup=confirm_kb,
+        reply_markup=_confirm_kb(routed),
     )
 
 
@@ -1489,6 +1508,38 @@ async def handle_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     uid = update.effective_chat.id
+
+    # ── Manager editing a pending confirm card (content / note / deadline) ──
+    # Highest priority: when Huy tapped ✏️/📝/⏰ on the confirm card, the next
+    # message is the corrected value — apply it and re-render the card.
+    confirm_state = _pending_confirm.get(uid)
+    if confirm_state and confirm_state.get("awaiting"):
+        field  = confirm_state.pop("awaiting")
+        routed = confirm_state["routed"]
+        if field == "summary":
+            routed["summary"] = text.strip()
+            routed["edited"]  = True
+            note = "✏️ Đã cập nhật nội dung."
+        elif field == "note":
+            routed["manager_note"] = text.strip()
+            routed["edited"]       = True
+            note = "📝 Đã thêm hướng dẫn."
+        else:  # deadline
+            dl = await _ai(extract_deadline, text)
+            if dl.get("deadline_iso"):
+                routed["deadline_iso"] = dl["deadline_iso"]
+                routed["edited"]       = True
+                note = f"⏰ Deadline: {datetime.fromisoformat(dl['deadline_iso']).strftime('%d/%m %H:%M')}"
+            else:
+                note = "Không hiểu deadline — giữ nguyên. Bấm ⏰ thử lại."
+        _pending_confirm[uid] = confirm_state  # persist (awaiting cleared)
+        await update.message.reply_text(note, parse_mode="HTML")
+        await update.message.reply_text(
+            tpl.msg_ai_route_card(routed, assigner_name=confirm_state.get("assigner_name", "")),
+            parse_mode="HTML",
+            reply_markup=_confirm_kb(routed),
+        )
+        return
 
     # Check pending deadline input
     # GUARD: only consume text as a deadline reply when it is short (≤ 6 words)
@@ -2135,6 +2186,42 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(buttons),
         )
 
+    # ── edit_prio:<P> — manager overrides AI priority inline ──
+    elif data.startswith("edit_prio:"):
+        state = _pending_confirm.get(uid)
+        if not state:
+            await query.edit_message_text("Phiên đã hết hạn. Gõ /assign lại.")
+            return
+        new_p = data.split(":")[1]
+        if new_p in ("P0", "P1", "P2", "P3"):
+            state["routed"]["priority"] = new_p
+            state["routed"]["edited"] = True
+            _pending_confirm[uid] = state
+            try:
+                await query.edit_message_text(
+                    tpl.msg_ai_route_card(state["routed"], assigner_name=state.get("assigner_name", "")),
+                    parse_mode="HTML",
+                    reply_markup=_confirm_kb(state["routed"]),
+                )
+            except Exception:
+                pass
+
+    # ── edit_summary / edit_note / edit_deadline — prompt for free text ──
+    elif data in ("edit_summary", "edit_note", "edit_deadline"):
+        state = _pending_confirm.get(uid)
+        if not state:
+            await query.edit_message_text("Phiên đã hết hạn. Gõ /assign lại.")
+            return
+        field = data.replace("edit_", "")  # summary | note | deadline
+        state["awaiting"] = field
+        _pending_confirm[uid] = state
+        prompt = {
+            "summary":  "✏️ Gửi <b>nội dung task</b> mới (mô tả đúng ý):",
+            "note":     "📝 Gửi <b>ghi chú / hướng dẫn</b> cho người làm:",
+            "deadline": "⏰ Gửi <b>deadline</b> (vd: <code>mai 5pm</code>, <code>25/12 14:00</code>):",
+        }[field]
+        await query.message.reply_text(prompt, parse_mode="HTML")
+
     # ── confirm_assign — manager confirms AI-routed assignee ──
     elif data == "confirm_assign":
         state = _pending_confirm.get(uid)
@@ -2199,6 +2286,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "priority": routed.get("priority", "P2"),
             "deadline": routed.get("deadline_iso"),
             "category": routed.get("category", "other"),
+            "manager_note": routed.get("manager_note"),
             "classifier_meta": routed,
         }
         sender_name = user["full_name"] if user else "Manager"

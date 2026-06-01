@@ -338,6 +338,14 @@ def msg_task_new(task: dict, assigned_by_name: str = "") -> str:
     if okr_ref:
         lines.append(f"🎯 OKR · {okr_ref}")
 
+    # Manager's own guidance — overrides generic AI coaching when Huy edited it.
+    mnote = task.get("manager_note")
+    if not mnote and isinstance(meta, dict):
+        mnote = meta.get("manager_note")
+    if mnote:
+        who = assigned_by_name or "quản lý"
+        lines += ["", f"📝 <b>Hướng dẫn từ {_md(who)}:</b>", _md(str(mnote))]
+
     # Layer 1 coaching — concise steps inline (3-5 bullets from AI breakdown)
     if breakdown:
         lines += ["", "📋 <b>Bắt đầu thế nào:</b>"]
@@ -613,8 +621,12 @@ def msg_ai_route_card(result: dict, assigner_name: str = "") -> str:
             f"{i}. {s}" for i, s in enumerate(steps[:3], 1)
         )
 
+    note = result.get("manager_note")
+    note_block = f"\n\n📝 <b>Ghi chú:</b> {_md(str(note))}" if note else ""
+    header = "✏️ <b>Đã sửa</b>" if result.get("edited") else f"🤖 <b>AI đề xuất · {conf}%</b>"
+
     return (
-        f"🤖 <b>AI đề xuất · {conf}%</b>\n"
+        f"{header}\n"
         f"\n"
         f"<b>{_md(summary)}</b>\n"
         f"\n"
@@ -622,6 +634,8 @@ def msg_ai_route_card(result: dict, assigner_name: str = "") -> str:
         + "  ·  ".join(meta_parts)
         + scope_line
         + step_block
+        + note_block
+        + "\n\n<i>Sửa nội dung / ghi chú / ưu tiên / deadline bằng nút bên dưới trước khi giao.</i>"
     )
 
 
