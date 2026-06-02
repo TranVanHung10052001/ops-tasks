@@ -346,8 +346,10 @@ def msg_task_new(task: dict, assigned_by_name: str = "") -> str:
         who = assigned_by_name or "quản lý"
         lines += ["", f"📝 <b>Hướng dẫn từ {_md(who)}:</b>", _md(str(mnote))]
 
-    # Layer 1 coaching — concise steps inline (3-5 bullets from AI breakdown)
-    if breakdown:
+    # Layer 1 coaching — concise steps inline (3-5 bullets from AI breakdown).
+    # Skip when the manager wrote their own note: their guidance replaces the
+    # generic AI suggestion (avoid showing two overlapping "how-to" blocks).
+    if breakdown and not mnote:
         lines += ["", "📋 <b>Bắt đầu thế nào:</b>"]
         for step in breakdown[:5]:
             lines.append(f"▸ {_md(str(step))}")
@@ -615,14 +617,15 @@ def msg_ai_route_card(result: dict, assigner_name: str = "") -> str:
         "" if in_scope
         else f"\n▲ {result.get('scope_note', 'Ngoài scope thông thường')}"
     )
+    note = result.get("manager_note")
+    note_block = f"\n\n📝 <b>Ghi chú:</b> {_md(str(note))}" if note else ""
+
+    # Manager's note replaces the generic AI suggestion (don't show both).
     step_block = ""
-    if steps:
+    if steps and not note:
         step_block = "\n\ngợi ý:\n" + "\n".join(
             f"{i}. {s}" for i, s in enumerate(steps[:3], 1)
         )
-
-    note = result.get("manager_note")
-    note_block = f"\n\n📝 <b>Ghi chú:</b> {_md(str(note))}" if note else ""
     header = "✏️ <b>Đã sửa</b>" if result.get("edited") else f"🤖 <b>AI đề xuất · {conf}%</b>"
 
     return (
