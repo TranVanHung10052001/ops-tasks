@@ -1517,13 +1517,15 @@ async def handle_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
         field  = confirm_state.pop("awaiting")
         routed = confirm_state["routed"]
         if field == "summary":
-            routed["summary"] = text.strip()
-            routed["edited"]  = True
-            note = "✏️ Đã cập nhật nội dung."
+            routed["summary"]   = text.strip()
+            routed["edited"]    = True
+            routed["breakdown"] = []   # old AI steps are now stale → drop them
+            note = "✏️ Đã cập nhật nội dung. (Đã bỏ các bước AI cũ — thêm 📝 Ghi chú nếu muốn hướng dẫn.)"
         elif field == "note":
             routed["manager_note"] = text.strip()
             routed["edited"]       = True
-            note = "📝 Đã thêm hướng dẫn."
+            routed["breakdown"]    = []   # manager guidance replaces generic AI steps
+            note = "📝 Đã thêm hướng dẫn (thay cho các bước AI)."
         else:  # deadline
             dl = await _ai(extract_deadline, text)
             if dl.get("deadline_iso"):
