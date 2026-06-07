@@ -440,8 +440,14 @@ def msg_assign_confirm(task_id: int, assignee_name: str, result: dict) -> str:
     if extras:
         lines.append("  ·  ".join(extras))
 
+    # Manager's note (if edited) replaces the generic AI steps — show it so the
+    # manager sees their edit took effect, and don't render stale AI breakdown.
+    mnote = result.get("manager_note")
+    if mnote:
+        lines += ["", "📝 <b>Ghi chú / hướng dẫn:</b>", _md(str(mnote))]
+
     steps = result.get("breakdown", [])
-    if steps:
+    if steps and not mnote:
         lines += ["", "📋 <b>Đề xuất các bước:</b>"]
         for s in steps[:5]:
             lines.append(f"▸ {_md(str(s))}")
