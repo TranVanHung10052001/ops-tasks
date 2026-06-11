@@ -1182,11 +1182,7 @@ def msg_mytasks(name: str, tasks: list[dict]) -> str:
         block = _quadrant_block(q, groups[q])
         if block:
             lines += ["", block]
-    lines += [
-        "",
-        "<i>👉 /now để bot chọn việc nên làm trước · "
-        "/done &lt;id&gt; · /snooze &lt;id&gt; 2h</i>",
-    ]
+    lines += ["", "<i>👇 Bấm ✓ để xong · ◷ để hoãn</i>"]
     return "\n".join(lines)
 
 

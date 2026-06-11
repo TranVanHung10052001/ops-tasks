@@ -147,15 +147,15 @@ CAT_EMOJI = {
 }
 
 EMPLOYEE_KEYBOARD = ReplyKeyboardMarkup(
-    [["▸ Task của tôi", "▸ Hôm nay"], ["▸ Thống kê"]],
+    [["▸ Hôm nay", "▸ Task của tôi"], ["▸ Làm ngay", "▸ Thống kê"]],
     resize_keyboard=True,
-    input_field_placeholder="Forward tin nhắn · /add · /done <id>",
+    input_field_placeholder="Gõ việc cần làm · /add · /done <id>",
 )
 
 MANAGER_KEYBOARD = ReplyKeyboardMarkup(
-    [["▸ Team", "▸ Task của tôi"], ["▸ Giao việc AI", "▸ Thống kê"]],
+    [["▸ Hôm nay", "▸ Task của tôi"], ["▸ Làm ngay", "▸ Giao việc"], ["▸ Team", "▸ Thống kê"]],
     resize_keyboard=True,
-    input_field_placeholder="Forward tin nhắn để giao · /assign · /ask",
+    input_field_placeholder="Gõ/forward để giao việc · /assign · /ask",
 )
 
 
@@ -212,6 +212,27 @@ def _task_keyboard(task_id: int) -> InlineKeyboardMarkup:
         ],
         [InlineKeyboardButton("🎓 Hướng dẫn chi tiết", callback_data=f"coach:{task_id}")],
     ])
+
+
+def _task_list_keyboard(tasks: list[dict], limit: int = 6,
+                        nav: bool = False) -> InlineKeyboardMarkup | None:
+    """One actionable row per task: [✓ #id summary] [◷ 1d].
+    Makes /mytasks & /today tappable instead of forcing /done <id>."""
+    rows = []
+    for t in tasks[:limit]:
+        tid = t["id"]
+        p_icon = P_EMOJI.get(t.get("priority", "P3"), "□")
+        label = f"✓ {p_icon} #{tid} {(t.get('summary') or '')[:24]}".rstrip()
+        rows.append([
+            InlineKeyboardButton(label, callback_data=f"done:{tid}"),
+            InlineKeyboardButton("◷ 1d", callback_data=f"snooze:{tid}:1d"),
+        ])
+    if nav:
+        rows.append([
+            InlineKeyboardButton("🎯 Làm ngay", callback_data="now"),
+            InlineKeyboardButton("⊡ Hôm nay",  callback_data="show_today"),
+        ])
+    return InlineKeyboardMarkup(rows) if rows else None
 
 
 def _duration_keyboard(task_id: int) -> InlineKeyboardMarkup:
@@ -562,14 +583,10 @@ async def cmd_mytasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("🎯 Làm ngay", callback_data="now"),
-        InlineKeyboardButton("⊡ Hôm nay", callback_data="show_today"),
-    ]])
     await update.message.reply_text(
         tpl.msg_mytasks(user["full_name"], tasks),
         parse_mode="HTML",
-        reply_markup=kb,
+        reply_markup=_task_list_keyboard(tasks, limit=6, nav=True),
     )
 
 
@@ -584,7 +601,11 @@ async def cmd_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today_tasks = [t for t in tasks if t not in overdue]
 
     msg = tpl.msg_today(user["full_name"], overdue, today_tasks)
-    await update.message.reply_text(msg, parse_mode="HTML")
+    # Overdue first so its done buttons sit on top
+    await update.message.reply_text(
+        msg, parse_mode="HTML",
+        reply_markup=_task_list_keyboard(overdue + today_tasks, limit=6),
+    )
 
 
 async def _compute_now(user: dict) -> tuple[str, InlineKeyboardMarkup | None, int | None]:
@@ -1793,6 +1814,8 @@ async def cmd_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
 KEYBOARD_ROUTES = {
     "▸ Hôm nay":      cmd_today,
     "▸ Task của tôi": cmd_mytasks,
+    "▸ Làm ngay":     cmd_now,
+    "▸ Thống kê":     cmd_stats,
     "▸ Giao việc":    cmd_assign,
     "▸ Team":         cmd_team,
 }
