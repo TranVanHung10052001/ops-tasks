@@ -16,8 +16,18 @@ from store import (
 )
 from roles import MANAGER, TEAM_LEAD, can_see_team
 import templates as tpl
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 logger = logging.getLogger(__name__)
+
+
+def _task_actions_kb(task_id: int) -> InlineKeyboardMarkup:
+    """Done / snooze buttons attached to reminders so a task can be closed in one tap."""
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("✓ Hoàn thành", callback_data=f"done:{task_id}"),
+        InlineKeyboardButton("◷ 2h",  callback_data=f"snooze:{task_id}:2h"),
+        InlineKeyboardButton("◷ 1d",  callback_data=f"snooze:{task_id}:1d"),
+    ]])
 
 QUIET_START = int(os.getenv("QUIET_HOURS_START", "22"))
 QUIET_END   = int(os.getenv("QUIET_HOURS_END", "6"))
@@ -133,7 +143,10 @@ async def deadline_check_all(app):
 
                 if should_remind:
                     msg = tpl.msg_reminder_deadline(task, hours)
-                    await app.bot.send_message(chat_id=uid, text=msg, parse_mode="HTML")
+                    await app.bot.send_message(
+                        chat_id=uid, text=msg, parse_mode="HTML",
+                        reply_markup=_task_actions_kb(task["id"]),
+                    )
                     increment_reminder(task["id"])
 
                     # Nhắc 2 chiều: tại mốc 1h, báo luôn NGƯỜI GIAO (nếu khác người làm)
@@ -168,7 +181,10 @@ async def deadline_check_all(app):
 
                 if should_ping:
                     msg = tpl.msg_overdue(task, hrs_over)
-                    await app.bot.send_message(chat_id=uid, text=msg, parse_mode="HTML")
+                    await app.bot.send_message(
+                        chat_id=uid, text=msg, parse_mode="HTML",
+                        reply_markup=_task_actions_kb(task["id"]),
+                    )
                     increment_reminder(task["id"])
 
                     # Nhắc 2 chiều: báo NGƯỜI GIAO mỗi ~24h khi việc đã trễ
