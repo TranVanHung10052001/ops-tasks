@@ -1,6 +1,7 @@
-/* Typography — 2 typefaces, 3 weights each. Italic + light/bold dropped
-   intentionally to reduce visual noise (was 5 weights × 2 styles before). */
-@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+/* Typography — ONE typeface (Inter) for the whole UI. Numbers/codes use the
+   same font with tabular-nums so columns still align — no separate mono face.
+   Fewer fonts + less uppercase/letter-spacing = far more readable. */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -43,11 +44,11 @@
 
     --shadow-card: 0 1px 2px rgba(16, 24, 32, 0.05), 0 1px 3px rgba(16, 24, 32, 0.05);
 
-    /* Typography tokens — only 2 actual typefaces.
-       --font-display kept as alias for backwards-compat with .kpi-number etc. */
-    --font-sans:    "Be Vietnam Pro", system-ui, sans-serif;
-    --font-display: "Be Vietnam Pro", system-ui, sans-serif;
-    --font-mono:    "JetBrains Mono", ui-monospace, monospace;
+    /* Typography tokens — ONE typeface. --font-mono kept as an alias (Inter +
+       tabular-nums) so existing .mono/font-mono usages still align numbers. */
+    --font-sans:    "Inter", system-ui, -apple-system, sans-serif;
+    --font-display: "Inter", system-ui, -apple-system, sans-serif;
+    --font-mono:    "Inter", system-ui, -apple-system, sans-serif;
   }
 
   [data-theme="toi"] {
@@ -86,12 +87,13 @@
     background: var(--canvas);
     color: var(--text-primary);
     font-family: var(--font-sans);
-    font-size: 14px;          /* was 13px — Vietnamese diacritics need room */
+    font-size: 14px;
     line-height: 1.55;
     font-weight: 400;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    font-feature-settings: "ss01", "cv11";
+    /* Inter character variants: cv05 = lowercase l with tail, cv11 = single-story a */
+    font-feature-settings: "cv05", "cv11";
     text-rendering: optimizeLegibility;
   }
   /* Vintage CRT scanlines / film grain / corner vignette removed for a clean,
@@ -106,13 +108,13 @@
     gap: 6px;
     padding: 2px 8px 2px 6px;
     border: 1px solid color-mix(in srgb, currentColor 45%, transparent);
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 400;
-    letter-spacing: 0.04em;
+    font-family: var(--font-sans);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
     text-transform: uppercase;
     line-height: 18px;
-    border-radius: 2px;
+    border-radius: 3px;
   }
   .signal-badge::before {
     content: "";
@@ -145,16 +147,16 @@
   /* === LABEL === uppercase labels share 0.06em spacing (was 0.04/0.05/0.08/0.12) */
   .label-ops {
     font-family: var(--font-sans);
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0.06em;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
     text-transform: uppercase;
     color: var(--text-secondary);
   }
   .label-mono {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.02em;
+    font-family: var(--font-sans);
+    font-size: 11.5px;
+    letter-spacing: 0.01em;
     color: var(--text-tertiary);
   }
   /* Section header — Vietnamese-friendly: sentence case, slightly larger than label-ops */
