@@ -14,15 +14,16 @@ export default {
       // `display` is an alias of `sans` so existing `font-display` classes
       // continue rendering Be Vietnam Pro (not Cormorant Garamond serif).
       fontFamily: {
-        sans:    ['"Be Vietnam Pro"', "system-ui", "sans-serif"],
-        display: ['"Be Vietnam Pro"', "system-ui", "sans-serif"],
-        mono:    ['"JetBrains Mono"', "ui-monospace", "monospace"],
+        sans:    ['"Inter"', "system-ui", "-apple-system", "sans-serif"],
+        display: ['"Inter"', "system-ui", "-apple-system", "sans-serif"],
+        // `mono` aliases Inter (with tabular-nums via .mono/.tabular) — single typeface.
+        mono:    ['"Inter"', "system-ui", "-apple-system", "sans-serif"],
       },
       fontSize: {
-        "2xs": "10px",
-        xs:    "11px",
-        sm:    "12px",
-        base:  "14px",   // bumped from 13px — better Vietnamese readability
+        "2xs": "11px",   // was 10px — too small to read; bumped for legibility
+        xs:    "12px",   // was 11px
+        sm:    "13px",   // was 12px
+        base:  "14px",
         md:    "15px",
         lg:    "17px",
         xl:    "20px",
