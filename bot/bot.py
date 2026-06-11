@@ -1974,7 +1974,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         start_task(task_id)
         log_action(uid, "accept_task", "task", task_id)
         task = get_task(task_id) or task
-        await query.edit_message_text(tpl.msg_task_accepted(task), parse_mode="HTML")
+        await query.edit_message_text(
+            tpl.msg_task_accepted(task), parse_mode="HTML",
+            reply_markup=_task_keyboard(task_id),   # ✓ Done / snooze / coach ngay trên task
+        )
         if task.get("assigned_by"):
             receiver_name = user["full_name"] if user else "Nhân viên"
             try:

@@ -976,6 +976,24 @@ def update_task_priority(task_id: int, priority: str) -> bool:
         return cursor.rowcount > 0
 
 
+def set_task_status(task_id: int, status: str) -> bool:
+    """Generic status setter for dashboard kanban moves. Sets completed_at when
+    moving to done, clears it when moving out of done."""
+    now = datetime.now().isoformat()
+    with get_db() as conn:
+        if status == "done":
+            cur = conn.execute(
+                "UPDATE tasks SET status = 'done', completed_at = ? WHERE id = ?",
+                (now, task_id),
+            )
+        else:
+            cur = conn.execute(
+                "UPDATE tasks SET status = ?, completed_at = NULL WHERE id = ?",
+                (status, task_id),
+            )
+        return cur.rowcount > 0
+
+
 def upsert_metric(key: str, value: str, source: str = "redash") -> None:
     """Insert or update a KPI metric (key→value). Thread-safe via WAL."""
     with get_db() as conn:

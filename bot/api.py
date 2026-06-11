@@ -25,9 +25,22 @@ from store import (
     update_task_deadline, list_pending_approval, approve_user,
     set_user_role, add_task, block_task, unblock_task,
     get_all_overdue_tasks, get_user_stats, log_action,
-    update_task_priority, upsert_metric, get_all_metrics,
+    update_task_priority, set_task_status, upsert_metric, get_all_metrics,
     list_auto_created_today, reassign_task,
 )
+
+# Dashboard uses Vietnamese status keys; the bot/DB uses canonical English ones.
+_WEB_TO_BOT_STATUS = {
+    "hoan_thanh": "done",
+    "huy":        "cancelled",
+    "cancelled":  "cancelled",
+    "bi_chan":    "blocked",
+    "cho_xu_ly":  "pending",
+    "can_lam":    "pending",
+    "dang_lam":   "in_progress",
+    "dang_review":"in_progress",
+    "tam_dung":   "snoozed",
+}
 from roles import MANAGER, TEAM_LEAD, EMPLOYEE, ROLE_LABELS
 
 import logging
@@ -306,14 +319,17 @@ def update_task(task_id: int, body: TaskUpdate, token: str = Depends(verify_toke
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    if body.status == "done":
-        mark_done(task_id)
-    elif body.status == "cancelled":
-        cancel_task(task_id)
-    elif body.status == "blocked" and body.block_reason:
-        block_task(task_id, body.block_reason)
-    elif body.status == "pending":
-        unblock_task(task_id)
+    if body.status:
+        new_status = _WEB_TO_BOT_STATUS.get(body.status, body.status)
+        if new_status == "done":
+            mark_done(task_id)            # sets completed_at + done-specific logic
+        elif new_status == "cancelled":
+            cancel_task(task_id)
+        elif new_status == "blocked" and body.block_reason:
+            block_task(task_id, body.block_reason)
+        else:
+            # in_progress / pending / blocked-without-reason / snoozed
+            set_task_status(task_id, new_status)
 
     if body.priority:
         update_task_priority(task_id, body.priority)
