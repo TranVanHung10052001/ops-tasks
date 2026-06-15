@@ -696,3 +696,25 @@ def _get_user_name(user_id: int | None) -> str | None:
         u = get_user(user_id)
         _user_cache[user_id] = u["full_name"] if u else str(user_id)
     return _user_cache[user_id]
+
+
+# ─── AI Ask (tool-use) ────────────────────────────────────────────────────────
+
+class AskBody(BaseModel):
+    question: str
+
+
+@app.post("/api/ask")
+def api_ask(body: AskBody, token: str = Depends(verify_token)):
+    """Tool-use AI query — Gemini gọi tools để lấy data thật rồi trả lời."""
+    q = (body.question or "").strip()
+    if not q:
+        raise HTTPException(status_code=400, detail="question is required")
+    try:
+        from ask import ask as ai_ask
+        result = ai_ask(q)
+        log_action(0, "api_ask", detail=q[:100])
+        return result
+    except Exception as e:
+        logger.error("api_ask failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e)[:200])

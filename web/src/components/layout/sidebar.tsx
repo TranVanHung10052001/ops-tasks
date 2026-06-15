@@ -11,6 +11,7 @@ import {
   Shield,
   BookOpen,
   Bot,
+  MessageCircle,
 } from "lucide-react";
 
 const NAV = [
@@ -21,6 +22,7 @@ const NAV = [
   { href: "/roles", label: "Roles", icon: Shield },
   { href: "/playbooks", label: "Playbooks", icon: BookOpen },
   { href: "/agents", label: "AI Agents", icon: Bot },
+  { href: "/ask", label: "Hỏi AI", icon: MessageCircle },
 ];
 
 export default function Sidebar() {
