@@ -7,18 +7,35 @@ Architecture:
   → extracts assignee, OKR ref, scope check, breakdown from a single call
 """
 
+import re as _re
 import warnings
 warnings.simplefilter("ignore", FutureWarning)
 
+import google.generativeai as genai
 import json
+import os
 import logging
 import time
+import hashlib
 from datetime import datetime
 from pathlib import Path
 
-from models import call_tier, get_model
-
 logger = logging.getLogger(__name__)
+
+# ─── AI response cache ──────────────────────────────────────────────────────
+# Identical prompts (e.g. the same forwarded message re-processed, or a duplicate
+# /assign) hit Gemini repeatedly — same input, same output, wasted latency + quota.
+# Cache by sha1(model + prompt) with a 1h TTL. {key: (result_dict, expiry_ts)}
+_CALL_CACHE: dict[str, tuple[dict, float]] = {}
+_CACHE_TTL = 3600.0  # seconds
+_CACHE_MAX = 500     # cap entries to bound memory
+
+
+def _cache_key(model, prompt: str) -> str:
+    name = getattr(model, "model_name", str(id(model)))
+    return hashlib.sha1(f"{name}\x00{prompt}".encode("utf-8")).hexdigest()
+
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 CLASSIFY_PROMPT = (PROMPTS_DIR / "classify.md").read_text(encoding="utf-8")
@@ -27,6 +44,8 @@ EXTRACT_PROMPT  = (PROMPTS_DIR / "extract.md").read_text(encoding="utf-8")
 # System context: loaded once, cached by Gemini between calls
 _TEAM_CONTEXT    = (PROMPTS_DIR / "team_context.md").read_text(encoding="utf-8")
 _OKR_CONTEXT     = (PROMPTS_DIR / "okr_truck_ops.md").read_text(encoding="utf-8")
+_tools_path      = PROMPTS_DIR / "tools_context.md"
+_TOOLS_CONTEXT   = _tools_path.read_text(encoding="utf-8") if _tools_path.exists() else ""
 _ROUTER_SYSTEM   = f"""
 Bạn là AI assistant cho team Ops Truck của Ahamove. Nhiệm vụ: phân tích task text và
 trả về JSON routing hoàn chỉnh dựa trên team context và OKR Q2/2026 bên dưới.
@@ -38,6 +57,7 @@ trả về JSON routing hoàn chỉnh dựa trên team context và OKR Q2/2026 b
 {_OKR_CONTEXT}
 
 ---
+{("" + _TOOLS_CONTEXT + chr(10) + "---") if _TOOLS_CONTEXT.strip() else ""}
 
 NGUYÊN TẮC ROUTING:
 1. Detect assignee từ tên, nickname, role hint, OKR keyword, location keyword
@@ -46,41 +66,158 @@ NGUYÊN TẮC ROUTING:
 4. Nếu task text có từ "B2B/vendor/hợp đồng" → ưu tiên Khánh/Ngân/Hùng
 5. Nếu task text có từ "tỉnh/KCN/expansion" → ưu tiên Khâm
 6. Map task sang OKR action gần nhất (nếu có) — dùng id từ OKR tree
-7. Chỉ đề xuất breakdown nếu task phức tạp (>1 bước rõ ràng)
+7. LUÔN đề xuất breakdown 3-5 bước (trừ task cực đơn giản ≤5 phút)
 8. Confidence: 0.9+ = chắc chắn, 0.7-0.9 = khá chắc, <0.7 = không rõ
 
 TODAY = {datetime.now().strftime("%Y-%m-%d (%A)")}
 """.strip()
+
+JSON_CONFIG = genai.GenerationConfig(
+    response_mime_type="application/json",
+    temperature=0.15,
+    max_output_tokens=2000,
+)
+
+# Coach responses are richer (why_matters + 5 steps + watch_out + tips + contacts)
+# — need more headroom so JSON doesn't truncate mid-string.
+COACH_CONFIG = genai.GenerationConfig(
+    response_mime_type="application/json",
+    temperature=0.2,
+    max_output_tokens=4000,
+)
+
+SAFETY = [
+    {"category": c, "threshold": "BLOCK_NONE"}
+    for c in [
+        "HARM_CATEGORY_HARASSMENT",
+        "HARM_CATEGORY_HATE_SPEECH",
+        "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+        "HARM_CATEGORY_DANGEROUS_CONTENT",
+    ]
+]
+
+# Lightweight model — no system context, used for classify + deadline only
+_classify_model = genai.GenerativeModel(
+    model_name="gemini-2.5-flash",
+    generation_config=JSON_CONFIG,
+    safety_settings=SAFETY,
+)
+
+# Router model — system context loaded once and cached by Gemini API
+_router_model = genai.GenerativeModel(
+    model_name="gemini-2.5-flash",
+    generation_config=JSON_CONFIG,
+    safety_settings=SAFETY,
+    system_instruction=_ROUTER_SYSTEM,
+)
+
+# Coach model — same context as router, but with bigger output budget
+_coach_model = genai.GenerativeModel(
+    model_name="gemini-2.5-flash",
+    generation_config=COACH_CONFIG,
+    safety_settings=SAFETY,
+    system_instruction=_ROUTER_SYSTEM,
+)
+
+_vision_model = genai.GenerativeModel(
+    model_name="gemini-2.5-flash",
+    generation_config=JSON_CONFIG,
+    safety_settings=SAFETY,
+)
 
 ROUTER_PROMPT = """
 Phân tích task text sau và trả về JSON với đúng cấu trúc này:
 
 {
   "is_task": true/false,
-  "summary": "tóm tắt task ngắn gọn dưới 100 ký tự",
+  "summary": "Động từ + Đối tượng + Context (ai/ở đâu/về gì). VD: 'Theo dõi FR Core HAN tuần 22 với Thương' | tối đa 100 ký tự",
   "assignee_name": "Họ tên đầy đủ hoặc tên thường dùng | null nếu không rõ",
   "assignee_email": "email@ahamove.com | null nếu không rõ",
   "assignee_confidence": 0.0-1.0,
   "deadline_raw": "chuỗi deadline gốc từ text | null",
-  "deadline_iso": "YYYY-MM-DD | null",
+  "deadline_iso": "YYYY-MM-DDTHH:MM:SS | null",
   "priority": "P0|P1|P2|P3",
-  "category": "fill_rate|supply|retention|b2b|expansion|cost|tech|other",
-  "okr_ref": "ví dụ O1.1 | null nếu không liên quan OKR",
-  "okr_action_id": "ví dụ 1.1.1 | null",
+  "category": "ops|report|meeting|vendor|admin|data|other",
+  "estimated_minutes": <số phút ước tính thực tế — tối thiểu 15, meeting thường 60, report 90-120>,
+  "okr_ref": "O1|O2|O3|O4 | null nếu không liên quan OKR rõ ràng",
+  "okr_action_id": "ví dụ O1.1 | null",
   "in_scope": true/false,
   "scope_note": "giải thích ngắn tại sao in/out scope",
-  "breakdown": ["bước 1...", "bước 2...", "bước 3..."] hoặc [] nếu task đơn giản,
+  "breakdown": [...],
   "confidence": 0.0-1.0
 }
+
+**BREAKDOWN RULES — quan trọng nhất:**
+- LUÔN tạo breakdown 3-5 bước, TRỪ KHI task cực kỳ đơn giản (gửi 1 tin nhắn, click 1 nút, ≤5 phút)
+- Khi nghi ngờ → tạo breakdown (user thường cần guidance dù task có vẻ đơn giản)
+- Mặc định 3-4 bước; chỉ dùng 5 bước nếu task thực sự dài
+- Mỗi bước PHẢI cụ thể và actionable: Động từ + Đối tượng + Nguồn/Tool cụ thể
+  ✅ "Vào Metabase > card 'Fill Rate EXP' > filter KCN VSIP + tuần hiện tại → xem fill_rate_pct"
+  ✅ "So sánh với target O1: FR EXP ≥65% (baseline ~55%) — note gap nếu có"
+  ✅ "Liên hệ Khâm (khamnd@ahamove.com) qua Telegram xác nhận nguyên nhân supply gap"
+  ❌ "Kiểm tra tình hình" / "Liên hệ liên quan" / "Xem xét vấn đề"
+
+- DATA SOURCE: Team dùng Metabase (có card/dashboard với filter, có thể download CSV hoặc sync về Google Sheet).
+  Khi nhắc đến data → dùng "Metabase > [tên card/dashboard]", KHÔNG nhắc Redash.
+  Nếu tools_context.md có tên card thật → dùng tên đó. Nếu không → dùng tên mô tả ngắn gọn.
+
+- Khi task liên quan OKR, nhúng số liệu thực vào bước:
+  * O1 Fill Rate: target Core ≥68% (baseline 60.5%), EXP ≥65% (baseline ~55%), Long Haul ≥70%, SME ≥65% (baseline 17%)
+  * O2 Supply: KCN BDG live 30/04, LAN Hub live 15/05; Shift Model ≥100 drivers; Decal target 1,900; Retention D30 ≥70%
+  * O3 Cost/SLA: COGS GXT target 75K/kiện (đang ~80K), Vendor B2B target 11 (đang 8), 1st PU On-Time ≥80% (baseline 47.6%)
+  * O4 Tech: Dynamic Pricing 100% research, Vehicle Classification 60%, AI Bot 40% auto
+
+- Khi task liên quan người cụ thể, nêu tên + email hoặc kênh liên lạc:
+  * FR data HAN → Thương (thuonglth@ahamove.com)
+  * FR SGN / SLA SGN → Thành (thanhtq@ahamove.com) hoặc Phú (phutn@ahamove.com)
+  * KCN / expansion / EXP → Khâm (khamnd@ahamove.com)
+  * Vendor B2B / hợp đồng → Khánh (khanhlv@ahamove.com) hoặc Ngân (Nganntk1@ahamove.com)
+  * COGS GXT / planning HAN → Thống (thonglhn@ahamove.com)
+  * Driver retention HAN → Toàn (toanpt@ahamove.com) | SGN → Chiến (chienpd@ahamove.com)
+
+Ví dụ breakdown tốt cho "Check fill rate VSIP tuần này và báo cáo":
+[
+  "Vào Metabase > card 'Fill Rate EXP' > filter KCN VSIP + tuần 21 → lấy fill_rate_pct (MTD + W/W)",
+  "So sánh với target O1: FR EXP ≥65% (baseline ~55%) — highlight gap nếu dưới target",
+  "Liên hệ Khâm (khamnd@) qua Telegram xác nhận nguyên nhân nếu có supply gap",
+  "Tổng hợp vào báo cáo FR tuần → gửi cho Huy (huyle@) trước EOD"
+]
 
 TASK TEXT:
 """
 
 
+def _safe_call(model, prompt: str, retries: int = 2, use_cache: bool = True) -> dict:
+    key = _cache_key(model, prompt) if use_cache else None
+    if key is not None:
+        hit = _CALL_CACHE.get(key)
+        if hit and hit[1] > time.time():
+            return dict(hit[0])  # copy so callers can't mutate the cached dict
+        if hit:
+            _CALL_CACHE.pop(key, None)  # expired
+
+    for attempt in range(retries + 1):
+        try:
+            resp = model.generate_content(prompt)
+            result = json.loads(resp.text)
+            if key is not None and isinstance(result, dict) and result:
+                if len(_CALL_CACHE) >= _CACHE_MAX:
+                    _CALL_CACHE.clear()  # simple bound — cheap, infrequent
+                _CALL_CACHE[key] = (dict(result), time.time() + _CACHE_TTL)
+            return result
+        except Exception as e:
+            if attempt < retries:
+                time.sleep(1.5 ** attempt)
+            else:
+                logger.error(f"Gemini call failed after {retries} retries: {e}")
+                return {}
+    return {}
+
+
 def classify_text(text: str) -> dict:
-    """Lightweight classify — fast tier (no team context)."""
+    """Lightweight classify — no team context. Returns basic task fields."""
     prompt = CLASSIFY_PROMPT + "\n\n" + text
-    result = call_tier("fast", prompt, label="classify_text", retries=2) or {}
+    result = _safe_call(_classify_model, prompt)
     return {
         "is_task":           result.get("is_task", False),
         "summary":           result.get("summary", text[:100]),
@@ -93,10 +230,10 @@ def classify_text(text: str) -> dict:
 
 
 def extract_deadline(text: str) -> dict:
-    """Extract deadline ISO — fast tier."""
+    """Extract deadline ISO from raw text."""
     today = datetime.now().strftime("%Y-%m-%d %H:%M (%A)")
     prompt = EXTRACT_PROMPT.replace("{today}", today) + "\n\n" + text
-    result = call_tier("fast", prompt, label="extract_deadline", retries=2) or {}
+    result = _safe_call(_classify_model, prompt)
     return {
         "deadline_iso":   result.get("deadline_iso"),
         "confidence":     result.get("confidence", "low"),
@@ -104,23 +241,46 @@ def extract_deadline(text: str) -> dict:
     }
 
 
+def _live_roster() -> str:
+    """Currently-approved members from the DB, formatted for the router prompt.
+
+    The baked-in ROUTER_PROMPT lists the *expected* team, but people get
+    claimed/added over time. Injecting the live roster lets the AI route only to
+    real, active accounts (and avoids hallucinating someone who left).
+    Degrades to '' if store is unavailable (e.g. classifier imported standalone).
+    """
+    try:
+        from store import list_users
+        users = list_users(approved_only=True)
+        if not users:
+            return ""
+        lines = [
+            f"- {u['full_name']}"
+            + (f" <{u['email']}>" if u.get("email") else "")
+            + (f" · {u['team']}" if u.get("team") else "")
+            + (f" · {u['role']}" if u.get("role") else "")
+            for u in users
+        ]
+        return (
+            "\n\nROSTER ĐANG HOẠT ĐỘNG (chỉ giao cho người trong danh sách này, "
+            "ưu tiên khớp email):\n" + "\n".join(lines) + "\n"
+        )
+    except Exception as e:
+        logger.debug(f"_live_roster unavailable: {e}")
+        return ""
+
+
 def route_task(text: str) -> dict:
     """
     Full routing pipeline with team context (cached system instruction).
-    Fast tier — high frequency, classification + extraction.
+    Single Gemini call → returns assignee, OKR ref, scope, breakdown.
 
     Returns dict with keys:
       is_task, summary, assignee_name, assignee_email, assignee_confidence,
       deadline_iso, priority, category, okr_ref, okr_action_id,
       in_scope, scope_note, breakdown, confidence
     """
-    result = call_tier(
-        "fast",
-        ROUTER_PROMPT + text,
-        system=_ROUTER_SYSTEM,
-        label="route_task",
-        retries=2,
-    )
+    result = _safe_call(_router_model, ROUTER_PROMPT + _live_roster() + "\n\nTASK:\n" + text)
 
     if not result:
         # Fallback to basic classify
@@ -140,6 +300,7 @@ def route_task(text: str) -> dict:
         "deadline_iso":         result.get("deadline_iso"),
         "priority":             result.get("priority", "P2"),
         "category":             result.get("category", "other"),
+        "estimated_minutes":    int(result.get("estimated_minutes", 30)),
         "okr_ref":              result.get("okr_ref"),
         "okr_action_id":        result.get("okr_action_id"),
         "in_scope":             result.get("in_scope", True),
@@ -177,10 +338,14 @@ def coach_task(
     priority: str = "P2",
     deadline_iso: str | None = None,
     assignee_name: str | None = None,
+    raw_message: str | None = None,
 ) -> dict:
     """
-    Generate AI coaching guide for a specific task.
-    Returns: {why_matters, steps, watch_out, tips, estimated_minutes}
+    Layer 2 coaching — generate deep guidance for a specific task.
+    Returns: {why_matters, steps, watch_out, tips, contacts, estimated_minutes}
+
+    Uses _router_model which has team_context.md + okr_truck_ops.md as system
+    instruction → can reference baselines/targets/owners by name.
     """
     context_parts = []
     if okr_ref:
@@ -192,37 +357,58 @@ def coach_task(
     if assignee_name:
         context_parts.append(f"Assignee: {assignee_name}")
     if breakdown:
-        context_parts.append("Breakdown gợi ý: " + " | ".join(breakdown))
+        context_parts.append("Breakdown đã có: " + " | ".join(breakdown))
+    if raw_message:
+        context_parts.append(f"Tin nhắn gốc: {raw_message[:300]}")
 
-    prompt = f"""Bạn là AI coach cho team Truck Ops Ahamove. Phân tích task sau và trả về JSON hướng dẫn thực tế.
+    prompt = f"""Bạn là AI coach cho team Truck Ops Ahamove. Assignee đang xin hướng dẫn
+chi tiết để làm task — họ ĐÃ có summary + 3-5 steps gốc, cần thêm coaching SÂU.
 
 TASK: {task_summary}
 CONTEXT: {", ".join(context_parts) if context_parts else "Không có thêm context"}
 
-Trả về JSON với cấu trúc:
+Trả về JSON:
 {{
-  "why_matters": "Tại sao task này quan trọng với team/OKR (1-2 câu súc tích)",
-  "steps": ["Bước 1 cụ thể...", "Bước 2...", "Bước 3..."],
-  "watch_out": ["Rủi ro/blockers cần lưu ý 1", "Rủi ro 2"],
-  "tips": "Mẹo hoặc shortcut để làm nhanh hơn (1 câu)",
-  "estimated_minutes": <số phút ước tính thực tế>
+  "why_matters": "1-2 câu — bám CỤ THỂ vào OKR target/baseline (vd: 'FR Core HAN đang 62% — dưới target 68%, cần đẩy thêm 6 điểm). Nêu rõ blocker nếu task này chậm",
+  "steps": ["5 bước CỤ THỂ — kèm dashboard/sheet path + công thức/macro nếu có"],
+  "watch_out": ["2-3 pitfalls quan trọng — vd: 'Hợp đồng VSIP mới ký 15/05 nên phụ lục giá đổi'"],
+  "tips": "1 shortcut/macro/template cụ thể tiết kiệm thời gian",
+  "contacts": [
+    {{"name": "tên người", "email": "email@ahamove.com", "when": "khi cần gì"}}
+  ],
+  "estimated_minutes": <số phút thực tế>
 }}
 
-Yêu cầu: steps phải cụ thể, actionable, phù hợp với nghiệp vụ logistics/truck ops. Tối đa 5 steps.
+**STEPS RULES (rất quan trọng):**
+- Mỗi step phải có: ĐỘNG TỪ + ĐỐI TƯỢNG + NƠI (dashboard/sheet/tool)
+- DATA SOURCE: Team dùng Metabase (card/dashboard, có filter, download được CSV hoặc sync Google Sheet). KHÔNG nhắc Redash.
+  Nếu tools_context.md có tên card thật → dùng tên đó. Nếu không → dùng tên mô tả ngắn gọn trong ngoặc đơn.
+- ✅ "Vào Metabase > card 'B2B Trip Logs' > filter date 2026-05-19 → 2026-05-25 → Download CSV"
+- ✅ "Mở Google Sheet '[tên sheet B2B]' tab 'W21' → paste data vào cột tương ứng"
+- ❌ "Kiểm tra số liệu" / "Liên hệ liên quan" / "Vào Redash"
+
+**OKR DATA cụ thể nhúng vào why_matters và steps:**
+- O1.1 FR Core ≥68% (baseline 60.5%) | O1.2 FR LH ≥70% | O1.3 FR SME ≥65% (baseline 17% — gap lớn)
+- O2.1 KCN BDG live 30/04 + LAN Hub 15/05 | O2.4 Retention D30 ≥70% (baseline 65%)
+- O3.2 COGS GXT 75K/kiện (đang 80K) | O3.3 Vendor B2B 11 (đang 8) | O3.1 1st PU 80% (baseline 47.6%)
+- O4.3 AI Bot 40% auto | O5.1 GHN 9 tỉnh
+
+**CONTACTS — đối chiếu task scope với role:**
+- FR data HAN → Thương (thuonglth@) | FR SGN → Phú (phutn@)
+- KCN/EXP → Khâm (khamnd@) | Vendor B2B → Khánh (khanhlv@) hoặc Ngân (Nganntk1@)
+- COGS GXT planning → Thống (thonglhn@) | Retention HAN → Toàn (toanpt@) | SGN → Chiến (chienpd@)
+- Hợp đồng/giá → Ngân | Tech Ops/Dispatch → Thương | Phê duyệt cuối → Huy (huyle@)
+
+Liệt kê 2-4 contacts liên quan tới task này. Bỏ contacts không liên quan.
 """
-    result = call_tier(
-        "balanced",
-        prompt,
-        system=_ROUTER_SYSTEM,
-        label="coach_task",
-        retries=1,
-    )
+    result = _safe_call(_coach_model, prompt)
     if not result:
         return {
             "why_matters": "Task quan trọng cho OKR team.",
             "steps": breakdown or ["Thực hiện task theo mô tả."],
             "watch_out": [],
             "tips": "",
+            "contacts": [],
             "estimated_minutes": 30,
         }
     return {
@@ -230,8 +416,107 @@ Yêu cầu: steps phải cụ thể, actionable, phù hợp với nghiệp vụ 
         "steps":              result.get("steps", breakdown or []),
         "watch_out":          result.get("watch_out", []),
         "tips":               result.get("tips", ""),
+        "contacts":           result.get("contacts", []),
         "estimated_minutes":  result.get("estimated_minutes", 30),
     }
+
+
+def recommend_now(
+    pending_tasks: list[dict],
+    user_name: str = "",
+) -> dict:
+    """
+    Given a user's pending tasks + current time, pick THE single task they should
+    do right now and explain why in 1 sentence.
+
+    Scoring lens the AI should use (built into prompt):
+    - Deadline urgency (overdue > today > tomorrow > >2d)
+    - OKR weight (tasks with okr_ref outrank generic tasks)
+    - Priority (P0 always wins, P1 > P2 > P3)
+    - Time-of-day fit: P0/deep-work AM, meetings/coordination PM, admin EOD
+    - Blocker chain: tasks others are waiting on first
+
+    Returns: {task_id, reason, alternative_task_id, alternative_reason}
+    """
+    if not pending_tasks:
+        return {"task_id": None, "reason": "Không có task nào đang pending."}
+
+    now = datetime.now()
+    today_str = now.strftime("%Y-%m-%d %H:%M (%A)")
+    hour = now.hour
+    period = (
+        "đầu giờ sáng (deep work)" if 7 <= hour < 11
+        else "trưa (medium energy)" if 11 <= hour < 13
+        else "chiều (coordination)" if 13 <= hour < 17
+        else "cuối ngày (wrap up)" if 17 <= hour < 20
+        else "ngoài giờ"
+    )
+
+    # Compact task list for prompt
+    task_lines = []
+    for t in pending_tasks[:15]:  # cap at 15 to control token cost
+        meta = t.get("classifier_meta") or {}
+        if isinstance(meta, str):
+            try:
+                meta = json.loads(meta)
+            except Exception:
+                meta = {}
+        okr = meta.get("okr_ref", "") if isinstance(meta, dict) else ""
+        dl = t.get("deadline", "")
+        dl_short = dl[:16] if dl else "no-deadline"
+        task_lines.append(
+            f"#{t['id']} [{t.get('priority','P3')}] {t.get('summary','')[:80]} | "
+            f"dl={dl_short} | okr={okr or '—'} | cat={t.get('category','other')}"
+        )
+    tasks_text = "\n".join(task_lines)
+
+    prompt = f"""User: {user_name or '?'}
+NOW: {today_str} — {period}
+
+PENDING TASKS:
+{tasks_text}
+
+Pick THE single task this user should do RIGHT NOW (1 task only).
+
+Criteria (decreasing priority):
+1. P0 + overdue → always wins
+2. Deadline ≤ 4h từ now → escalate
+3. OKR-linked (có okr_ref) > ad-hoc
+4. Time-of-day fit: AM=deep work / heavy analysis, PM=coordination/meeting, EOD=admin
+5. Nếu nhiều task tương đương → chọn task có deadline gần nhất
+
+Return JSON:
+{{
+  "task_id": <id của task chọn>,
+  "reason": "1 câu (≤20 từ) giải thích vì sao chọn task này — bám vào OKR/deadline cụ thể",
+  "alternative_task_id": <id task thứ 2 nên cân nhắc, hoặc null>,
+  "alternative_reason": "1 câu ngắn nói vì sao đó là backup, hoặc null"
+}}
+"""
+    result = _safe_call(_router_model, prompt)
+    if not result:
+        # Fallback: rule-based pick
+        sorted_t = sorted(pending_tasks, key=lambda t: (
+            _PRIORITY_RANK_LOCAL.get(t.get("priority", "P3"), 3),
+            t.get("deadline") or "9999",
+        ))
+        first = sorted_t[0]
+        return {
+            "task_id": first["id"],
+            "reason": f"Priority {first.get('priority','P3')} với deadline sớm nhất.",
+            "alternative_task_id": sorted_t[1]["id"] if len(sorted_t) > 1 else None,
+            "alternative_reason": None,
+        }
+
+    return {
+        "task_id": result.get("task_id"),
+        "reason": result.get("reason", ""),
+        "alternative_task_id": result.get("alternative_task_id"),
+        "alternative_reason": result.get("alternative_reason"),
+    }
+
+
+_PRIORITY_RANK_LOCAL = {"P0": 0, "P1": 1, "P2": 2, "P3": 3, "P4": 4}
 
 
 def weekly_summary(done_tasks: list, pending_tasks: list, overdue_tasks: list,
@@ -250,8 +535,7 @@ def weekly_summary(done_tasks: list, pending_tasks: list, overdue_tasks: list,
         for t in overdue_tasks[:10]
     ) or "(không có)"
 
-    prompt = f"""Bạn là AI analyst cho team Truck Ops Ahamove (Manager: anh Lê Quang Huy).
-Phân tích performance tuần và trả về JSON báo cáo strategic, đi sâu vào ý nghĩa thay vì list số.
+    prompt = f"""Bạn là AI analyst cho team Truck Ops Ahamove. Phân tích performance tuần và trả về JSON báo cáo.
 
 TUẦN: {period_label}
 DONE ({len(done_tasks)} tasks):
@@ -264,24 +548,13 @@ OVERDUE ({len(overdue_tasks)} tasks):
 
 Trả về JSON:
 {{
-  "headline": "Tóm tắt 1 câu về tuần này (tone: factual, không hype, nêu trend/pattern)",
-  "highlights": ["Điểm nổi bật 1 — có context vì sao quan trọng", "Điểm nổi bật 2", "Điểm nổi bật 3"],
-  "risks": ["Rủi ro 1 — kèm 1 action gợi ý", "Rủi ro 2"],
-  "next_week_focus": "Khuyến nghị ưu tiên tuần sau cho anh Huy (1-2 câu, mention rõ G3 nào nên own)"
+  "headline": "Tóm tắt 1 câu về tuần này (tone: factual, không hype)",
+  "highlights": ["Điểm nổi bật 1", "Điểm nổi bật 2", "Điểm nổi bật 3"],
+  "risks": ["Rủi ro/cần chú ý 1", "Rủi ro 2"],
+  "next_week_focus": "Khuyến nghị ưu tiên tuần sau (1-2 câu)"
 }}
-
-Yêu cầu strategic:
-- Highlights phải nói WHY this matters cho OKR/team, không chỉ liệt kê what.
-- Risks phải có forward-looking signal (vd "Thương over-loaded → delegation gap").
-- Next_week_focus tránh cliché, propose 1 specific bet cho anh Huy.
 """
-    result = call_tier(
-        "premium",
-        prompt,
-        system=_ROUTER_SYSTEM,
-        label="weekly_summary",
-        retries=1,
-    )
+    result = _safe_call(_router_model, prompt)
     if not result:
         return {
             "headline": f"Tuần {period_label}: {len(done_tasks)} done, {len(overdue_tasks)} overdue.",
@@ -297,74 +570,121 @@ Yêu cầu strategic:
     }
 
 
-def synthesize_okr_risk(
-    at_risk: list[tuple],
-    watch: list[tuple],
-    on_track: list[tuple],
-    overloaded: list[tuple],
-    underloaded: list[tuple],
-    weekday_label: str = "",
-) -> dict:
-    """
-    Balanced-tier AI synthesis on top of computed OKR health data.
-    Produces strategic narrative + 2-3 specific recommendations for anh Huy.
+# ─── NL Intent Classification ─────────────────────────────────────────────────
+# Regex fast-paths (zero AI cost) for the most common operator commands.
 
-    Input tuples (kr_id, label, overdue, total, critical) for OKR rows.
-    Members: (name, active_count, overdue_count) for overloaded.
-    """
-    def _fmt_kr_list(rows: list[tuple]) -> str:
-        return "\n".join(
-            f"  - {kr} {lbl} ({od}/{total} overdue, {crit} critical)"
-            for kr, lbl, od, total, crit in rows
-        ) or "  (none)"
+_RE_NL_DONE = _re.compile(
+    r'(?:xong|done|hoàn\s*thành|đánh\s*dấu\s*xong)\s*(?:task)?\s*#?(\d+)'
+    r'|'
+    r'(?:task)?\s*#?(\d+)\s+(?:xong|done|hoàn\s*thành)',
+    _re.IGNORECASE | _re.UNICODE,
+)
+_RE_NL_DEADLINE = _re.compile(
+    r'task\s+#?(\d+)\s+(?:deadline|hạn|dl)[:\s]+(.+?)$',
+    _re.IGNORECASE | _re.UNICODE,
+)
+_RE_NL_REASSIGN = _re.compile(
+    r'(?:giao|chuyển|move|đổi)\s+task\s+#?(\d+)\s+(?:cho|sang|→|->)\s+(.+)',
+    _re.IGNORECASE | _re.UNICODE,
+)
+_RE_NL_QUERY_PERSON = _re.compile(
+    r'([\w\s]{3,20}?)\s+(?:đang\s+làm\s+gì|có\s+(?:task|việc)\s+gì|đang\s+bận\s+gì)',
+    _re.IGNORECASE | _re.UNICODE,
+)
+_RE_NL_BRIEF = _re.compile(
+    r'\b(?:brief|tổng\s*hợp|status\s+team|báo\s*cáo\s+nhanh|daily\s*brief|check\s+team)\b',
+    _re.IGNORECASE | _re.UNICODE,
+)
 
-    prompt = f"""Bạn là Strategic OKR Analyst cho anh Huy (Manager Truck Ops).
-Phân tích snapshot OKR health ngày {weekday_label} và trả về JSON insight chuyên sâu.
+_NL_INTENT_PROMPT = """Phân tích câu lệnh tiếng Việt từ manager ops Ahamove.
 
-AT RISK (≥50% actions overdue):
-{_fmt_kr_list(at_risk)}
+recent_task_id = {recent_task_id}
 
-WATCH (25-50% overdue hoặc nhiều critical):
-{_fmt_kr_list(watch)}
-
-ON TRACK:
-{_fmt_kr_list(on_track)}
-
-OVERLOADED members:
-{chr(10).join(f"  - {n}: {a} active, {o} overdue" for n, a, o in overloaded) or "  (none)"}
-
-UNDERLOADED members:
-{chr(10).join(f"  - {n}: {a} active" for n, a in underloaded) or "  (none)"}
-
-Trả JSON:
+Trả về JSON:
 {{
-  "headline": "1 câu strategic về state hôm nay (không lặp số liệu)",
-  "top_concern": "OKR/KR nào anh Huy nên focus tuần này, và vì sao",
-  "recommended_actions": [
-    {{"action": "...", "owner_grade": "G3|G2|G1", "owner_hint": "Thống|Thành|Khánh|... hoặc 'team SGN'", "rationale": "..."}},
-    {{"action": "...", "owner_grade": "...", "owner_hint": "...", "rationale": "..."}}
-  ],
-  "delegation_signal": "1 câu — nếu thấy pattern anh Huy đang tự giữ việc đáng delegate, flag ngay. Nếu không thấy: null.",
-  "redistribute_suggestion": "Nếu có overload + underload: gợi ý cụ thể chuyển task gì → ai. Else: null."
+  "intent": "update_deadline|reassign|mark_done|query_task|query_person|brief|unknown",
+  "task_id": <int hoặc null — dùng recent_task_id nếu text có "cái đó/vừa tạo/task vừa rồi/nó">,
+  "assignee_hint": "tên người để reassign hoặc null",
+  "deadline_raw": "chuỗi deadline thô hoặc null",
+  "person_hint": "tên người cần query hoặc null",
+  "confidence": 0.0-1.0
 }}
 
-Tone: strategic, không liệt kê. CEO-level reasoning.
-"""
+Rules:
+- update_deadline: "task X deadline Y", "task X hạn Y", "đổi deadline task X sang Y"
+- reassign: "giao/chuyển task X cho/sang Y"
+- mark_done: "task X xong", "xong task X", "#X done"
+- query_task: "task X là gì", "task X status", "check task X"
+- query_person: "Y đang làm gì", "check Y", "task của Y", "Y bận gì"
+- brief: muốn tổng hợp tình hình team
+- unknown: chitchat, câu hỏi, hoặc tạo task mới
 
-    result = call_tier("balanced", prompt, system=_ROUTER_SYSTEM, label="okr_risk_synth", retries=1)
-    if not result:
+TODAY = {today}
+
+INPUT: """
+
+
+def nl_intent(text: str, recent_task_id: int | None = None) -> dict:
+    """
+    Parse NL command → structured intent. Regex fast-paths first, Gemini fallback.
+
+    Returns dict with keys: intent, task_id?, assignee_hint?, deadline_raw?,
+    person_hint?, confidence.
+    Intents: update_deadline | reassign | mark_done | query_task |
+             query_person | brief | unknown
+    """
+    # ── Regex fast-paths (zero cost) ──────────────────────────────────────────
+    m = _RE_NL_DONE.search(text)
+    if m:
+        tid = m.group(1) or m.group(2)
+        return {"intent": "mark_done", "task_id": int(tid), "confidence": 0.95}
+
+    m = _RE_NL_DEADLINE.search(text)
+    if m:
         return {
-            "headline": "",
-            "top_concern": "",
-            "recommended_actions": [],
-            "delegation_signal": None,
-            "redistribute_suggestion": None,
+            "intent":       "update_deadline",
+            "task_id":      int(m.group(1)),
+            "deadline_raw": m.group(2).strip(),
+            "confidence":   0.93,
         }
-    return result
+
+    m = _RE_NL_REASSIGN.search(text)
+    if m:
+        return {
+            "intent":        "reassign",
+            "task_id":       int(m.group(1)),
+            "assignee_hint": m.group(2).strip(),
+            "confidence":    0.93,
+        }
+
+    if _RE_NL_BRIEF.search(text):
+        return {"intent": "brief", "confidence": 0.92}
+
+    m = _RE_NL_QUERY_PERSON.search(text)
+    if m:
+        return {"intent": "query_person", "person_hint": m.group(1).strip(), "confidence": 0.87}
+
+    # ── Gemini fallback for ambiguous NL ──────────────────────────────────────
+    today = datetime.now().strftime("%Y-%m-%d (%A)")
+    prompt = _NL_INTENT_PROMPT.format(
+        recent_task_id=recent_task_id if recent_task_id else "null",
+        today=today,
+    ) + text
+    result = _safe_call(_classify_model, prompt)
+    if not result:
+        return {"intent": "unknown", "confidence": 0.0}
+    return {
+        "intent":        result.get("intent", "unknown"),
+        "task_id":       result.get("task_id"),
+        "assignee_hint": result.get("assignee_hint"),
+        "deadline_raw":  result.get("deadline_raw"),
+        "person_hint":   result.get("person_hint"),
+        "confidence":    float(result.get("confidence", 0.5)),
+    }
 
 
 def image_pipeline(image_bytes: bytes) -> dict:
-    """OCR + route from screenshot (Zalo, email, etc.). Fast tier."""
+    """OCR + route from screenshot (Zalo, email, etc.)."""
     import PIL.Image
     import io
 
@@ -375,10 +695,7 @@ def image_pipeline(image_bytes: bytes) -> dict:
     )
     try:
         img = PIL.Image.open(io.BytesIO(image_bytes))
-        model, _ = get_model("fast", system=_ROUTER_SYSTEM, json_mode=True)
-        t0 = time.time()
-        resp = model.generate_content([prompt, img])
-        logger.info(f"[ai/fast] image_pipeline {time.time()-t0:.2f}s")
+        resp = _router_model.generate_content([prompt, img])
         result = json.loads(resp.text)
         return {
             "is_task":             result.get("is_task", False),

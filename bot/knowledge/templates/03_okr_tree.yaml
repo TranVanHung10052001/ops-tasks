@@ -1,0 +1,127 @@
+# =============================================================================
+# Layer 3 — OKR TREE (Q2/2026 — convert từ markdown → structured)
+# =============================================================================
+# Mục đích: AI tự tag task vào OKR action, biết action nào owner ai, deadline gì.
+# Hiện có `prompts/okr_truck_ops.md` (markdown) — file này là version structured.
+#
+# AI dùng để: trả lời "OKR X status", auto-tag task khi route_task, RCA OKR drift.
+# =============================================================================
+
+period: "Q2/2026"
+north_star: |
+  (Điền: 1 câu định hướng quarter — vd: "Tăng GSV Truck +35% YoY, FR Core ≥68%, COGS Bulky <30%")
+
+objectives:
+  - id: "O1"
+    label: "Fill Rate excellence"
+    owner: "manager@ahamove.com"          # email manager
+    rationale: "FR thấp → drop GSV + churn driver + KH unhappy"
+
+    krs:
+      - id: "O1.1"
+        label: "FR core 68%"
+        baseline: "62% (Q1)"
+        target: "68%"
+        weight: 0.5
+        current_value: "(điền từ metric — auto-update)"
+
+      - id: "O1.2"
+        label: "FR HAN 70%"
+        baseline: "58% (Q1)"
+        target: "70%"
+        weight: 0.3
+
+      - id: "O1.3"
+        label: "FR SGN 65%"
+        baseline: "60% (Q1)"
+        target: "65%"
+        weight: 0.2
+
+    actions:
+      - id: "1.1.1"
+        summary: "Triển khai shift incentive HAN cao điểm"
+        kr_ref: "O1.2"
+        owner: "thong@ahamove.com"
+        deadline_iso: "2026-05-30"
+        status: "in_progress"            # pending | in_progress | done | overdue | blocked
+        progress_pct: 60
+
+      - id: "1.1.2"
+        summary: "Onboard 200 driver Core mới HAN"
+        kr_ref: "O1.2"
+        owner: "thuong@ahamove.com"
+        deadline_iso: "2026-06-15"
+        status: "pending"
+
+      # Thêm action khác...
+
+  - id: "O2"
+    label: "COGS Bulky <30%"
+    owner: "manager@ahamove.com"
+    rationale: "COGS Bulky 32% → margin âm ở zone xa"
+
+    krs:
+      - id: "O2.1"
+        label: "COGS Bulky avg <30%"
+        baseline: "32% (Q1)"
+        target: "<30%"
+        weight: 0.7
+
+      - id: "O2.2"
+        label: "Density per route +15%"
+        baseline: "(điền)"
+        target: "+15%"
+        weight: 0.3
+
+    actions:
+      - id: "2.1.1"
+        summary: "(điền action)"
+        kr_ref: "O2.1"
+        owner: "(email)"
+        deadline_iso: "(YYYY-MM-DD)"
+        status: "pending"
+
+  - id: "O3"
+    label: "(điền O3 — vd: SME Acquisition)"
+    owner: "(email)"
+    rationale: "(tại sao OKR này)"
+    krs:
+      - id: "O3.1"
+        label: "(điền KR)"
+        target: "(target)"
+
+    actions:
+      - id: "3.1.1"
+        summary: "(điền)"
+        owner: "(email)"
+        deadline_iso: "(YYYY-MM-DD)"
+        status: "pending"
+
+  - id: "O4"
+    label: "(điền O4)"
+    owner: "(email)"
+    krs:
+      - id: "O4.1"
+        label: "(điền)"
+        target: "(target)"
+    actions: []
+
+# ─── Cross-OKR dependencies ──────────────────────────────────────────────────
+# Action nào block / depend on action nào — AI dùng để detect cascade risk.
+dependencies:
+  - blocker: "1.1.2"      # Onboard 200 driver Core mới HAN
+    blocks:  "1.1.1"      # Triển khai shift incentive
+    rationale: "Cần driver pool đủ trước khi shift incentive có effect"
+
+# ─── Health check rules ──────────────────────────────────────────────────────
+# AI dùng rules này để detect "OKR at-risk" tự động.
+risk_rules:
+  - rule: "overdue_actions_pct"
+    threshold: 0.5              # >50% action overdue → OKR at-risk
+    severity: "P1"
+  - rule: "kr_current_vs_target_gap"
+    threshold: 0.20             # current < target * 0.80 → KR off-track
+    severity: "P2"
+  - rule: "no_action_progress_days"
+    threshold: 14               # 14 ngày không có status update → stalled
+    severity: "P2"

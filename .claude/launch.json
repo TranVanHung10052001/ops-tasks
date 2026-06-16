@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ops-dieu-van-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:3002", "--prefix", "web"],
+      "port": 3002
+    }
+  ]
+}

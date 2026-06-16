@@ -38,11 +38,14 @@ def init_db():
                 telegram_id   INTEGER PRIMARY KEY,
                 username      TEXT,
                 full_name     TEXT NOT NULL,
+                email         TEXT,
                 role          TEXT CHECK(role IN ('manager','team_lead','employee'))
                               DEFAULT 'employee',
                 team          TEXT,
+                grade         TEXT,
                 reports_to    INTEGER REFERENCES users(telegram_id),
                 is_approved   INTEGER DEFAULT 0,
+                is_preseeded  INTEGER DEFAULT 0,
                 joined_at     DATETIME DEFAULT (datetime('now', '+7 hours')),
                 last_seen_at  DATETIME
             );
@@ -89,7 +92,49 @@ def init_db():
                 ON tasks(status, deadline);
             CREATE INDEX IF NOT EXISTS idx_tasks_team
                 ON tasks(team, status);
+
+            CREATE TABLE IF NOT EXISTS metrics (
+                key        TEXT PRIMARY KEY,
+                value      TEXT NOT NULL,
+                source     TEXT DEFAULT 'manual',
+                updated_at DATETIME DEFAULT (datetime('now', '+7 hours'))
+            );
+
+            CREATE TABLE IF NOT EXISTS pending_actions (
+                uid        INTEGER NOT NULL,
+                kind       TEXT NOT NULL,
+                payload    TEXT,
+                created_at DATETIME DEFAULT (datetime('now', '+7 hours')),
+                expires_at DATETIME NOT NULL,
+                PRIMARY KEY (uid, kind)
+            );
+            CREATE TABLE IF NOT EXISTS okr_progress (
+                okr_id     TEXT PRIMARY KEY,
+                progress   INTEGER,
+                current    TEXT,
+                status     TEXT NOT NULL DEFAULT 'on_track',
+                note       TEXT,
+                updated_at DATETIME DEFAULT (datetime('now', '+7 hours')),
+                source     TEXT DEFAULT 'dashboard'
+            );
+            CREATE TABLE IF NOT EXISTS okr_action_status (
+                action_id  TEXT PRIMARY KEY,
+                status     TEXT NOT NULL DEFAULT 'pending',
+                note       TEXT,
+                updated_at DATETIME DEFAULT (datetime('now', '+7 hours')),
+                source     TEXT DEFAULT 'dashboard'
+            );
         """)
+        # ── Schema migrations (idempotent) ──────────────────────────────────
+        for col, typedef in [
+            ("email",        "TEXT"),
+            ("grade",        "TEXT"),
+            ("is_preseeded", "INTEGER DEFAULT 0"),
+        ]:
+            try:
+                conn.execute(f"ALTER TABLE users ADD COLUMN {col} {typedef}")
+            except Exception:
+                pass  # column already exists
 
 
 # ─── User operations ──────────────────────────────────────────────────────────
@@ -107,6 +152,134 @@ def register_user(telegram_id: int, username: str, full_name: str) -> bool:
             VALUES (?, ?, ?)
         """, (telegram_id, username, full_name))
         return True
+
+
+def claim_preseeded_user(real_id: int, username: str, typed_name: str) -> dict | None:
+    """
+    If `typed_name` fuzzy-matches a pre-seeded record (telegram_id < 0),
+    update that record to use `real_id` and return the claimed user dict.
+    Returns None if no pre-seeded match found.
+
+    Matching priority:
+      1. Exact full_name match (case-insensitive)
+      2. Last-name token match (Vietnamese last token = given name)
+      3. Any part of typed_name contained in full_name
+    """
+    typed = typed_name.lower().strip()
+
+    # Guard: is_preseeded column might not exist in old DBs (pre-migration)
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT * FROM users WHERE telegram_id < 0 AND is_preseeded = 1"
+            ).fetchall()
+    except Exception:
+        return None  # Column missing — no preseeded records to claim
+
+    if not rows:
+        return None
+
+    def _score(row) -> int:
+        fn = row["full_name"].lower()
+        parts = fn.split()
+        tparts = typed.split()
+        if fn == typed:
+            return 3
+        # Vietnamese "họ + tên" shorthand: e.g. "Lê Thống" ↔ "Lê Hoàng Nhất Thống"
+        # (first token = surname, last token = given name). Most common shorthand.
+        if len(tparts) >= 2 and len(parts) >= 2 and tparts[0] == parts[0] and tparts[-1] == parts[-1]:
+            return 3
+        # Last token (given name) alone
+        if parts and parts[-1] == typed:
+            return 2
+        if typed in fn or any(p == typed for p in parts):
+            return 1
+        return 0
+
+    best = max(rows, key=_score)
+    if _score(best) == 0:
+        return None  # No reasonable match
+
+    placeholder_id = best["telegram_id"]
+    with get_db() as conn:
+        # Disable FK checks for this transaction so we can:
+        #   1. Update the primary key (telegram_id) on the claimed row
+        #   2. Fix up any child rows that pointed to the old placeholder ID
+        conn.execute("PRAGMA defer_foreign_keys = ON")
+
+        # ── Re-registration case ──
+        # If real_id already has a row (user typed wrong name first, then
+        # retyped correctly), we must clean it up before UPDATE'ing the
+        # placeholder's PK to real_id (UNIQUE constraint would fail).
+        # Move any child rows pointed at real_id → placeholder_id first,
+        # then they'll auto-resolve to real_id after the swap below.
+        existing = conn.execute(
+            "SELECT telegram_id FROM users WHERE telegram_id = ?",
+            (real_id,)
+        ).fetchone()
+        if existing:
+            for table, col in [
+                ("tasks", "assignee_id"),
+                ("tasks", "assigned_by"),
+                ("users", "reports_to"),
+                ("audit_log", "actor_id"),
+            ]:
+                try:
+                    conn.execute(
+                        f"UPDATE {table} SET {col} = ? WHERE {col} = ?",
+                        (placeholder_id, real_id),
+                    )
+                except Exception:
+                    pass  # table might not exist on older DBs
+            conn.execute("DELETE FROM users WHERE telegram_id = ?", (real_id,))
+
+        # Fix children first — update reports_to to point to the new real_id
+        conn.execute(
+            "UPDATE users SET reports_to = ? WHERE reports_to = ?",
+            (real_id, placeholder_id)
+        )
+
+        # Now swap the placeholder telegram_id → real telegram_id
+        conn.execute("""
+            UPDATE users
+               SET telegram_id  = ?,
+                   username     = ?,
+                   is_preseeded = 0,
+                   last_seen_at = datetime('now', '+7 hours')
+             WHERE telegram_id = ?
+        """, (real_id, username, placeholder_id))
+
+    return get_user(real_id)
+
+
+def find_preseeded_by_name(typed_name: str) -> dict | None:
+    """Return the best matching pre-seeded record without claiming it (for preview)."""
+    typed = typed_name.lower().strip()
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM users WHERE telegram_id < 0 AND is_preseeded = 1"
+        ).fetchall()
+    if not rows:
+        return None
+    best = None
+    best_score = 0
+    for row in rows:
+        fn = row["full_name"].lower()
+        parts = fn.split()
+        tparts = typed.split()
+        score = 0
+        if fn == typed:
+            score = 3
+        elif len(tparts) >= 2 and len(parts) >= 2 and tparts[0] == parts[0] and tparts[-1] == parts[-1]:
+            score = 3
+        elif parts and parts[-1] == typed:
+            score = 2
+        elif typed in fn or any(p == typed for p in parts):
+            score = 1
+        if score > best_score:
+            best_score = score
+            best = row
+    return dict(best) if best and best_score > 0 else None
 
 
 def get_user(telegram_id: int) -> dict | None:
@@ -127,10 +300,16 @@ def get_user_by_username(username: str) -> dict | None:
 
 
 def get_user_by_email(email: str) -> dict | None:
-    """Find user by Ahamove email (stored in username or full_name won't work — match on email field if exists, else skip)."""
-    # Email not stored in DB currently — match by known email→name mapping from team_context
-    # This is a best-effort lookup; falls back to get_user_by_name
-    return None
+    """Find user by Ahamove email (case-insensitive). `email` column exists on
+    the users table (added via migration). Returns None if no match."""
+    if not email:
+        return None
+    clean = email.strip().lower()
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE LOWER(email) = ?", (clean,)
+        ).fetchone()
+        return dict(row) if row else None
 
 
 def get_user_by_name(name: str) -> dict | None:
@@ -157,32 +336,50 @@ def get_user_by_name(name: str) -> dict | None:
 
 
 def find_users_by_name(name: str) -> list[dict]:
-    """Return ALL approved users whose name partially matches — caller resolves ambiguity."""
+    """Return ALL approved users whose name partially matches (for ambiguity detection)."""
     if not name:
         return []
     name_lower = name.lower().strip()
-    matches = []
     with get_db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM users WHERE is_approved = 1"
-        ).fetchall()
-        # Exact matches first (highest confidence)
-        exact = [dict(r) for r in rows if r["full_name"].lower() == name_lower]
-        if exact:
-            return exact
-        # Partial matches
-        for row in rows:
-            full = row["full_name"].lower()
-            parts = full.split()
-            if any(p == name_lower for p in parts) or name_lower in full:
-                matches.append(dict(row))
+        rows = conn.execute("SELECT * FROM users WHERE is_approved = 1").fetchall()
+    matches = []
+    for row in rows:
+        full = row["full_name"].lower()
+        parts = full.split()
+        if full == name_lower or any(p == name_lower for p in parts) or name_lower in full:
+            matches.append(dict(row))
     return matches
+
+
+def reassign_task(task_id: int, new_assignee_id: int) -> bool:
+    """Reassign an active task to a different team member.
+    Note: assignee_name is derived from users JOIN, not stored on tasks table.
+    """
+    new_user = get_user(new_assignee_id)
+    new_team = new_user.get("team") if new_user else None
+    with get_db() as conn:
+        cur = conn.execute(
+            """UPDATE tasks SET assignee_id = ?, team = ?
+               WHERE id = ? AND status NOT IN ('done', 'cancelled')""",
+            (new_assignee_id, new_team, task_id),
+        )
+        return cur.rowcount > 0
 
 
 def approve_user(telegram_id: int) -> bool:
     with get_db() as conn:
         cursor = conn.execute(
             "UPDATE users SET is_approved = 1 WHERE telegram_id = ?", (telegram_id,)
+        )
+        return cursor.rowcount > 0
+
+
+def update_user_name(telegram_id: int, full_name: str) -> bool:
+    """Update full_name (used when user re-enters name before approval)."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            "UPDATE users SET full_name = ? WHERE telegram_id = ?",
+            (full_name, telegram_id),
         )
         return cursor.rowcount > 0
 
@@ -250,20 +447,22 @@ def add_task(
     estimated_minutes: int = 30,
     classifier_meta: dict = None,
     visibility: str = "team",
+    block_reason: str = None,
 ) -> int:
     with get_db() as conn:
         cursor = conn.execute("""
             INSERT INTO tasks (
                 assignee_id, assigned_by, team, raw_message, summary, source, sender,
                 deadline, deadline_confidence, priority, category,
-                estimated_minutes, classifier_meta, visibility
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                estimated_minutes, classifier_meta, visibility, block_reason
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             assignee_id, assigned_by, team, raw_message, summary, source, sender,
             deadline, deadline_confidence, priority, category,
             estimated_minutes,
             json.dumps(classifier_meta) if classifier_meta else None,
             visibility,
+            block_reason,
         ))
         return cursor.lastrowid
 
@@ -331,11 +530,45 @@ def list_team_tasks(
             q += " AND u.team = ?"
             params.append(team)
         if since:
-            q += " AND COALESCE(t.updated_at, t.created_at) >= ?"
+            # tasks has no `updated_at` column — use completed_at (for done tasks)
+            # falling back to created_at. Prevents OperationalError on /api/tasks/done.
+            q += " AND COALESCE(t.completed_at, t.created_at) >= ?"
             params.append(since)
         q += " ORDER BY u.full_name ASC, t.priority ASC, t.deadline ASC LIMIT ?"
         params.append(limit)
         return [dict(r) for r in conn.execute(q, params).fetchall()]
+
+
+def list_auto_created_today(since_iso: str | None = None) -> list[dict]:
+    """
+    Tasks that bot auto-created (source='ai_auto') in the current day.
+    Used for the 17h manager digest + dashboard widget.
+
+    `since_iso` optional override. If None, uses SQLite's `datetime('now',
+    '+7 hours', 'start of day')` so the format matches stored created_at
+    (space-separated, NOT ISO 'T' — those compare differently as strings).
+    """
+    with get_db() as conn:
+        if since_iso:
+            q_where = "AND t.created_at >= ?"
+            params = [since_iso]
+        else:
+            q_where = "AND t.created_at >= datetime('now', '+7 hours', 'start of day')"
+            params = []
+
+        rows = conn.execute(f"""
+            SELECT t.*,
+                   u.full_name  AS assignee_name,
+                   u2.full_name AS assigner_name
+              FROM tasks t
+              LEFT JOIN users u  ON t.assignee_id = u.telegram_id
+              LEFT JOIN users u2 ON t.assigned_by = u2.telegram_id
+             WHERE t.source = 'ai_auto'
+               {q_where}
+             ORDER BY t.created_at DESC
+             LIMIT 50
+        """, params).fetchall()
+        return [dict(r) for r in rows]
 
 
 def list_team_by_person(manager_id: int = None) -> list[dict]:
@@ -346,8 +579,11 @@ def list_team_by_person(manager_id: int = None) -> list[dict]:
                 u.telegram_id,
                 u.full_name,
                 u.username,
+                u.email,
                 u.team,
                 u.role,
+                u.grade,
+                u.is_preseeded,
                 COUNT(CASE WHEN t.status IN ('pending','in_progress') THEN 1 END) as active_count,
                 COUNT(CASE WHEN t.status = 'done'
                       AND t.completed_at >= datetime('now', '+7 hours', '-1 day') THEN 1 END) as done_today,
@@ -433,6 +669,99 @@ def get_user_stats(user_id: int) -> dict:
         return {"done_week": done_week, "pending": pending, "overdue": overdue}
 
 
+def get_member_performance(user_id: int, days: int = 30) -> dict:
+    """Long-range performance snapshot for ONE member — dùng cho /perf + đánh giá.
+
+    Tất cả data đã được ghi sẵn (tasks.completed_at/deadline/actual_minutes +
+    audit_log). Trả về dict các chỉ số throughput / đúng hạn / cycle-time.
+    Set days lớn (vd 365) để review cả năm.
+    """
+    since = (datetime.now() - timedelta(days=days)).isoformat()
+    with get_db() as conn:
+        done_rows = conn.execute("""
+            SELECT priority, deadline, created_at, completed_at, actual_minutes
+            FROM tasks
+            WHERE assignee_id = ? AND status = 'done' AND completed_at >= ?
+        """, (user_id, since)).fetchall()
+
+        done = len(done_rows)
+        on_time = late = with_dl = 0
+        cycle_sum = 0.0
+        cycle_n = 0
+        actual_min = 0
+        p0_done = p1_done = 0
+        for r in done_rows:
+            d = dict(r)
+            pr = d.get("priority")
+            if pr == "P0":
+                p0_done += 1
+            elif pr == "P1":
+                p1_done += 1
+            if d.get("actual_minutes"):
+                actual_min += d["actual_minutes"]
+            try:
+                ca = datetime.fromisoformat(d["created_at"]).replace(tzinfo=None)
+                co = datetime.fromisoformat(d["completed_at"]).replace(tzinfo=None)
+                cycle_sum += (co - ca).total_seconds() / 3600
+                cycle_n += 1
+            except (ValueError, TypeError, KeyError):
+                pass
+            if d.get("deadline") and d.get("completed_at"):
+                with_dl += 1
+                try:
+                    dl = datetime.fromisoformat(d["deadline"]).replace(tzinfo=None)
+                    co = datetime.fromisoformat(d["completed_at"]).replace(tzinfo=None)
+                    if co <= dl:
+                        on_time += 1
+                    else:
+                        late += 1
+                except (ValueError, TypeError):
+                    pass
+
+        snap = conn.execute("""
+            SELECT
+              COUNT(CASE WHEN status IN ('pending','in_progress') THEN 1 END) AS active,
+              COUNT(CASE WHEN status IN ('pending','in_progress','blocked')
+                          AND deadline IS NOT NULL
+                          AND deadline < datetime('now','+7 hours') THEN 1 END) AS overdue
+            FROM tasks WHERE assignee_id = ?
+        """, (user_id,)).fetchone()
+
+        assigned = conn.execute("""
+            SELECT COUNT(*) FROM tasks WHERE assignee_id = ? AND created_at >= ?
+        """, (user_id, since)).fetchone()[0]
+
+        defer_row = conn.execute("""
+            SELECT COALESCE(SUM(defer_count),0), COALESCE(SUM(reminder_count),0)
+            FROM tasks WHERE assignee_id = ? AND created_at >= ?
+        """, (user_id, since)).fetchone()
+
+        declined = conn.execute("""
+            SELECT COUNT(*) FROM audit_log
+            WHERE actor_id = ? AND action = 'decline_task' AND ts >= ?
+        """, (user_id, since)).fetchone()[0]
+
+    return {
+        "days":           days,
+        "done":           done,
+        "assigned":       assigned,
+        "completion_pct": round(done / assigned * 100) if assigned else None,
+        "on_time":        on_time,
+        "late":           late,
+        "with_deadline":  with_dl,
+        "on_time_pct":    round(on_time / with_dl * 100) if with_dl else None,
+        "avg_cycle_h":    round(cycle_sum / cycle_n, 1) if cycle_n else None,
+        "actual_minutes": actual_min,
+        "p0_done":        p0_done,
+        "p1_done":        p1_done,
+        "active":         snap["active"] if snap else 0,
+        "overdue":        snap["overdue"] if snap else 0,
+        "defer_total":    defer_row[0] if defer_row else 0,
+        "reminder_total": defer_row[1] if defer_row else 0,
+        "declined":       declined,
+    }
+
+
 # ─── Task status transitions ───────────────────────────────────────────────────
 
 def mark_done(task_id: int) -> bool:
@@ -442,6 +771,28 @@ def mark_done(task_id: int) -> bool:
             UPDATE tasks SET status = 'done', completed_at = ?
             WHERE id = ? AND status != 'done'
         """, (now, task_id))
+        return cursor.rowcount > 0
+
+
+def start_task(task_id: int) -> bool:
+    """Move a task into 'in_progress' (e.g. when assignee accepts).
+    Only transitions from pending/snoozed/blocked — never overrides done/cancelled."""
+    with get_db() as conn:
+        cursor = conn.execute("""
+            UPDATE tasks SET status = 'in_progress'
+            WHERE id = ? AND status IN ('pending', 'snoozed', 'blocked')
+        """, (task_id,))
+        return cursor.rowcount > 0
+
+
+def return_to_pool(task_id: int) -> bool:
+    """Return a declined task to the unassigned pending pool (clears assignee).
+    Used when an employee declines — manager can reassign via /assign."""
+    with get_db() as conn:
+        cursor = conn.execute("""
+            UPDATE tasks SET status = 'pending', assignee_id = NULL
+            WHERE id = ? AND status NOT IN ('done', 'cancelled')
+        """, (task_id,))
         return cursor.rowcount > 0
 
 
@@ -492,16 +843,6 @@ def unblock_task(task_id: int) -> bool:
             UPDATE tasks SET status = 'pending', block_reason = NULL
             WHERE id = ? AND status = 'blocked'
         """, (task_id,))
-        return cursor.rowcount > 0
-
-
-def reassign_task(task_id: int, new_assignee_id: int) -> bool:
-    """Change the assignee of a task. Returns True if the row was updated."""
-    with get_db() as conn:
-        cursor = conn.execute(
-            "UPDATE tasks SET assignee_id = ? WHERE id = ?",
-            (new_assignee_id, task_id),
-        )
         return cursor.rowcount > 0
 
 
@@ -623,3 +964,311 @@ def log_action(actor_id: int, action: str, entity_type: str = None,
             INSERT INTO audit_log (actor_id, action, entity_type, entity_id, detail)
             VALUES (?, ?, ?, ?, ?)
         """, (actor_id, action, entity_type, entity_id, detail))
+
+
+# ─── Metrics (KPI store for Redash / manual sync) ────────────────────────────
+
+def update_task_priority(task_id: int, priority: str) -> bool:
+    with get_db() as conn:
+        cursor = conn.execute(
+            "UPDATE tasks SET priority = ? WHERE id = ?", (priority, task_id)
+        )
+        return cursor.rowcount > 0
+
+
+def set_task_status(task_id: int, status: str) -> bool:
+    """Generic status setter for dashboard kanban moves. Sets completed_at when
+    moving to done, clears it when moving out of done."""
+    now = datetime.now().isoformat()
+    with get_db() as conn:
+        if status == "done":
+            cur = conn.execute(
+                "UPDATE tasks SET status = 'done', completed_at = ? WHERE id = ?",
+                (now, task_id),
+            )
+        else:
+            cur = conn.execute(
+                "UPDATE tasks SET status = ?, completed_at = NULL WHERE id = ?",
+                (status, task_id),
+            )
+        return cur.rowcount > 0
+
+
+def upsert_metric(key: str, value: str, source: str = "redash") -> None:
+    """Insert or update a KPI metric (key→value). Thread-safe via WAL."""
+    with get_db() as conn:
+        conn.execute("""
+            INSERT INTO metrics (key, value, source, updated_at)
+            VALUES (?, ?, ?, datetime('now', '+7 hours'))
+            ON CONFLICT(key) DO UPDATE SET
+                value      = excluded.value,
+                source     = excluded.source,
+                updated_at = datetime('now', '+7 hours')
+        """, (key, value, source))
+
+
+def get_all_metrics() -> dict:
+    """Return all stored metrics as {key: value, ..., updated_at: <latest>}."""
+    with get_db() as conn:
+        rows = conn.execute("SELECT key, value FROM metrics").fetchall()
+        result: dict = {r["key"]: r["value"] for r in rows}
+        if rows:
+            ts_row = conn.execute(
+                "SELECT MAX(updated_at) as ts FROM metrics"
+            ).fetchone()
+            if ts_row and ts_row["ts"]:
+                result["updated_at"] = ts_row["ts"]
+        return result
+
+
+# ─── OKR editable state ───────────────────────────────────────────────────────
+
+def upsert_okr_progress(
+    okr_id: str,
+    progress: int | None = None,
+    status: str | None = None,
+    current: str | None = None,
+    note: str | None = None,
+    source: str = "dashboard",
+) -> None:
+    """Upsert mutable progress state for an OKR objective."""
+    with get_db() as conn:
+        conn.execute("""
+            INSERT INTO okr_progress (okr_id, progress, current, status, note, updated_at, source)
+            VALUES (?, ?, ?, COALESCE(?, 'on_track'), ?, datetime('now', '+7 hours'), ?)
+            ON CONFLICT(okr_id) DO UPDATE SET
+                progress   = COALESCE(excluded.progress,  progress),
+                current    = COALESCE(excluded.current,   current),
+                status     = COALESCE(excluded.status,    status),
+                note       = COALESCE(excluded.note,      note),
+                updated_at = datetime('now', '+7 hours'),
+                source     = excluded.source
+        """, (okr_id, progress, current, status, note, source))
+
+
+def get_okr_overrides() -> dict:
+    """Return {okr_id: {progress, current, status, note}} from DB."""
+    with get_db() as conn:
+        rows = conn.execute("SELECT * FROM okr_progress").fetchall()
+        return {r["okr_id"]: dict(r) for r in rows}
+
+
+def upsert_action_status(
+    action_id: str,
+    status: str,
+    note: str | None = None,
+    source: str = "dashboard",
+) -> None:
+    """Upsert mutable status for an OKR action item."""
+    with get_db() as conn:
+        conn.execute("""
+            INSERT INTO okr_action_status (action_id, status, note, updated_at, source)
+            VALUES (?, ?, ?, datetime('now', '+7 hours'), ?)
+            ON CONFLICT(action_id) DO UPDATE SET
+                status     = excluded.status,
+                note       = COALESCE(excluded.note, note),
+                updated_at = datetime('now', '+7 hours'),
+                source     = excluded.source
+        """, (action_id, status, note, source))
+
+
+def get_action_overrides() -> dict:
+    """Return {action_id: {status, note}} from DB."""
+    with get_db() as conn:
+        rows = conn.execute("SELECT * FROM okr_action_status").fetchall()
+        return {r["action_id"]: dict(r) for r in rows}
+
+
+def bulk_sync_okr_from_sheet(objectives: list, actions: list) -> int:
+    """Bulk upsert OKR state from Google Sheets. Returns count of upserted rows."""
+    count = 0
+    for obj in objectives:
+        if "id" not in obj:
+            continue
+        upsert_okr_progress(
+            okr_id=str(obj["id"]).upper(),
+            progress=obj.get("progress"),
+            status=obj.get("status"),
+            current=obj.get("current"),
+            note=obj.get("note"),
+            source="sheets",
+        )
+        count += 1
+    for action in actions:
+        if "id" not in action or "status" not in action:
+            continue
+        upsert_action_status(
+            action_id=str(action["id"]),
+            status=str(action["status"]),
+            note=action.get("note"),
+            source="sheets",
+        )
+        count += 1
+    return count
+
+
+def get_adhoc_ratio_this_week(user_id: int) -> dict:
+    """Return ad-hoc task ratio for tasks assigned BY user_id since Monday 00:00 this week.
+
+    Ad-hoc categories: ops, admin, meeting, vendor, other.
+    Only non-cancelled tasks are counted.
+    Returns {"total": int, "adhoc": int, "ratio_pct": float}.
+    """
+    _ADHOC_CATEGORIES = {"ops", "admin", "meeting", "vendor", "other"}
+
+    now = datetime.now()
+    monday = (now - timedelta(days=now.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT category FROM tasks
+            WHERE assigned_by = ?
+              AND created_at >= ?
+              AND status != 'cancel'
+        """, (user_id, monday.isoformat())).fetchall()
+
+    total = len(rows)
+    if total == 0:
+        return {"total": 0, "adhoc": 0, "ratio_pct": 0.0}
+
+    adhoc = sum(1 for r in rows if (r["category"] or "").lower() in _ADHOC_CATEGORIES)
+    ratio_pct = round(adhoc / total * 100, 1)
+    return {"total": total, "adhoc": adhoc, "ratio_pct": ratio_pct}
+
+
+# ─── Pending actions (persisted across bot restarts) ─────────────────────────
+# Replaces in-memory dicts (_pending_name, _pending_confirm, etc) so callback
+# state survives Railway redeploys.
+
+import json as _json
+from datetime import timedelta as _timedelta
+
+
+def _dt_encode(o):
+    if isinstance(o, datetime):
+        return {"__dt__": o.isoformat()}
+    raise TypeError(repr(o) + " is not JSON serializable")
+
+
+def _dt_decode(d):
+    if "__dt__" in d:
+        try:
+            return datetime.fromisoformat(d["__dt__"])
+        except ValueError:
+            return d
+    return d
+
+
+def set_pending(uid: int, kind: str, payload: dict, ttl_seconds: int = 3600):
+    """Store pending state. expires_at is computed by SQLite itself
+    so timezone comparison with get_pending always matches."""
+    body = _json.dumps(payload or {}, default=_dt_encode)
+    with get_db() as conn:
+        conn.execute("""
+            INSERT INTO pending_actions (uid, kind, payload, expires_at)
+            VALUES (?, ?, ?, datetime('now', '+7 hours', ?))
+            ON CONFLICT(uid, kind) DO UPDATE SET
+                payload    = excluded.payload,
+                expires_at = excluded.expires_at,
+                created_at = datetime('now', '+7 hours')
+        """, (uid, kind, body, f'+{int(ttl_seconds)} seconds'))
+
+
+def get_pending(uid: int, kind: str):
+    """Return payload dict if present and not expired, else None."""
+    with get_db() as conn:
+        row = conn.execute("""
+            SELECT payload FROM pending_actions
+            WHERE uid = ? AND kind = ?
+              AND datetime(expires_at) > datetime('now', '+7 hours')
+        """, (uid, kind)).fetchone()
+    if not row:
+        return None
+    try:
+        return _json.loads(row["payload"], object_hook=_dt_decode)
+    except Exception:
+        return None
+
+
+def pop_pending(uid: int, kind: str):
+    val = get_pending(uid, kind)
+    with get_db() as conn:
+        conn.execute(
+            "DELETE FROM pending_actions WHERE uid = ? AND kind = ?",
+            (uid, kind),
+        )
+    return val
+
+
+def cleanup_expired_pending():
+    with get_db() as conn:
+        conn.execute("""
+            DELETE FROM pending_actions
+            WHERE datetime(expires_at) <= datetime('now', '+7 hours')
+        """)
+
+
+class PersistedDict:
+    """
+    Dict-like wrapper that persists each entry to pending_actions table.
+    Survives bot restarts (Railway redeploys).
+
+    Usage:
+        _pending_confirm = PersistedDict('confirm', ttl_seconds=1800)
+        _pending_confirm[uid] = {'task_text': text, 'routed': result}
+        if uid in _pending_confirm:
+            state = _pending_confirm[uid]
+            _pending_confirm.pop(uid)
+    """
+
+    def __init__(self, kind: str, ttl_seconds: int = 3600):
+        self.kind = kind
+        self.ttl = ttl_seconds
+
+    def __setitem__(self, uid, value):
+        if isinstance(value, bool):
+            value = {"_flag": value}
+        elif isinstance(value, tuple):
+            value = {"_tuple": list(value)}
+        elif not isinstance(value, dict):
+            value = {"_value": value}
+        set_pending(int(uid), self.kind, value, self.ttl)
+
+    def __getitem__(self, uid):
+        val = get_pending(int(uid), self.kind)
+        if val is None:
+            raise KeyError(uid)
+        if isinstance(val, dict):
+            if "_flag" in val and len(val) == 1:
+                return val["_flag"]
+            if "_tuple" in val and len(val) == 1:
+                return tuple(val["_tuple"])
+            if "_value" in val and len(val) == 1:
+                return val["_value"]
+        return val
+
+    def __contains__(self, uid):
+        return get_pending(int(uid), self.kind) is not None
+
+    def get(self, uid, default=None):
+        try:
+            return self[uid]
+        except KeyError:
+            return default
+
+    def pop(self, uid, *args):
+        """Pop entry. Returns default (or None if no default) when missing —
+        does NOT raise KeyError, unlike standard dict.pop(). Safer for our
+        code patterns where pop is often called inside `if uid in d:` guards
+        that race against TTL expiry."""
+        try:
+            val = self[uid]
+        except KeyError:
+            return args[0] if args else None
+        try:
+            pop_pending(int(uid), self.kind)
+        except Exception:
+            pass
+        return val

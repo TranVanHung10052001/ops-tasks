@@ -1,0 +1,174 @@
+# =============================================================================
+# Layer 4 — KPI DICTIONARY
+# =============================================================================
+# Mục đích: AI biết MỖI metric là gì, formula, target, dùng cho OKR nào.
+# Khi anh hỏi "Vì sao FR HAN giảm" → AI biết FR HAN formula, target 70%,
+# nguồn data Redash, link tới OKR O1.2.
+#
+# AI dùng để: validate metric value, compare vs target, decide P0/P1 alert.
+# =============================================================================
+
+# ─── Categories of metrics ───────────────────────────────────────────────────
+# Mỗi metric thuộc 1 trong các category sau, AI tag để filter dễ.
+
+metrics:
+
+  # ── GSV metrics ──
+  - key: "gsv_today_b"
+    label: "GSV today (tỷ VNĐ)"
+    category: "revenue"
+    formula: "SUM(order_value) WHERE date = today"
+    source: "Redash query 142 (or fallback Google Sheets)"
+    unit: "tỷ VNĐ"
+    target: "(điền target/day vd: 9.0)"
+    okr_links: []
+    owner: "data_lead@ahamove.com"
+    update_freq: "30 min"
+    threshold_p0_low: "(< target * 0.7 → urgent)"
+    threshold_p1_low: "(< target * 0.85)"
+
+  - key: "gsv_wow_pct"
+    label: "GSV WoW growth %"
+    category: "revenue"
+    formula: "(GSV_this_week - GSV_last_week) / GSV_last_week"
+    source: "Computed from gsv daily snapshots"
+    unit: "%"
+    target: "+5% WoW"
+    threshold_p0_low: "negative WoW 2 weeks in a row"
+
+  # ── Order metrics ──
+  - key: "orders_today"
+    label: "Orders count today"
+    category: "volume"
+    formula: "COUNT(orders) WHERE status='completed' AND date=today"
+    source: "Redash"
+    unit: "đơn"
+    target: "(điền)"
+
+  - key: "orders_wow_pct"
+    label: "Orders WoW %"
+    category: "volume"
+    formula: "..."
+    unit: "%"
+
+  # ── Fill Rate metrics ──
+  - key: "fill_rate_core_pct"
+    label: "Fill Rate Core (HAN+SGN+tier1)"
+    category: "service_quality"
+    formula: "completed_orders / requested_orders WHERE service in core_zones"
+    source: "Redash query 145"
+    unit: "%"
+    target: 68                            # OKR O1.1 target
+    okr_links: ["O1.1"]
+    threshold_p0_low: 55
+    threshold_p1_low: 62
+    owner: "ops_lead@ahamove.com"
+    notes: |
+      Core zones bao gồm: HAN nội thành + SGN nội thành + Bình Dương + Đồng Nai.
+      Excludes: longhaul đơn >40km, rental services.
+
+  - key: "fill_rate_han_pct"
+    label: "FR Hà Nội"
+    category: "service_quality"
+    target: 70
+    okr_links: ["O1.2"]
+    threshold_p0_low: 55
+    threshold_p1_low: 63
+
+  - key: "fill_rate_sgn_pct"
+    label: "FR Sài Gòn"
+    category: "service_quality"
+    target: 65
+    okr_links: ["O1.3"]
+    threshold_p0_low: 50
+    threshold_p1_low: 58
+
+  - key: "fill_rate_vsip_pct"
+    label: "FR VSIP (Bình Dương)"
+    category: "service_quality"
+    target: 75
+    notes: "Industrial zone — vendor-heavy traffic"
+
+  - key: "fill_rate_songthan_pct"
+    label: "FR Sóng Thần"
+    category: "service_quality"
+
+  - key: "fill_rate_longhau_pct"
+    label: "FR Long Hậu"
+    category: "service_quality"
+
+  # ── COGS metrics ──
+  - key: "cogs_bulky_pct"
+    label: "COGS Bulky %"
+    category: "unit_economics"
+    formula: "driver_payout / gsv_bulky"
+    source: "Redash query 148"
+    unit: "%"
+    target: 30                            # OKR O2.1 target <30%
+    okr_links: ["O2.1"]
+    threshold_p0_high: 35                 # >35% → urgent
+    threshold_p1_high: 32
+    owner: "finance@ahamove.com"
+
+  - key: "cogs_wow_pct"
+    label: "COGS WoW change"
+    category: "unit_economics"
+    unit: "pp (percentage points)"
+
+  # ── Driver metrics ──
+  - key: "active_drivers"
+    label: "Active drivers (truck)"
+    category: "supply"
+    formula: "DISTINCT driver_id WHERE last_order < 30 days"
+    source: "Redash query 152"
+    unit: "drivers"
+    target: 4500
+    owner: "driver_ops@ahamove.com"
+
+  - key: "driver_station_pct"
+    label: "% Station tier"
+    category: "supply"
+    formula: "drivers WHERE monthly_stops > 120 / total_drivers"
+    target: 30                            # target 30% Station tier
+    notes: "Highest productivity, >120 stop/m"
+
+  - key: "driver_core_pct"
+    label: "% Core tier"
+    category: "supply"
+    target: 25
+
+  - key: "driver_hub_pct"
+    label: "% Hub tier"
+    category: "supply"
+    target: 25
+
+  - key: "driver_mass_pct"
+    label: "% Mass tier"
+    category: "supply"
+    target: 20
+    notes: "Lowest productivity but biggest pool"
+
+  # ── (Add: incentive, retention, B2B, expansion metrics) ──
+  # - key: "incentive_pct_gsv"
+  # - key: "driver_retention_30d"
+  # - key: "sme_active_clients"
+  # - key: "longhaul_orders_share"
+
+# ─── Threshold-based alert rules ─────────────────────────────────────────────
+# AI dùng để alert manager khi metric vào vùng nguy hiểm.
+alert_rules:
+  - if_metric: "fill_rate_han_pct"
+    if_below: 55
+    severity: "P0"
+    action: "Alert manager + propose crisis_commander activation"
+
+  - if_metric: "cogs_bulky_pct"
+    if_above: 35
+    severity: "P0"
+    action: "Alert manager + propose RCA"
+
+  - if_metric: "gsv_wow_pct"
+    if_below: -10
+    consecutive_periods: 2
+    severity: "P1"
+    action: "Alert manager"

@@ -24,20 +24,85 @@ from store import (
     list_team_tasks, get_task, mark_done, cancel_task, snooze_task,
     update_task_deadline, list_pending_approval, approve_user,
     set_user_role, add_task, block_task, unblock_task,
-    get_all_overdue_tasks, get_user_stats, log_action, reassign_task,
+    get_all_overdue_tasks, get_user_stats, log_action,
+    update_task_priority, set_task_status, upsert_metric, get_all_metrics,
+    list_auto_created_today, reassign_task,
 )
+
+# Dashboard uses Vietnamese status keys; the bot/DB uses canonical English ones.
+_WEB_TO_BOT_STATUS = {
+    "hoan_thanh": "done",
+    "huy":        "cancelled",
+    "cancelled":  "cancelled",
+    "bi_chan":    "blocked",
+    "cho_xu_ly":  "pending",
+    "can_lam":    "pending",
+    "dang_lam":   "in_progress",
+    "dang_review":"in_progress",
+    "tam_dung":   "snoozed",
+}
 from roles import MANAGER, TEAM_LEAD, EMPLOYEE, ROLE_LABELS
 import knowledge_loader as kn
 from agents import coach_delegation, run_crisis_commander, CRISIS_TYPES
 from models import tier_info
 
+import logging
+import httpx
+import templates as tpl
+try:
+    from classifier import route_task
+except Exception:  # classifier may fail to import without GEMINI_API_KEY
+    route_task = None
+
+logger = logging.getLogger("api")
+
+
+def _send_telegram(chat_id: int, text: str, buttons: list | None = None) -> bool:
+    """Fire-and-forget Telegram DM via HTTP API.
+    `buttons` = [[(label, callback_data), ...], ...] for inline keyboard.
+    Returns True on success, False otherwise. Never raises."""
+    token = os.getenv("TELEGRAM_TOKEN")
+    if not token or not chat_id or chat_id <= 0:
+        return False
+    payload = {
+        "chat_id":    chat_id,
+        "text":       text,
+        "parse_mode": "HTML",
+    }
+    if buttons:
+        payload["reply_markup"] = {
+            "inline_keyboard": [
+                [{"text": t, "callback_data": cb} for (t, cb) in row]
+                for row in buttons
+            ]
+        }
+    try:
+        r = httpx.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json=payload, timeout=10,
+        )
+        if r.status_code != 200:
+            logger.warning(f"Telegram send {r.status_code}: {r.text[:200]}")
+            return False
+        return True
+    except Exception as e:
+        logger.warning(f"Telegram send error: {e}")
+        return False
+
 DASHBOARD_SECRET = os.getenv("DASHBOARD_SECRET", "ops-tasks-secret-change-me")
+
+# Fix #8: CORS restricted to known origins (not wildcard)
+_ALLOWED_ORIGINS_RAW = os.getenv(
+    "ALLOWED_ORIGINS",
+    "https://ops-tasks-eight.vercel.app,http://localhost:3000,http://localhost:3002",
+)
+ALLOWED_ORIGINS = [o.strip() for o in _ALLOWED_ORIGINS_RAW.split(",") if o.strip()]
 
 app = FastAPI(title="Ops Tasks API", version="1.0.0", docs_url="/api/docs")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten in prod: ["https://ops.ahamove.com"]
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -66,8 +131,6 @@ def get_stats(token: str = Depends(verify_token)):
     members = list_team_by_person()
 
     overloaded = [m for m in members if m.get("active_count", 0) > 8]
-    underloaded = [m for m in members if m.get("active_count", 0) <= 1
-                   and m.get("role") != MANAGER]
 
     return {
         **stats,
@@ -77,11 +140,80 @@ def get_stats(token: str = Depends(verify_token)):
     }
 
 
+# ─── Activity log ─────────────────────────────────────────────────────────────
+
+@app.get("/api/activity")
+def get_activity(
+    limit: int = Query(10, le=50),
+    token: str = Depends(verify_token),
+):
+    """Recent activity log — latest actions today from audit_log (bot Telegram actions)."""
+    from store import get_db
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT a.id, a.actor_id, a.action, a.entity_type, a.entity_id,
+                   a.detail, a.ts,
+                   u.full_name as actor_name
+            FROM audit_log a
+            LEFT JOIN users u ON a.actor_id = u.telegram_id
+            WHERE a.ts >= ?
+            ORDER BY a.ts DESC
+            LIMIT ?
+        """, (today_start, limit)).fetchall()
+
+    action_labels = {
+        "assign":             "giao task",
+        "assign_ai":          "giao task (AI)",
+        "done":               "đánh dấu hoàn thành",
+        "block":              "báo blocked",
+        "unblock":            "gỡ blocked",
+        "dashboard_update":   "cập nhật task",
+        "create_task":        "tạo task mới",
+        "approve_user":       "duyệt thành viên",
+        "bulk_metric_update": "cập nhật KPI metrics",
+        "decline":            "từ chối task",
+        "set_role":           "cập nhật vai trò",
+    }
+
+    events = []
+    for r in rows:
+        r = dict(r)
+        ts = r["ts"] or ""
+        try:
+            dt = datetime.fromisoformat(ts)
+            time_str = dt.strftime("%H:%M")
+        except Exception:
+            time_str = ts[:5] if len(ts) >= 5 else ts
+
+        actor_id = r["actor_id"]
+        actor = r.get("actor_name") or ("Dashboard" if actor_id == 0 else f"User {actor_id}")
+        action_label = action_labels.get(r["action"], r["action"])
+        target = None
+        if r["entity_type"] == "task" and r["entity_id"]:
+            target = f"T-{str(r['entity_id']).zfill(5)}"
+
+        events.append({
+            "id":         r["id"],
+            "ts":         time_str,
+            "actor":      actor,
+            "action":     action_label,
+            "target":     target,
+            "raw_action": r["action"],
+        })
+
+    return events
+
+
+
 # ─── Team ─────────────────────────────────────────────────────────────────────
 
 @app.get("/api/team")
 def get_team(token: str = Depends(verify_token)):
     members = list_team_by_person()
+    # Include ALL members (including pre-seeded with negative telegram_id)
+    # so managers can assign tasks to them before they join the bot.
+    # is_preseeded=True → dashboard shows ⚠ warning + no DM will be sent.
     return [_fmt_member(m) for m in members]
 
 
@@ -95,6 +227,34 @@ def get_member_tasks(
     tasks = list_team_tasks(statuses=statuses)
     user_tasks = [t for t in tasks if t.get("assignee_id") == user_id]
     return [_fmt_task(t) for t in user_tasks]
+
+
+@app.get("/api/performance")
+def get_performance(
+    days: int = Query(30, ge=1, le=1095),
+    user_id: Optional[int] = Query(None),
+    token: str = Depends(verify_token),
+):
+    """Hiệu suất per-member để đánh giá. user_id rỗng → cả team."""
+    from store import get_member_performance
+    if user_id is not None:
+        u = get_user(user_id)
+        perf = get_member_performance(user_id, days=days)
+        perf["telegram_id"] = user_id
+        perf["full_name"] = u["full_name"] if u else str(user_id)
+        return perf
+
+    members = list_team_by_person()
+    out = []
+    for m in members:
+        tid = m.get("telegram_id")
+        if tid is None:
+            continue
+        p = get_member_performance(tid, days=days)
+        p["telegram_id"] = tid
+        p["full_name"] = m.get("full_name", str(tid))
+        out.append(p)
+    return {"days": days, "members": out}
 
 
 # ─── Tasks ────────────────────────────────────────────────────────────────────
@@ -133,7 +293,10 @@ def get_done_tasks(
     days: int = Query(7, le=30),
     token: str = Depends(verify_token),
 ):
-    tasks = list_team_tasks(statuses=["done"], limit=200)
+    # Fix #5: actually apply the days filter
+    from datetime import timedelta
+    since = (datetime.now() - timedelta(days=days)).isoformat()
+    tasks = list_team_tasks(statuses=["done"], limit=200, since=since)
     return [_fmt_task(t) for t in tasks]
 
 
@@ -159,30 +322,42 @@ def update_task(task_id: int, body: TaskUpdate, token: str = Depends(verify_toke
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    if body.status == "done":
-        mark_done(task_id)
-    elif body.status == "cancelled":
-        cancel_task(task_id)
-    elif body.status == "blocked" and body.block_reason:
-        block_task(task_id, body.block_reason)
-    elif body.status == "pending":
-        unblock_task(task_id)
+    if body.status:
+        new_status = _WEB_TO_BOT_STATUS.get(body.status, body.status)
+        if new_status == "done":
+            mark_done(task_id)            # sets completed_at + done-specific logic
+        elif new_status == "cancelled":
+            cancel_task(task_id)
+        elif new_status == "blocked" and body.block_reason:
+            block_task(task_id, body.block_reason)
+        else:
+            # in_progress / pending / blocked-without-reason / snoozed
+            set_task_status(task_id, new_status)
 
     if body.priority:
-        from store import update_task_priority
         update_task_priority(task_id, body.priority)
 
     if body.deadline:
         update_task_deadline(task_id, body.deadline, "dashboard")
 
     if body.assignee_id:
-        import sqlite3, json
-        from store import get_db, DB_PATH
-        with get_db() as conn:
-            conn.execute(
-                "UPDATE tasks SET assignee_id = ? WHERE id = ?",
-                (body.assignee_id, task_id)
-            )
+        # Fix #2: use reassign_task() so team field is also updated
+        reassign_task(task_id, body.assignee_id)
+        # Notify new assignee on Telegram
+        new_assignee = get_user(body.assignee_id)
+        if new_assignee and new_assignee.get("telegram_id", 0) > 0:
+            updated_task = get_task(task_id)
+            if updated_task:
+                try:
+                    text = tpl.msg_task_new(updated_task, assigned_by_name="Dashboard")
+                    buttons = [
+                        [("✓ Nhận việc", f"accept:{task_id}"),
+                         ("✗ Từ chối",   f"decline:{task_id}")],
+                        [("🎓 Hướng dẫn chi tiết", f"coach:{task_id}")],
+                    ]
+                    _send_telegram(new_assignee["telegram_id"], text, buttons)
+                except Exception as e:
+                    logger.warning(f"notify reassign failed: {e}")
 
     log_action(0, "dashboard_update", "task", task_id, str(body.dict(exclude_none=True)))
     return {"ok": True, "task": _fmt_task(get_task(task_id))}
@@ -194,6 +369,7 @@ class CreateTaskBody(BaseModel):
     priority: str = "P2"
     deadline: Optional[str] = None
     category: str = "other"
+    block_reason: Optional[str] = None  # "Mô tả chi tiết" from dashboard form
 
 
 @app.post("/api/tasks")
@@ -202,18 +378,60 @@ def create_task(body: CreateTaskBody, token: str = Depends(verify_token)):
     if not assignee:
         raise HTTPException(status_code=404, detail="Assignee not found")
 
+    # ── AI enrichment: breakdown, OKR ref, deadline parse, estimated time ──
+    # Falls back gracefully if Gemini is unavailable.
+    routed: dict = {}
+    if route_task is not None:
+        try:
+            routed = route_task(body.summary) or {}
+        except Exception as e:
+            logger.warning(f"route_task failed: {e}")
+            routed = {}
+
+    # User-provided values win over AI suggestions
+    final_summary  = routed.get("summary") or body.summary
+    final_priority = body.priority or routed.get("priority", "P2")
+    final_category = body.category if body.category != "other" else routed.get("category", "other")
+    final_deadline = body.deadline or routed.get("deadline_iso")
+    est_minutes    = routed.get("estimated_minutes", 30)
+
     task_id = add_task(
         raw_message=body.summary,
-        summary=body.summary,
+        summary=final_summary,
         assignee_id=body.assignee_id,
-        assigned_by=0,  # dashboard-created
+        assigned_by=0,  # 0 = dashboard
         team=assignee.get("team"),
         source="dashboard",
-        deadline=body.deadline,
-        priority=body.priority,
-        category=body.category,
+        sender="Dashboard",
+        deadline=final_deadline,
+        priority=final_priority,
+        category=final_category,
+        estimated_minutes=est_minutes,
+        classifier_meta=routed,
+        block_reason=body.block_reason,
     )
     log_action(0, "create_task", "task", task_id, body.summary)
+
+    # ── Notify assignee on Telegram (DM with msg_task_new + Accept/Decline) ──
+    if assignee.get("telegram_id") and assignee["telegram_id"] > 0:
+        task_dict = {
+            "id":              task_id,
+            "summary":         final_summary,
+            "priority":        final_priority,
+            "deadline":        final_deadline,
+            "classifier_meta": routed,
+        }
+        try:
+            text = tpl.msg_task_new(task_dict, assigned_by_name="Dashboard")
+            buttons = [
+                [("✓ Nhận việc", f"accept:{task_id}"),
+                 ("✗ Từ chối",   f"decline:{task_id}")],
+                [("🎓 Hướng dẫn chi tiết", f"coach:{task_id}")],
+            ]
+            _send_telegram(assignee["telegram_id"], text, buttons)
+        except Exception as e:
+            logger.warning(f"notify assignee failed: {e}")
+
     return {"ok": True, "task_id": task_id}
 
 
@@ -368,7 +586,11 @@ ACTIONS = [
 
 @app.get("/api/okr")
 def get_okr(token: str = Depends(verify_token)):
+    from store import get_okr_overrides, get_action_overrides
     now = datetime.now()
+    obj_overrides = get_okr_overrides()
+    action_overrides = get_action_overrides()
+
     actions_with_status = []
     for action in ACTIONS:
         dl_str = action.get("deadline", "")
@@ -382,14 +604,26 @@ def get_okr(token: str = Depends(verify_token)):
                 is_overdue = delta.total_seconds() < 0
             except Exception:
                 pass
+        override = action_overrides.get(action["id"], {})
         actions_with_status.append({
             **action,
             "is_overdue": is_overdue,
             "days_left": days_left,
+            "status": override.get("status", "pending"),
+        })
+
+    objectives_with_progress = []
+    for obj in OKR_TREE:
+        override = obj_overrides.get(obj["id"], {})
+        objectives_with_progress.append({
+            **obj,
+            "progress_override": override.get("progress"),   # None = not set
+            "current_override": override.get("current"),
+            "okr_status": override.get("status", "on_track"),
         })
 
     return {
-        "objectives": OKR_TREE,
+        "objectives": objectives_with_progress,
         "actions": actions_with_status,
         "north_star": "O5.KR5.1 — GSV Non-Bulky 70% YoY: 69B → 117.3B",
         "quarter": "Q2/2026",
@@ -620,11 +854,153 @@ def api_agent_tiers(token: str = Depends(verify_token)):
     return tier_info()
 
 
+# ─── OKR mutations ────────────────────────────────────────────────────────────
+
+class OkrProgressUpdate(BaseModel):
+    progress: int | None = None          # 0–100
+    status: str | None = None            # on_track|at_risk|behind|done
+    current: str | None = None           # human-readable current value e.g. "FR HAN 78%"
+    note: str | None = None
+
+
+@app.patch("/api/okr/objectives/{okr_id}")
+def patch_okr_objective(
+    okr_id: str,
+    body: OkrProgressUpdate,
+    token: str = Depends(verify_token),
+):
+    """Update progress/status for one OKR objective. Called from dashboard or sheet sync."""
+    from store import upsert_okr_progress
+    upsert_okr_progress(
+        okr_id=okr_id.upper(),
+        progress=body.progress,
+        status=body.status,
+        current=body.current,
+        note=body.note,
+        source="dashboard",
+    )
+    log_action(0, "okr_progress_update", detail=f"{okr_id} → {body.progress}% {body.status}")
+    return {"ok": True, "okr_id": okr_id}
+
+
+class ActionStatusUpdate(BaseModel):
+    status: str           # pending|in_progress|done|cancelled
+    note: str | None = None
+
+
+@app.patch("/api/okr/actions/{action_id}")
+def patch_okr_action(
+    action_id: str,
+    body: ActionStatusUpdate,
+    token: str = Depends(verify_token),
+):
+    """Update status for one OKR action item."""
+    from store import upsert_action_status
+    upsert_action_status(
+        action_id=action_id,
+        status=body.status,
+        note=body.note,
+        source="dashboard",
+    )
+    log_action(0, "okr_action_update", detail=f"{action_id} → {body.status}")
+    return {"ok": True, "action_id": action_id}
+
+
+class OkrSheetSync(BaseModel):
+    objectives: list = []
+    actions: list = []
+
+
+@app.post("/api/okr/sync")
+def okr_sync_from_sheet(body: OkrSheetSync, token: str = Depends(verify_token)):
+    """Receive bulk OKR update pushed from Google Sheets Apps Script."""
+    from store import bulk_sync_okr_from_sheet
+    count = bulk_sync_okr_from_sheet(body.objectives, body.actions)
+    log_action(0, "okr_sheet_sync", detail=f"{len(body.objectives)} obj + {len(body.actions)} actions from sheets")
+    return {"ok": True, "updated": count}
+
+
+# ─── Metrics (KPI sync from Redash / Google Sheets / manual) ─────────────────
+
+@app.get("/api/metrics")
+def get_metrics_endpoint(token: str = Depends(verify_token)):
+    """Return all stored KPI metrics as a flat dict {key: value}."""
+    return get_all_metrics()
+
+
+class MetricUpdate(BaseModel):
+    key: str
+    value: str
+    source: str = "manual"
+
+
+@app.post("/api/metrics")
+def update_metric_endpoint(body: MetricUpdate, token: str = Depends(verify_token)):
+    """Upsert a single KPI metric."""
+    upsert_metric(body.key, body.value, body.source)
+    return {"ok": True}
+
+
+class BulkMetricsBody(BaseModel):
+    metrics: dict  # {key: value} — all values coerced to str
+    source: str = "sheets"
+
+
+@app.post("/api/metrics/bulk")
+def update_metrics_bulk(body: BulkMetricsBody, token: str = Depends(verify_token)):
+    """
+    Bulk upsert KPI metrics. Used by Google Sheets Apps Script or manual sync.
+    Example body: {"metrics": {"gsv_today_b": "8.7", "fill_rate_core_pct": "78.0"}, "source": "sheets"}
+    """
+    for key, value in body.metrics.items():
+        upsert_metric(str(key), str(value), body.source)
+    log_action(0, "bulk_metric_update", detail=f"{len(body.metrics)} keys from {body.source}")
+    return {"ok": True, "updated": len(body.metrics)}
+
+
 # ─── Health ───────────────────────────────────────────────────────────────────
 
 @app.get("/api/health")
 def health():
     return {"status": "ok", "ts": datetime.now().isoformat()}
+
+
+# ─── Auto-digest (manager review of bot-created tasks today) ─────────────────
+
+@app.get("/api/auto-digest")
+def get_auto_digest(token: str = Depends(verify_token)):
+    """Tasks bot auto-created today — for manager review widget on dashboard."""
+    tasks = list_auto_created_today()
+    return {
+        "count": len(tasks),
+        "tasks": [_fmt_task(t) for t in tasks],
+        "ts": datetime.now().isoformat(),
+    }
+
+
+class ReassignBody(BaseModel):
+    new_assignee_id: int
+    actor_id: Optional[int] = None  # who triggered the reassign (for audit log)
+
+
+@app.post("/api/tasks/{task_id}/reassign")
+def post_reassign(
+    task_id: int,
+    body: ReassignBody,
+    token: str = Depends(verify_token),
+):
+    """Reassign an existing task from the dashboard (mirror of bot's digest_reassign)."""
+    task = get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    new_user = get_user(body.new_assignee_id)
+    if not new_user:
+        raise HTTPException(status_code=400, detail="New assignee not found")
+    if reassign_task(task_id, body.new_assignee_id):
+        log_action(body.actor_id or 0, "reassign_dashboard", "task", task_id,
+                   f"→ {new_user['full_name']}")
+        return {"ok": True, "task": _fmt_task(get_task(task_id))}
+    raise HTTPException(status_code=500, detail="Reassign failed")
 
 
 # ─── Serializers ──────────────────────────────────────────────────────────────
@@ -653,17 +1029,21 @@ def _fmt_task(t: dict) -> dict:
 
 
 def _fmt_member(m: dict) -> dict:
+    # Fix #3: expose grade (G1/G2/G3/G4) and email from new DB columns
     return {
         "telegram_id": m["telegram_id"],
         "full_name": m["full_name"],
         "username": m.get("username"),
+        "email": m.get("email") or "",
         "role": m.get("role", EMPLOYEE),
         "role_label": ROLE_LABELS.get(m.get("role", EMPLOYEE), ""),
+        "grade": m.get("grade") or "",
         "team": m.get("team"),
         "active_count": m.get("active_count", 0),
         "done_today": m.get("done_today", 0),
         "overdue_count": m.get("overdue_count", 0),
         "blocked_count": m.get("blocked_count", 0),
+        "is_preseeded": bool(m.get("is_preseeded", 0)),  # True = hasn't /start bot yet
         "load": (
             "critical" if m.get("overdue_count", 0) > 2
             else "high" if m.get("active_count", 0) > 8
@@ -686,10 +1066,10 @@ def _fmt_user(u: dict) -> dict:
     }
 
 
-_user_cache: dict[int, str] = {}
-
-
 def _get_user_name(user_id: int | None) -> str | None:
+    """Look up user name without caching — names can change after account claim."""
+    # Fix #1: removed permanent module-level cache; after claim_preseeded_user()
+    # the telegram_id changes and cached names would be stale.
     if not user_id:
         return None
     if user_id not in _user_cache:

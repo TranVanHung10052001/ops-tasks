@@ -19,22 +19,27 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from bot import (
-    cmd_start, cmd_help, cmd_add, cmd_mytasks, cmd_today,
-    cmd_done, cmd_snooze, cmd_cancel, cmd_stats, cmd_skip,
-    cmd_assign, cmd_team, cmd_pending,
-    cmd_approve, cmd_users, cmd_setrole, cmd_coach,
+    cmd_start, cmd_help, cmd_add, cmd_mytasks, cmd_today, cmd_now,
+    cmd_done, cmd_snooze, cmd_cancel, cmd_undo, cmd_coach,
+    cmd_stats, cmd_perf, cmd_skip,
+    cmd_assign, cmd_team, cmd_pending, cmd_brief, cmd_ask,
+    cmd_approve, cmd_users, cmd_setrole,
+    cmd_debug_state,
     cmd_scope, cmd_playbooks, cmd_playbook, cmd_delegate,
     cmd_coach_delegation, cmd_crisis,
-    handle_forward, handle_photo, handle_callback,
+    handle_forward, handle_callback,
     handle_keyboard_text, KEYBOARD_ROUTES,
 )
 from scheduler import (
-    morning_briefing_all, manager_team_digest,
-    deadline_check_all, eod_recap_all, stall_check_all,
-    okr_risk_intel, weekly_report,
+    morning_briefing_all,
+    deadline_check_all, eod_recap_all,
+    auto_digest_manager,
 )
+from redash_sync import sync_all as redash_sync_all
+from sheet_sync  import sync_all as sheet_sync_all
 from store import init_db
 from roles import MANAGER_CHAT_ID
+from seed_team import seed as seed_team
 
 logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
@@ -65,6 +70,12 @@ async def main():
     init_db()
     logger.info("Database initialized")
 
+    # Auto-seed all 11 team members on every startup.
+    # Idempotent: skips already-claimed real accounts.
+    # Ensures pre-seeded records exist even after Railway wipes the ephemeral DB.
+    seed_team()
+    logger.info("Team seed applied")
+
     app = Application.builder().token(TOKEN).build()
 
     # ── Commands ──────────────────────────────────────────────────────────
@@ -74,10 +85,14 @@ async def main():
         ("add",      cmd_add),
         ("mytasks",  cmd_mytasks),
         ("today",    cmd_today),
+        ("now",      cmd_now),
         ("done",     cmd_done),
         ("snooze",   cmd_snooze),
         ("cancel",   cmd_cancel),
+        ("undo",     cmd_undo),
+        ("coach",    cmd_coach),
         ("stats",    cmd_stats),
+        ("perf",     cmd_perf),
         ("skip",     cmd_skip),
         ("assign",   cmd_assign),
         ("team",     cmd_team),
@@ -86,6 +101,9 @@ async def main():
         ("users",    cmd_users),
         ("setrole",  cmd_setrole),
         ("coach",    cmd_coach),
+        ("brief",    cmd_brief),
+        ("ask",      cmd_ask),
+        ("debug_state", cmd_debug_state),
         ("scope",    cmd_scope),
         ("playbooks", cmd_playbooks),
         ("playbook", cmd_playbook),
@@ -97,11 +115,6 @@ async def main():
 
     # ── Message handlers ──────────────────────────────────────────────────
     app.add_handler(CallbackQueryHandler(handle_callback))
-
-    app.add_handler(MessageHandler(
-        filters.PHOTO & filters.ChatType.PRIVATE,
-        handle_photo,
-    ))
 
     kb_texts = list(KEYBOARD_ROUTES.keys())
     app.add_handler(MessageHandler(
@@ -123,37 +136,53 @@ async def main():
 
     # ── Error handler ─────────────────────────────────────────────────────
     async def error_handler(update, context):
-        logger.error(f"Unhandled error: {context.error}", exc_info=context.error)
+        err = context.error
+        logger.error(f"Unhandled error: {err}", exc_info=err)
         if update and update.effective_message:
             try:
+                err_type = type(err).__name__
+                err_msg = str(err)[:200] if err else "Unknown"
                 await update.effective_message.reply_text(
-                    "Bot gặp lỗi. Thử lại hoặc báo admin."
+                    f"⚠️ Bot gặp lỗi.\n"
+                    f"<code>{err_type}: {err_msg}</code>\n\n"
+                    f"<i>Báo admin nếu lặp lại.</i>",
+                    parse_mode="HTML",
                 )
             except Exception:
-                pass
+                # If HTML formatting fails, fall back to plain text
+                try:
+                    await update.effective_message.reply_text(
+                        "Bot gặp lỗi. Thử lại hoặc báo admin."
+                    )
+                except Exception:
+                    pass
 
     app.add_error_handler(error_handler)
 
     # ── Scheduler ─────────────────────────────────────────────────────────
     sched = AsyncIOScheduler(timezone="Asia/Ho_Chi_Minh")
 
+    # 3 jobs only — minimal noise, max signal
     sched.add_job(morning_briefing_all,  "cron", hour=8,  minute=0,
                   args=[app], id="morning_all")
-    sched.add_job(manager_team_digest,   "cron", hour=8,  minute=30,
-                  args=[app], id="manager_digest")
     sched.add_job(deadline_check_all,    "interval", minutes=15,
                   args=[app], id="deadline_check")
+    sched.add_job(auto_digest_manager,   "cron", hour=17, minute=0,
+                  args=[app], id="auto_digest")
     sched.add_job(eod_recap_all,         "cron", hour=18, minute=0,
                   args=[app], id="eod_recap")
-    sched.add_job(stall_check_all,       "cron", hour="9,15", minute=0,
-                  args=[app], id="stall_check")
-    sched.add_job(okr_risk_intel,        "cron", day_of_week="mon,wed,fri",
-                  hour=8, minute=35, args=[app], id="okr_risk_intel")
-    sched.add_job(weekly_report,         "cron", day_of_week="fri",
-                  hour=17, minute=0, args=[app], id="weekly_report")
+
+    # KPI sync — every 30 min. Both sources are silent no-op when unconfigured.
+    # Redash for teams with Redash; Google Sheet for teams using manager-maintained sheets.
+    sched.add_job(redash_sync_all, "interval", minutes=30, id="redash_sync")
+    sched.add_job(sheet_sync_all,  "interval", minutes=30, id="sheet_sync")
+
+    # Cleanup expired pending_actions rows every 30 min (sweeps stale callback state)
+    from store import cleanup_expired_pending
+    sched.add_job(cleanup_expired_pending, "interval", minutes=30, id="pending_cleanup")
 
     sched.start()
-    logger.info("Scheduler started — 7 jobs")
+    logger.info("Scheduler started — 3 user-facing jobs + Redash + Sheet sync")
 
     logger.info(f"Bot starting | Manager: {MANAGER_CHAT_ID}")
 

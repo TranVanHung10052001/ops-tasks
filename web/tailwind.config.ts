@@ -8,22 +8,81 @@ export default {
   ],
   theme: {
     extend: {
+      // Typography — 2 typefaces only:
+      //   sans/display → "Be Vietnam Pro" (body, headings, KPI numbers)
+      //   mono         → "JetBrains Mono" (codes, callsigns, tabular numbers)
+      // `display` is an alias of `sans` so existing `font-display` classes
+      // continue rendering Be Vietnam Pro (not Cormorant Garamond serif).
       fontFamily: {
-        sans: ["Inter", "system-ui", "sans-serif"],
+        sans:    ['"Inter"', "system-ui", "-apple-system", "sans-serif"],
+        display: ['"Inter"', "system-ui", "-apple-system", "sans-serif"],
+        // `mono` aliases Inter (with tabular-nums via .mono/.tabular) — single typeface.
+        mono:    ['"Inter"', "system-ui", "-apple-system", "sans-serif"],
+      },
+      fontSize: {
+        "2xs": "11px",   // was 10px — too small to read; bumped for legibility
+        xs:    "12px",   // was 11px
+        sm:    "13px",   // was 12px
+        base:  "14px",
+        md:    "15px",
+        lg:    "17px",
+        xl:    "20px",
+        "2xl": "28px",
+        "3xl": "40px",
+        "4xl": "56px",
+        "5xl": "80px",
+      },
+      letterSpacing: {
+        // Tighter scale (was 0.05 / 0.08 / 0.12 mixed). Use `ops` for labels.
+        ops:     "0.06em",
+        opswide: "0.12em",
       },
       colors: {
-        border: "hsl(214.3 31.8% 91.4%)",
-        ring: "hsl(215 20.2% 65.1%)",
-        background: "hsl(0 0% 98%)",
-        foreground: "hsl(222.2 84% 4.9%)",
-        muted: {
-          DEFAULT: "hsl(210 40% 96.1%)",
-          foreground: "hsl(215.4 16.3% 46.9%)",
+        canvas: "var(--canvas)",
+        surface: "var(--surface)",
+        "surface-raised": "var(--surface-raised)",
+        "surface-deep": "var(--surface-deep)",
+        divider: "var(--divider)",
+        "divider-strong": "var(--divider-strong)",
+        "text-primary": "var(--text-primary)",
+        "text-secondary": "var(--text-secondary)",
+        "text-tertiary": "var(--text-tertiary)",
+        "text-disabled": "var(--text-disabled)",
+        signal: {
+          p0: "var(--signal-p0)",
+          p1: "var(--signal-p1)",
+          p2: "var(--signal-p2)",
+          p3: "var(--signal-p3)",
+          p4: "var(--signal-p4)",
         },
-        card: {
-          DEFAULT: "hsl(0 0% 100%)",
-          foreground: "hsl(222.2 84% 4.9%)",
+        state: {
+          active: "var(--state-active)",
+          pending: "var(--state-pending)",
+          blocked: "var(--state-blocked)",
+          done: "var(--state-done)",
+          paused: "var(--state-paused)",
         },
+        accent: {
+          amber: "var(--accent-amber)",
+          "amber-deep": "var(--accent-amber-deep)",
+          paper: "var(--accent-paper)",
+        },
+      },
+      borderRadius: {
+        none: "0",
+        sm: "2px",
+        DEFAULT: "3px",
+        md: "4px",
+      },
+      spacing: {
+        "1.5": "6px",
+        "2.5": "10px",
+        "3.5": "14px",
+      },
+      transitionTimingFunction: {
+        snap: "cubic-bezier(0.2, 0, 0, 1)",
+        smooth: "cubic-bezier(0.4, 0, 0.2, 1)",
+        sharp: "cubic-bezier(0.4, 0, 0.6, 1)",
       },
     },
   },
