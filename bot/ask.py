@@ -1,173 +1,349 @@
 """
-Simple /ask — single-prompt Gemini call with live team context.
+ask.py — Tool-use AI for ops queries.
 
-Replaces smart_agent.py's 2-pass reasoning (1002 LOC) for ops team of 11 people.
-Pulls team workload + recent tasks + metrics into context, asks Gemini directly.
+Gemini function calling loop: AI tự quyết định gọi tool nào để lấy data,
+rồi trả lời dựa trên kết quả thật (team workload, OKR, metrics, scope, playbooks).
+
+7 tools:
+  get_team_workload       — workload tất cả members
+  get_okr_status          — tasks theo OKR ref + overdue count
+  get_metrics             — live KPIs từ DB
+  find_member_for_task    — gợi ý người nhận task dựa trên scope + workload
+  get_member_detail       — scope + trách nhiệm + workload 1 người
+  get_task_detail         — chi tiết 1 task theo ID
+  search_playbooks        — tìm SOP/playbook theo từ khoá hoặc grade
 """
 
 import json
 import logging
-import os
-import time
-from datetime import datetime, timedelta
-from pathlib import Path
+from datetime import datetime
 
 import google.generativeai as genai
-import yaml
 
-import re
-
+from models import TIER_MODELS, _SAFETY, _ensure_init
 from store import (
-    list_team_by_person, list_team_tasks, get_team_stats,
-    get_all_overdue_tasks, get_all_metrics, get_task,
+    get_task,
+    get_team_stats,
+    get_all_overdue_tasks,
+    list_team_by_person,
+    list_team_tasks,
 )
+import knowledge_loader as kn
 
 logger = logging.getLogger(__name__)
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-_MODEL = genai.GenerativeModel("gemini-2.0-flash-exp")
-_KNOWLEDGE_DIR = Path(__file__).parent / "knowledge"
+_SYSTEM_PROMPT = """Bạn là trợ lý điều vận cho team Truck Ops Ahamove.
+Manager: Lê Quang Huy (G4). Team gồm 10 thành viên G1–G3.
 
-# Simple in-memory cache for company DNA + OKR tree (5 min TTL)
-_kn_cache: dict = {}
-_kn_cache_ts: float = 0
-
-
-def _knowledge() -> str:
-    """Load minimal knowledge context (company_dna + okr_tree). 5-min cache."""
-    global _kn_cache, _kn_cache_ts
-    if time.monotonic() - _kn_cache_ts < 300 and _kn_cache:
-        return _kn_cache.get("text", "")
-
-    parts = []
-    for fname in ("01_company_dna.yaml", "03_okr_tree.yaml"):
-        f = _KNOWLEDGE_DIR / fname
-        if f.exists():
-            try:
-                data = yaml.safe_load(f.read_text(encoding="utf-8"))
-                # Keep first 2000 chars per file to control context size
-                parts.append(f"### {fname}\n{json.dumps(data, ensure_ascii=False)[:2000]}")
-            except Exception as e:
-                logger.warning(f"knowledge load failed {fname}: {e}")
-    text = "\n\n".join(parts)
-    _kn_cache = {"text": text}
-    _kn_cache_ts = time.monotonic()
-    return text
-
-
-def _live_context() -> str:
-    """Pull current team state for grounding."""
-    try:
-        stats    = get_team_stats()
-        members  = list_team_by_person()
-        overdue  = get_all_overdue_tasks()
-        recent   = list_team_tasks(statuses=["pending"])[:15]
-        inprog   = list_team_tasks(statuses=["in_progress"])[:12]
-        metrics  = get_all_metrics() if callable(globals().get("get_all_metrics")) else {}
-
-        # Compact member view
-        mem_lines = []
-        for m in members:
-            mem_lines.append(
-                f"- {m['full_name']}: {m.get('active_count',0)} active, "
-                f"{m.get('overdue_count',0)} overdue, "
-                f"{m.get('done_today',0)} done today"
-            )
-
-        # Compact task view
-        task_lines = []
-        for t in recent[:10]:
-            dl = t.get("deadline", "no deadline")
-            task_lines.append(
-                f"- #{t['id']} [{t.get('priority','P3')}] {t.get('summary','')[:60]} "
-                f"→ {t.get('assignee_name','?')} (dl: {dl})"
-            )
-
-        ip_lines = [
-            f"- #{t['id']} [{t.get('priority','P3')}] {t.get('summary','')[:55]} "
-            f"→ {t.get('assignee_name','?')}"
-            for t in inprog[:10]
-        ]
-
-        ov_lines = [f"- #{t['id']} {t.get('summary','')[:50]} ({t.get('assignee_name','?')})"
-                    for t in overdue[:5]]
-
-        # Metrics block
-        m_lines = []
-        if metrics:
-            for k, v in list(metrics.items())[:12]:
-                m_lines.append(f"- {k}: {v}")
-
-        return (
-            f"## TEAM STATUS ({datetime.now().strftime('%Y-%m-%d %H:%M')})\n"
-            f"Active: {stats.get('active',0)} · Done today: {stats.get('done_today',0)} "
-            f"· Overdue: {stats.get('overdue',0)} · Blocked: {stats.get('blocked',0)}\n\n"
-            f"## MEMBERS\n" + "\n".join(mem_lines) + "\n\n"
-            f"## RECENT PENDING TASKS\n" + ("\n".join(task_lines) if task_lines else "(none)") + "\n\n"
-            f"## IN PROGRESS\n" + ("\n".join(ip_lines) if ip_lines else "(none)") + "\n\n"
-            f"## OVERDUE\n" + ("\n".join(ov_lines) if ov_lines else "(none)") + "\n\n"
-            f"## METRICS\n" + ("\n".join(m_lines) if m_lines else "(no live KPIs)")
-        )
-    except Exception as e:
-        logger.error(f"live_context failed: {e}", exc_info=True)
-        return "(live context unavailable)"
-
-
-def _referenced_tasks(question: str) -> str:
-    """Nếu câu hỏi nhắc tới #<id>, nạp chi tiết task đó vào context để AI trả lời chính xác."""
-    ids = re.findall(r"#(\d{1,6})", question or "")
-    if not ids:
-        return ""
-    blocks = []
-    for raw in ids[:5]:
-        t = get_task(int(raw))
-        if not t:
-            blocks.append(f"- #{raw}: (không tồn tại)")
-            continue
-        blocks.append(
-            f"- #{t['id']} [{t.get('priority','P3')}/{t.get('status','?')}] "
-            f"{t.get('summary','')[:80]} · assignee={t.get('assignee_name') or t.get('assignee_id')} "
-            f"· deadline={t.get('deadline') or 'none'}"
-            + (f" · block={t['block_reason']}" if t.get('block_reason') else "")
-        )
-    return "## TASK ĐƯỢC HỎI\n" + "\n".join(blocks) + "\n\n"
-
-
-_SYSTEM_PROMPT = """Bạn là trợ lý điều vận cho team Truck Ops Ahamove (manager Lê Quang Huy + 10 thành viên).
-
-Cách trả lời:
-- Tiếng Việt, ngắn gọn, dùng số liệu cụ thể
+Nguyên tắc trả lời:
+- Tiếng Việt, súc tích, dùng số liệu cụ thể từ tools
 - Pyramid: kết luận trước, lý do sau
-- Nếu hỏi về task/người/KPI: dùng dữ liệu trong LIVE CONTEXT bên dưới
-- Nếu không có data đủ: nói thẳng "chưa có data", đừng bịa
-- Tối đa 6-8 dòng response, gọn
-- Format: dùng bullet (·) hoặc dòng ngắn, KHÔNG dùng emoji màu (🔴🟡 v.v.)"""
+- PHẢI gọi tool để lấy data thật — KHÔNG đoán hoặc bịa số
+- Nếu không có data: nói thẳng "chưa có data"
+- Tối đa 8 dòng, dùng bullet (·) hoặc dòng ngắn
+- Là gợi ý — manager tự quyết định"""
 
+
+# ─── Tool implementations ──────────────────────────────────────────────────────
+
+def get_team_workload() -> dict:
+    """Lấy workload hiện tại của toàn team: số task active, overdue, done today cho mỗi người."""
+    members = list_team_by_person()
+    stats = get_team_stats()
+    compact = [
+        {
+            "name": m["full_name"],
+            "team": m.get("team", ""),
+            "role": m.get("role", ""),
+            "active": m.get("active_count", 0),
+            "overdue": m.get("overdue_count", 0),
+            "done_today": m.get("done_today", 0),
+            "blocked": m.get("blocked_count", 0),
+        }
+        for m in members
+    ]
+    return {
+        "summary": {
+            "total_active": stats.get("active", 0),
+            "total_overdue": stats.get("overdue", 0),
+            "done_today": stats.get("done_today", 0),
+            "blocked": stats.get("blocked", 0),
+        },
+        "members": compact,
+    }
+
+
+def get_okr_status(okr_ref: str = "") -> dict:
+    """Lấy trạng thái OKR và action items. okr_ref: 'O1', 'O1.1', hoặc rỗng để lấy tất cả."""
+    all_tasks = list_team_tasks(statuses=["pending", "in_progress", "blocked", "done"])
+    overdue = get_all_overdue_tasks()
+
+    if okr_ref:
+        ref = okr_ref.strip().upper()
+        all_tasks = [t for t in all_tasks if (t.get("okr_ref") or "").upper().startswith(ref)]
+        overdue = [t for t in overdue if (t.get("okr_ref") or "").upper().startswith(ref)]
+
+    from collections import Counter
+    by_okr: Counter = Counter()
+    by_status: Counter = Counter()
+    for t in all_tasks:
+        r = t.get("okr_ref") or "unlinked"
+        by_okr[r] += 1
+        by_status[t.get("status", "unknown")] += 1
+
+    return {
+        "filter": okr_ref or "all",
+        "total_tasks": len(all_tasks),
+        "by_status": dict(by_status),
+        "by_okr": dict(by_okr.most_common(10)),
+        "overdue_count": len(overdue),
+        "overdue_sample": [
+            {
+                "id": t["id"],
+                "summary": t.get("summary", "")[:60],
+                "assignee": t.get("assignee_name", "?"),
+                "priority": t.get("priority", ""),
+                "deadline": t.get("deadline", ""),
+            }
+            for t in overdue[:8]
+        ],
+    }
+
+
+def get_metrics() -> dict:
+    """Lấy KPI metrics sống: fill rate, GSV, COGS, driver stats từ DB."""
+    try:
+        from store import get_all_metrics
+        metrics = get_all_metrics()
+        if not metrics:
+            return {"note": "Chưa có metrics — cần kết nối Redash hoặc push qua /api/metrics/bulk."}
+        return {"metrics": metrics, "count": len(metrics)}
+    except ImportError:
+        return {"note": "get_all_metrics chưa có trong store version này."}
+    except Exception as e:
+        return {"error": str(e)[:200]}
+
+
+def find_member_for_task(task_description: str) -> dict:
+    """Tìm thành viên phù hợp nhất để giao task dựa trên scope, grade và workload hiện tại."""
+    members_load = list_team_by_person()
+    scopes = kn.member_scopes().get("members", [])
+
+    desc_lower = task_description.lower()
+    load_map = {m["full_name"]: m for m in members_load}
+
+    candidates = []
+    for s in scopes:
+        score = 0
+        for item in s.get("owns", []):
+            if any(w in desc_lower for w in item.lower().split() if len(w) > 3):
+                score += 2
+        for item in s.get("do_more", []):
+            if any(w in desc_lower for w in item.lower().split() if len(w) > 3):
+                score += 1
+        if score > 0 or True:  # include all with live data
+            load = load_map.get(s.get("name", ""), {})
+            candidates.append({
+                "name": s["name"],
+                "grade": s.get("grade", ""),
+                "title": s.get("title", ""),
+                "scope_match_score": score,
+                "active_tasks": load.get("active_count", 0),
+                "overdue": load.get("overdue_count", 0),
+                "owns_keywords": s.get("owns", [])[:3],
+            })
+
+    candidates.sort(key=lambda x: (-x["scope_match_score"], x["active_tasks"]))
+    return {
+        "task": task_description,
+        "top_candidates": candidates[:5],
+        "note": "Score cao + active thấp = phù hợp nhất",
+    }
+
+
+def get_member_detail(name: str) -> dict:
+    """Lấy chi tiết scope, trách nhiệm, red flags và workload của một thành viên."""
+    scope = kn.get_member_scope(name=name)
+    load = next(
+        (m for m in list_team_by_person() if name.lower() in m["full_name"].lower()),
+        {},
+    )
+    if not scope:
+        return {"error": f"Không tìm thấy '{name}' trong knowledge base."}
+    return {
+        "name": scope["name"],
+        "grade": scope["grade"],
+        "title": scope.get("title", ""),
+        "team": scope.get("team", ""),
+        "owns": scope.get("owns", []),
+        "do_more": scope.get("do_more", []),
+        "do_less": scope.get("do_less", []),
+        "delegate_to": scope.get("delegate_to", {}),
+        "red_flags": scope.get("red_flags", []),
+        "active_tasks": load.get("active_count", 0),
+        "overdue_tasks": load.get("overdue_count", 0),
+        "done_today": load.get("done_today", 0),
+    }
+
+
+def get_task_detail(task_id: int) -> dict:
+    """Lấy thông tin chi tiết của một task theo ID số nguyên."""
+    task = get_task(task_id)
+    if not task:
+        return {"error": f"Không tìm thấy task #{task_id}."}
+    return {
+        "id": task["id"],
+        "summary": task.get("summary", ""),
+        "status": task.get("status", ""),
+        "priority": task.get("priority", ""),
+        "assignee": task.get("assignee_name", "?"),
+        "deadline": task.get("deadline", ""),
+        "okr_ref": task.get("okr_ref", ""),
+        "category": task.get("category", ""),
+        "created_at": task.get("created_at", ""),
+    }
+
+
+def search_playbooks(query: str = "", grade: str = "") -> dict:
+    """Tìm kiếm playbook/SOP theo từ khoá hoặc grade (G1/G2/G3/G4)."""
+    if query:
+        results = kn.search_playbooks(query)
+    elif grade:
+        results = kn.playbooks_for_grade(grade.upper())
+    else:
+        results = kn.list_playbooks()[:12]
+
+    return {
+        "query": query or grade or "all",
+        "count": len(results),
+        "playbooks": [
+            {
+                "id": p["id"],
+                "name": p["name"],
+                "owner_grade": p.get("owner_grade", ""),
+                "category": p.get("category", ""),
+                "frequency": p.get("frequency", ""),
+                "estimated_minutes": p.get("estimated_minutes", 0),
+            }
+            for p in results[:8]
+        ],
+    }
+
+
+# ─── Tool dispatch ─────────────────────────────────────────────────────────────
+
+_TOOL_FNS: dict = {
+    "get_team_workload":    get_team_workload,
+    "get_okr_status":       get_okr_status,
+    "get_metrics":          get_metrics,
+    "find_member_for_task": find_member_for_task,
+    "get_member_detail":    get_member_detail,
+    "get_task_detail":      get_task_detail,
+    "search_playbooks":     search_playbooks,
+}
+
+
+def _execute_tool(name: str, args: dict) -> dict:
+    fn = _TOOL_FNS.get(name)
+    if not fn:
+        return {"error": f"Unknown tool: {name}"}
+    try:
+        return fn(**args)
+    except Exception as e:
+        logger.error("Tool %s(%s) failed: %s", name, args, e, exc_info=True)
+        return {"error": str(e)[:200]}
+
+
+# ─── Lazy model init (avoid building at import time) ──────────────────────────
+
+_ask_model = None
+
+
+def _get_ask_model():
+    global _ask_model
+    if _ask_model is not None:
+        return _ask_model
+    _ensure_init()
+    _ask_model = genai.GenerativeModel(
+        model_name=TIER_MODELS.get("balanced", "gemini-2.5-flash"),
+        system_instruction=_SYSTEM_PROMPT,
+        safety_settings=_SAFETY,
+        tools=list(_TOOL_FNS.values()),
+        generation_config=genai.GenerationConfig(
+            temperature=0.25,
+            max_output_tokens=1500,
+        ),
+    )
+    return _ask_model
+
+
+# ─── Main ask() entry point ────────────────────────────────────────────────────
 
 def ask(question: str) -> dict:
     """
-    Single-prompt /ask. Returns {answer: str, error?: str}.
+    Tool-use AI query. Gemini tự quyết gọi tool nào, ta execute và trả kết quả.
+    Returns {answer, tools_used, tool_results}.
     """
-    q = (question or "").strip()
+    q = (question or "").strip()[:800]
     if not q:
-        return {"answer": "Câu hỏi trống. Thử lại với nội dung cụ thể."}
-    if len(q) > 800:
-        q = q[:800]
+        return {"answer": "Câu hỏi trống. Thử lại nhé."}
 
-    prompt = (
-        _SYSTEM_PROMPT
-        + "\n\n## KNOWLEDGE\n" + _knowledge()
-        + "\n\n" + _live_context()
-        + "\n\n" + _referenced_tasks(q)
-        + f"\n## QUESTION\n{q}\n\n## ANSWER\n"
-    )
+    tools_used: list[str] = []
+    tool_results: dict = {}
 
     try:
-        resp = _MODEL.generate_content(prompt)
-        answer = (resp.text or "").strip()
+        model = _get_ask_model()
+        chat = model.start_chat(enable_automatic_function_calling=False)
+
+        # Add today's date to first message for temporal grounding
+        today_str = datetime.now().strftime("%Y-%m-%d %H:%M (ICT)")
+        first_msg = f"[Hôm nay: {today_str}]\n\n{q}"
+        response = chat.send_message(first_msg)
+
+        # Tool-use loop — max 4 rounds
+        for _ in range(4):
+            fc_parts = [
+                p.function_call
+                for p in response.parts
+                if hasattr(p, "function_call") and p.function_call.name
+            ]
+            if not fc_parts:
+                break  # no more tool calls → final answer
+
+            # Execute all tool calls in this round
+            fn_responses = []
+            for fc in fc_parts:
+                name = fc.name
+                args = dict(fc.args)
+                result = _execute_tool(name, args)
+
+                if name not in tools_used:
+                    tools_used.append(name)
+                tool_results[name] = result
+
+                logger.info("[ask] tool=%s args=%s → %d keys", name, args, len(result))
+
+                fn_responses.append(
+                    genai.protos.Part(
+                        function_response=genai.protos.FunctionResponse(
+                            name=name,
+                            response={"result": json.dumps(result, ensure_ascii=False, default=str)},
+                        )
+                    )
+                )
+
+            response = chat.send_message(fn_responses)
+
+        answer = (response.text or "").strip()
         if not answer:
-            return {"answer": "AI không có câu trả lời. Thử hỏi cụ thể hơn."}
-        return {"answer": answer, "tools_used": []}
+            answer = "AI không có câu trả lời. Thử hỏi cụ thể hơn."
+
     except Exception as e:
-        logger.error(f"ask() failed: {e}", exc_info=True)
-        return {"answer": "", "error": str(e)[:200]}
+        logger.error("ask() failed: %s", e, exc_info=True)
+        return {"answer": "", "error": str(e)[:300], "tools_used": [], "tool_results": {}}
+
+    return {
+        "answer": answer,
+        "tools_used": tools_used,
+        "tool_results": tool_results,
+    }

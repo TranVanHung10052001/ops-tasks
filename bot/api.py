@@ -42,6 +42,9 @@ _WEB_TO_BOT_STATUS = {
     "tam_dung":   "snoozed",
 }
 from roles import MANAGER, TEAM_LEAD, EMPLOYEE, ROLE_LABELS
+import knowledge_loader as kn
+from agents import coach_delegation, run_crisis_commander, CRISIS_TYPES
+from models import tier_info
 
 import logging
 import httpx
@@ -630,6 +633,227 @@ def get_okr(token: str = Depends(verify_token)):
     }
 
 
+# ─── Delegation Framework: Grades, Playbooks, Member Scope ────────────────────
+
+@app.get("/api/grades")
+def get_grades(token: str = Depends(verify_token)):
+    """Grade Role Matrix (G4/G3/G2/G1) + Decision Authority + Delegation Principles."""
+    gm = kn.grade_matrix()
+    return {
+        "version": gm.get("version"),
+        "updated_at": gm.get("updated_at"),
+        "grades": gm.get("grades", []),
+        "responsibility_areas": gm.get("responsibility_areas", []),
+        "decision_authority_matrix": gm.get("decision_authority_matrix", []),
+        "delegation_principles": gm.get("delegation_principles", []),
+    }
+
+
+@app.get("/api/playbooks")
+def get_playbooks(
+    grade: Optional[str] = Query(None, description="Filter by owner_grade (G1-G4)"),
+    category: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    token: str = Depends(verify_token),
+):
+    """Playbook library — task execution SOPs with step-by-step guidance."""
+    pb = kn.playbooks()
+    items = pb.get("playbooks", [])
+    if grade:
+        items = [p for p in items if p.get("owner_grade") == grade]
+    if category:
+        items = [p for p in items if p.get("category") == category]
+    if search:
+        q = search.lower()
+        items = [p for p in items if q in p.get("name", "").lower()
+                 or q in p.get("category", "").lower()
+                 or any(q in (link or "").lower() for link in p.get("okr_links", []))]
+    return {
+        "version": pb.get("version"),
+        "categories": pb.get("categories", []),
+        "playbooks": items,
+        "total": len(items),
+    }
+
+
+@app.get("/api/playbooks/{playbook_id}")
+def get_playbook_detail(playbook_id: str, token: str = Depends(verify_token)):
+    pb = kn.get_playbook(playbook_id)
+    if not pb:
+        raise HTTPException(status_code=404, detail="Playbook not found")
+    return pb
+
+
+@app.get("/api/member-scopes")
+def get_member_scopes(token: str = Depends(verify_token)):
+    """All member scope cards (DO / DON'T / DELEGATE per member)."""
+    ms = kn.member_scopes()
+    return {
+        "version": ms.get("version"),
+        "members": ms.get("members", []),
+        "delegation_health_targets": ms.get("delegation_health_targets", {}),
+    }
+
+
+@app.get("/api/member-scopes/{email}")
+def get_member_scope_one(email: str, token: str = Depends(verify_token)):
+    scope = kn.get_member_scope(email=email)
+    if not scope:
+        scope = kn.get_member_scope(name=email)
+    if not scope:
+        raise HTTPException(status_code=404, detail="Member scope not found")
+    return scope
+
+
+@app.get("/api/delegation/health")
+def get_delegation_health(token: str = Depends(verify_token)):
+    """Delegation health: targets + red flag signals + principles."""
+    members = list_team_by_person()
+    by_grade: dict[str, list[dict]] = {}
+    for m in members:
+        scope = kn.get_member_scope(name=m.get("full_name", ""))
+        grade = scope.get("grade") if scope else "—"
+        by_grade.setdefault(grade, []).append({
+            "name": m.get("full_name"),
+            "active_count": m.get("active_count", 0),
+            "overdue_count": m.get("overdue_count", 0),
+            "done_today": m.get("done_today", 0),
+        })
+
+    health = kn.delegation_health()
+    return {
+        **health,
+        "load_by_grade": by_grade,
+        "total_members": len(members),
+    }
+
+
+# ─── Sub-agents: Delegation Coach + Crisis Commander ─────────────────────────
+
+@app.post("/api/agents/delegation-coach/{task_id}")
+def api_delegation_coach(task_id: int, token: str = Depends(verify_token)):
+    """Run Delegation Coach (premium tier) on a task — returns verdict + recommendation."""
+    task = get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    # Build context similar to bot command
+    assignee = get_user(task.get("assignee_id")) if task.get("assignee_id") else None
+    assignee_scope = kn.get_member_scope(name=(assignee or {}).get("full_name", "")) if assignee else None
+    a_stats = get_user_stats(task["assignee_id"]) if task.get("assignee_id") else {}
+
+    current_assignee = None
+    if assignee:
+        current_assignee = {
+            "name": assignee["full_name"],
+            "grade": (assignee_scope or {}).get("grade", "?"),
+            "title": (assignee_scope or {}).get("title", assignee.get("role", "")),
+            "active_count": a_stats.get("pending", 0),
+            "overdue_count": a_stats.get("overdue", 0),
+        }
+
+    assigner = get_user(task.get("assigned_by")) if task.get("assigned_by") else None
+    assigner_scope = kn.get_member_scope(name=(assigner or {}).get("full_name", "")) if assigner else None
+
+    members = list_team_by_person()
+    team_load = []
+    for m in members:
+        if m["telegram_id"] == task.get("assignee_id"):
+            continue
+        m_scope = kn.get_member_scope(name=m.get("full_name", ""))
+        team_load.append({
+            "name": m.get("full_name"),
+            "grade": (m_scope or {}).get("grade", "?"),
+            "title": (m_scope or {}).get("title", ""),
+            "active_count": m.get("active_count", 0),
+            "overdue_count": m.get("overdue_count", 0),
+        })
+
+    verdict = coach_delegation(
+        task={
+            "id": task["id"],
+            "summary": task.get("summary", ""),
+            "okr_ref": task.get("okr_ref"),
+            "category": task.get("category", "other"),
+            "priority": task.get("priority", "P3"),
+            "deadline_iso": task.get("deadline"),
+            "estimated_minutes": task.get("estimated_minutes"),
+        },
+        current_assignee=current_assignee,
+        assigner={
+            "name": (assigner or {}).get("full_name", "?"),
+            "grade": (assigner_scope or {}).get("grade", "?"),
+            "role": (assigner or {}).get("role", "?"),
+        } if assigner else None,
+        team_load=team_load,
+    )
+
+    log_action(0, "api_delegation_coach", "task", task_id, verdict.get("verdict", ""))
+    return {"task_id": task_id, "task_summary": task.get("summary"), **verdict}
+
+
+class CrisisBody(BaseModel):
+    type: str  # one of CRISIS_TYPES
+    description: str
+    region: Optional[str] = None
+    current_metric: Optional[str] = None
+    current_value: Optional[str] = None
+    target: Optional[str] = None
+    trend: Optional[str] = None
+    duration_days: Optional[int] = None
+    budget_cap: Optional[str] = None
+
+
+@app.post("/api/agents/crisis")
+def api_crisis(body: CrisisBody, token: str = Depends(verify_token)):
+    """Activate Crisis Commander (premium tier)."""
+    if body.type not in CRISIS_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"type không hợp lệ. Phải là một trong: {list(CRISIS_TYPES)}",
+        )
+
+    team_members = []
+    for m in kn.member_scopes().get("members", []):
+        team_members.append({
+            "name": m.get("short_name") or m.get("name"),
+            "grade": m.get("grade"),
+            "team": m.get("team"),
+        })
+
+    trigger = {
+        "type": body.type,
+        "severity_hint": "active",
+        "raw_description": body.description,
+        "region": body.region or "all",
+        "duration_days": body.duration_days,
+    }
+    current_metrics = {}
+    if body.current_metric:
+        current_metrics = {
+            "metric": body.current_metric,
+            "current_value": body.current_value,
+            "target": body.target,
+            "trend": body.trend,
+        }
+
+    report = run_crisis_commander(
+        trigger=trigger,
+        current_metrics=current_metrics or None,
+        team_members=team_members,
+        constraints={"budget_cap": body.budget_cap} if body.budget_cap else None,
+    )
+
+    log_action(0, "api_crisis_activate", "crisis", 0, f"{body.type}: {body.description[:100]}")
+    return {"trigger": trigger, **report}
+
+
+@app.get("/api/agents/tiers")
+def api_agent_tiers(token: str = Depends(verify_token)):
+    """Show current model tier mapping (debug + transparency)."""
+    return tier_info()
+
+
 # ─── OKR mutations ────────────────────────────────────────────────────────────
 
 class OkrProgressUpdate(BaseModel):
@@ -732,26 +956,6 @@ def update_metrics_bulk(body: BulkMetricsBody, token: str = Depends(verify_token
         upsert_metric(str(key), str(value), body.source)
     log_action(0, "bulk_metric_update", detail=f"{len(body.metrics)} keys from {body.source}")
     return {"ok": True, "updated": len(body.metrics)}
-
-
-# ─── Smart Agent / Q&A ────────────────────────────────────────────────────────
-
-class AskBody(BaseModel):
-    question: str
-
-
-@app.post("/api/ask")
-def api_ask(body: AskBody, token: str = Depends(verify_token)):
-    """Single-prompt AI query với live team context."""
-    if not body.question or not body.question.strip():
-        raise HTTPException(status_code=400, detail="question is required")
-    try:
-        from ask import ask as ai_ask
-        result = ai_ask(body.question)
-        log_action(0, "api_ask", detail=body.question[:100])
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"ask failed: {e}")
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────
@@ -868,5 +1072,29 @@ def _get_user_name(user_id: int | None) -> str | None:
     # the telegram_id changes and cached names would be stale.
     if not user_id:
         return None
-    u = get_user(user_id)
-    return u["full_name"] if u else None
+    if user_id not in _user_cache:
+        u = get_user(user_id)
+        _user_cache[user_id] = u["full_name"] if u else str(user_id)
+    return _user_cache[user_id]
+
+
+# ─── AI Ask (tool-use) ────────────────────────────────────────────────────────
+
+class AskBody(BaseModel):
+    question: str
+
+
+@app.post("/api/ask")
+def api_ask(body: AskBody, token: str = Depends(verify_token)):
+    """Tool-use AI query — Gemini gọi tools để lấy data thật rồi trả lời."""
+    q = (body.question or "").strip()
+    if not q:
+        raise HTTPException(status_code=400, detail="question is required")
+    try:
+        from ask import ask as ai_ask
+        result = ai_ask(q)
+        log_action(0, "api_ask", detail=q[:100])
+        return result
+    except Exception as e:
+        logger.error("api_ask failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e)[:200])
