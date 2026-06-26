@@ -1,93 +1,90 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import useSWR from "swr";
-import { ApiTask } from "@/lib/api";
-import { apiTaskToOpsTask } from "@/lib/data";
-import { formatDeadline } from "@/lib/mock";
+import { useRouter } from "next/navigation";
 import Logo from "./logo";
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
-
 export default function TopBar() {
-  const [time, setTime] = useState("00:00:00");
-
-  const { data: tasksRaw } = useSWR<{ tasks: ApiTask[] } | { error: string }>(
-    "/api/tasks?limit=200", fetcher, { refreshInterval: 30_000 }
-  );
+  const router = useRouter();
+  const [time, setTime] = useState("--:--");
+  const [q, setQ] = useState("");
 
   useEffect(() => {
     const update = () => {
       const d = new Date();
-      const hh = String(d.getHours()).padStart(2, "0");
-      const mm = String(d.getMinutes()).padStart(2, "0");
-      const ss = String(d.getSeconds()).padStart(2, "0");
-      setTime(`${hh}:${mm}:${ss}`);
+      setTime(`${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`);
     };
     update();
-    const id = setInterval(update, 1000);
+    const id = setInterval(update, 30000);
     return () => clearInterval(id);
   }, []);
 
-  // Build the live dispatch feed from real tasks (overdue / blocked / P0 first)
-  const now = Date.now();
-  const order: Record<string, number> = { P0: 0, P1: 1, P2: 2, P3: 3, P4: 4 };
-  const feed = (tasksRaw && "tasks" in tasksRaw ? tasksRaw.tasks : [])
-    .map(apiTaskToOpsTask)
-    .filter((t) => t.status !== "hoan_thanh" && t.status !== "tam_dung")
-    .sort((a, b) => {
-      const aOver = a.deadline && new Date(a.deadline).getTime() < now ? -1 : 0;
-      const bOver = b.deadline && new Date(b.deadline).getTime() < now ? -1 : 0;
-      if (aOver !== bOver) return aOver - bOver;
-      return (order[a.priority] ?? 9) - (order[b.priority] ?? 9);
-    })
-    .slice(0, 8)
-    .map((t) => {
-      const d = formatDeadline(t.deadline);
-      const overdue = d.relative.startsWith("quá");
-      const flag = overdue ? "⚠ " : t.status === "bi_chan" ? "⊘ " : "";
-      const title = t.title.length > 48 ? t.title.slice(0, 48) + "…" : t.title;
-      return `${flag}${t.id} · ${t.priority} · ${title} · ${d.relative}`;
-    });
-
-  const hasFeed = feed.length > 0;
-  const tickerText = hasFeed
-    ? [...feed, ...feed].join("  ·  ")
-    : "Chưa có task đang chạy — kết nối Telegram bot tại /telegram";
+  function onSearch(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      const term = q.trim();
+      router.push(term ? `/tasks?q=${encodeURIComponent(term)}` : "/tasks");
+    }
+  }
 
   return (
-    <header className="h-10 bg-surface-deep border-b border-divider flex items-center justify-between px-4 fixed top-0 left-0 right-0 z-50">
+    <header
+      className="h-16 flex items-center gap-4 px-5 fixed top-0 left-0 right-0 z-50"
+      style={{ background: "var(--surface)", boxShadow: "var(--el1)" }}
+    >
       {/* Brand */}
       <div className="flex items-center gap-3 shrink-0">
         <Logo />
-        <span className="text-text-tertiary text-xs hidden md:inline">·</span>
-        <span className="mono text-2xs text-text-tertiary tracking-widest uppercase hidden md:inline">
-          Ops <span className="text-accent-paper">Truck</span>
+        <span className="text-2xs text-text-tertiary hidden lg:block leading-tight">
+          Ahamove · Điều vận xe tải
         </span>
-        <span className="mono text-2xs text-text-disabled tracking-wider uppercase hidden lg:inline">v1.4.2</span>
       </div>
 
-      {/* Live ticker — dispatch feed from real tasks */}
-      <div className="flex-1 overflow-hidden mx-5 max-w-[360px] hidden md:block">
-        {hasFeed ? (
-          <div className="marquee-track gap-0">
-            <span className="mono text-2xs text-text-tertiary">
-              <span className="text-accent-amber mr-2">▸</span>
-              {tickerText}
-              <span className="text-accent-amber mx-2">▸</span>
-              {tickerText}
-            </span>
-          </div>
-        ) : (
-          <div className="mono text-2xs text-text-disabled truncate text-center">{tickerText}</div>
-        )}
-      </div>
+      {/* Search pill (Enter → bảng điều vận) */}
+      <label
+        className="hidden md:flex items-center gap-3 flex-1 max-w-[520px] rounded-full px-4 py-2.5 transition-shadow focus-within:shadow-md"
+        style={{ background: "var(--surface-deep)" }}
+      >
+        <span className="text-text-tertiary text-base leading-none" aria-hidden>⌕</span>
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={onSearch}
+          placeholder="Tìm task, thành viên, OKR…"
+          aria-label="Tìm kiếm"
+          className="flex-1 bg-transparent outline-none text-sm text-text-primary placeholder:text-text-tertiary"
+        />
+        <span className="kbd">⌘K</span>
+      </label>
 
-      {/* Clock */}
-      <div className="flex items-center gap-2 mono text-xs text-text-secondary shrink-0">
-        <span className="status-dot active" />
-        <span className="text-text-primary tabular">{time}</span>
-        <span className="text-text-tertiary">ICT</span>
+      {/* Right cluster */}
+      <div className="flex items-center gap-2 shrink-0 ml-auto">
+        <span
+          className="inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-semibold"
+          style={{ background: "var(--sec-container)", color: "var(--on-sec-container)" }}
+        >
+          <span className="status-dot active" />
+          live
+        </span>
+        <button
+          aria-label="Thông báo"
+          className="relative w-10 h-10 rounded-full inline-flex items-center justify-center text-text-secondary hover:bg-surface-deep transition-colors text-base"
+        >
+          🔔
+          <span
+            className="absolute top-1.5 right-1.5 min-w-[16px] h-4 rounded-full text-[9px] font-bold text-white inline-flex items-center justify-center px-1"
+            style={{ background: "var(--signal-p0)", border: "2px solid var(--surface)" }}
+          >
+            3
+          </span>
+        </button>
+        <span className="text-xs text-text-tertiary tabular mx-1 hidden sm:inline">{time} ICT</span>
+        <span
+          className="w-10 h-10 rounded-full inline-flex items-center justify-center text-white font-bold text-sm shrink-0"
+          style={{ background: "linear-gradient(140deg,#00868d,#004f53)", boxShadow: "var(--el1)" }}
+          title="Trần Văn Hùng"
+        >
+          H
+        </span>
       </div>
     </header>
   );

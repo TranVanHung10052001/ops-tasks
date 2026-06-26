@@ -1,6 +1,6 @@
-/* Typography — ONE typeface (Inter) for the whole UI. Numbers/codes use the
-   same font with tabular-nums so columns still align — no separate mono face.
-   Fewer fonts + less uppercase/letter-spacing = far more readable. */
+/* Material You (Material 3) · teal tonal · light default.
+   ONE typeface (Inter). Class names preserved so the whole app — including
+   new pages — re-themes from these tokens + shared component classes. */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 @tailwind base;
@@ -9,79 +9,91 @@
 
 @layer base {
   :root {
-    /* === BASE === Ahamove light — clean white/gray (DEFAULT) === */
-    --canvas: #F4F6F8;          /* app background — light neutral */
-    --surface: #FFFFFF;         /* cards */
-    --surface-raised: #FFFFFF;  /* elevated — shadow does the lifting */
-    --surface-deep: #ECEFF2;    /* sidebar / wells */
-    --divider: #E4E8EC;
-    --divider-strong: #CFD5DB;
+    /* === SURFACES (light) === */
+    --canvas: #eef4f3;
+    --surface: #fbfdfc;
+    --surface-raised: #ffffff;
+    --surface-deep: #e6efed;
+    --divider: #d3dddb;
+    --divider-strong: #bfcac8;
 
-    /* === TEXT === Ahamove gray scale === */
-    --text-primary: #15191E;
-    --text-secondary: #515A65;
-    --text-tertiary: #828B95;
-    --text-disabled: #B6BCC3;
+    /* === TEXT === */
+    --text-primary: #171d1c;
+    --text-secondary: #3f4948;
+    --text-tertiary: #6c7672;
+    --text-disabled: #9aa5a2;
 
-    /* === SIGNAL === P1 = Ahamove orange === */
-    --signal-p0: #E11D2E;
-    --signal-p1: #FF6A00;
-    --signal-p2: #C98A00;
-    --signal-p3: #1F9D52;
-    --signal-p4: #0A7CD6;
+    /* === SIGNAL (solid — used by text-/border-/bg- utilities) === */
+    --signal-p0: #ba1a1a;
+    --signal-p1: #9a6300;
+    --signal-p2: #1b5fa8;
+    --signal-p3: #1f6c43;
+    --signal-p4: #5b4fbf;
 
     /* === STATE === */
-    --state-active: #1F9D52;
-    --state-pending: #C98A00;
-    --state-blocked: #E11D2E;
-    --state-done: #0A7CD6;
-    --state-paused: #8944AB;
+    --state-active: #1f6c43;
+    --state-pending: #9a6300;
+    --state-blocked: #ba1a1a;
+    --state-done: #1b5fa8;
+    --state-paused: #7e3ba8;
 
-    /* === ACCENT === Ahamove brand orange + trust blue === */
-    --accent-amber: #FF6A00;       /* primary brand orange */
-    --accent-amber-deep: #E55C00;  /* hover / orange text on white */
-    --accent-paper: #0A7CD6;       /* trust blue secondary */
+    /* === ACCENT (repointed to TEAL primary; names kept for compat) === */
+    --accent-amber: #00696d;       /* M3 primary */
+    --accent-amber-deep: #004f53;  /* primary darker */
+    --accent-paper: #00767b;       /* teal text accent */
 
-    --shadow-card: 0 1px 2px rgba(16, 24, 32, 0.05), 0 1px 3px rgba(16, 24, 32, 0.05);
+    /* === M3 extras === */
+    --primary: #00696d;
+    --sec-container: #cce8e6;
+    --on-sec-container: #051f1f;
+    --tert-container: #cde7ec;
+    --on-tert: #15333a;
+    --el1: 0 1px 2px rgba(0,40,40,.08), 0 1px 3px 1px rgba(0,40,40,.05);
+    --el2: 0 1px 2px rgba(0,40,40,.10), 0 2px 8px 2px rgba(0,40,40,.07);
+    --el3: 0 4px 8px 2px rgba(0,40,40,.10), 0 1px 3px rgba(0,40,40,.10);
+    --shadow-card: var(--el1);   /* alias — older components reference this */
 
-    /* Typography tokens — ONE typeface. --font-mono kept as an alias (Inter +
-       tabular-nums) so existing .mono/font-mono usages still align numbers. */
     --font-sans:    "Inter", system-ui, -apple-system, sans-serif;
     --font-display: "Inter", system-ui, -apple-system, sans-serif;
     --font-mono:    "Inter", system-ui, -apple-system, sans-serif;
   }
 
   [data-theme="toi"] {
-    /* Ahamove gray-neutral, dark end — clean (vintage overlays removed) */
-    --canvas: #0F1316;
-    --surface: #161B21;
-    --surface-raised: #1E242B;
-    --surface-deep: #0A0D10;
-    --divider: #242B33;
-    --divider-strong: #313A44;
-    --text-primary: #EAECEF;
-    --text-secondary: #99A0AA;
-    --text-tertiary: #757D86;
-    --text-disabled: #4C5158;
-    --signal-p0: #F5333F;
-    --signal-p1: #FF7F32;
-    --signal-p2: #FFCC00;
-    --signal-p3: #34C759;
-    --signal-p4: #0089FF;
-    --state-active: #30D158;
-    --state-pending: #FFD60A;
-    --state-blocked: #F5333F;
-    --state-done: #0089FF;
-    --state-paused: #BF5AF2;
-    --accent-amber: #FF7F32;
-    --accent-amber-deep: #FF6A00;
-    --accent-paper: #76C0FF;
-    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35);
+    --canvas: #0e1513;
+    --surface: #161d1b;
+    --surface-raised: #1e2624;
+    --surface-deep: #0b1110;
+    --divider: #2a322f;
+    --divider-strong: #3a423f;
+    --text-primary: #dde4e1;
+    --text-secondary: #b6bfbc;
+    --text-tertiary: #899390;
+    --text-disabled: #59615e;
+    --signal-p0: #ffb4ab;
+    --signal-p1: #f5bd5a;
+    --signal-p2: #a6c8ff;
+    --signal-p3: #6fd99a;
+    --signal-p4: #c4c0ff;
+    --state-active: #6fd99a;
+    --state-pending: #f5bd5a;
+    --state-blocked: #ffb4ab;
+    --state-done: #a6c8ff;
+    --state-paused: #d9b8f0;
+    --accent-amber: #4fd8dd;
+    --accent-amber-deep: #9cf0f0;
+    --accent-paper: #6fdde0;
+    --primary: #4fd8dd;
+    --sec-container: #1f4d4c;
+    --on-sec-container: #cce8e6;
+    --tert-container: #21474d;
+    --on-tert: #cde7ec;
+    --el1: 0 1px 2px rgba(0,0,0,.40), 0 1px 3px 1px rgba(0,0,0,.30);
+    --el2: 0 2px 8px 2px rgba(0,0,0,.40);
+    --el3: 0 6px 14px 4px rgba(0,0,0,.45);
+    --shadow-card: var(--el1);
   }
 
-  * {
-    box-sizing: border-box;
-  }
+  * { box-sizing: border-box; }
 
   html, body {
     background: var(--canvas);
@@ -92,283 +104,120 @@
     font-weight: 400;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    /* Inter character variants: cv05 = lowercase l with tail, cv11 = single-story a */
     font-feature-settings: "cv05", "cv11";
     text-rendering: optimizeLegibility;
   }
-  /* Vintage CRT scanlines / film grain / corner vignette removed for a clean,
-     modern Ahamove look. */
 }
 
 @layer components {
-  /* === SIGNAL BADGE === */
+  /* === SIGNAL BADGE — M3 filled tonal pill === */
   .signal-badge {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 2px 8px 2px 6px;
-    border: 1px solid color-mix(in srgb, currentColor 45%, transparent);
+    padding: 3px 11px;
+    border-radius: 100px;
     font-family: var(--font-sans);
     font-size: 11px;
-    font-weight: 500;
+    font-weight: 700;
     letter-spacing: 0.01em;
-    text-transform: uppercase;
-    line-height: 18px;
-    border-radius: 3px;
+    line-height: 16px;
   }
   .signal-badge::before {
     content: "";
-    width: 5px;
-    height: 5px;
+    width: 6px; height: 6px;
     border-radius: 50%;
     background: currentColor;
-    /* removed glow — was causing harsh bloom effect on dark bg */
   }
-  .signal-badge.outline::before {
-    background: transparent;
-    border: 1px solid currentColor;
-  }
+  .signal-badge.outline { background: transparent !important; box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 45%, transparent); }
+  .signal-badge.outline::before { background: transparent; border: 1px solid currentColor; }
 
   .signal-p0 { color: var(--signal-p0); }
   .signal-p1 { color: var(--signal-p1); }
   .signal-p2 { color: var(--signal-p2); }
   .signal-p3 { color: var(--signal-p3); }
   .signal-p4 { color: var(--signal-p4); }
+  .signal-badge.signal-p0 { background: color-mix(in srgb, var(--signal-p0) 14%, var(--surface)); }
+  .signal-badge.signal-p1 { background: color-mix(in srgb, var(--signal-p1) 16%, var(--surface)); }
+  .signal-badge.signal-p2 { background: color-mix(in srgb, var(--signal-p2) 14%, var(--surface)); }
+  .signal-badge.signal-p3 { background: color-mix(in srgb, var(--signal-p3) 14%, var(--surface)); }
+  .signal-badge.signal-p4 { background: color-mix(in srgb, var(--signal-p4) 14%, var(--surface)); }
 
-  /* P0 pulse — subtle opacity flicker only, no glow bloom */
-  .signal-p0::before {
-    animation: pulseSignal 2s ease-in-out infinite;
-  }
-  @keyframes pulseSignal {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.45; }
-  }
+  .signal-p0::before { animation: pulseSignal 2s ease-in-out infinite; }
+  @keyframes pulseSignal { 0%,100%{opacity:1} 50%{opacity:.45} }
 
-  /* === LABEL === uppercase labels share 0.06em spacing (was 0.04/0.05/0.08/0.12) */
-  .label-ops {
-    font-family: var(--font-sans);
-    font-size: 11.5px;
-    font-weight: 600;
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
-    color: var(--text-secondary);
-  }
-  .label-mono {
-    font-family: var(--font-sans);
-    font-size: 11.5px;
-    letter-spacing: 0.01em;
-    color: var(--text-tertiary);
-  }
-  /* Section header — Vietnamese-friendly: sentence case, slightly larger than label-ops */
-  .section-label {
-    font-family: var(--font-sans);
-    font-size: 12px;
-    font-weight: 500;
-    letter-spacing: 0.01em;
-    color: var(--text-secondary);
-  }
+  /* === LABELS === */
+  .label-ops { font-family: var(--font-sans); font-size: 11.5px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--text-secondary); }
+  .label-mono { font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.01em; color: var(--text-tertiary); }
+  .section-label { font-family: var(--font-sans); font-size: 13px; font-weight: 600; letter-spacing: 0.01em; color: var(--text-primary); }
 
-  /* === CALLSIGN AVATAR === */
+  /* === AVATAR — circular tonal === */
   .callsign {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    background: var(--surface-raised);
-    border: 1px solid var(--divider-strong);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--accent-paper);
-    letter-spacing: 0.02em;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: var(--tert-container);
+    color: var(--on-tert);
+    font-family: var(--font-sans);
+    font-size: 12px; font-weight: 700;
+    letter-spacing: 0.01em;
   }
-  .callsign.large {
-    width: 48px;
-    height: 48px;
-    font-size: 14px;
-  }
+  .callsign.large { width: 48px; height: 48px; font-size: 15px; }
 
   /* === SURFACE CARDS === */
-  .ops-surface {
-    background: var(--surface);
-    border: 1px solid var(--divider);
-    box-shadow: var(--shadow-card);
-  }
-  .ops-surface-raised {
-    background: var(--surface-raised);
-    border: 1px solid var(--divider-strong);
-    box-shadow: var(--shadow-card);
-  }
-  .ops-divider {
-    border-color: var(--divider);
-  }
+  .ops-surface { background: var(--surface); border: 1px solid var(--divider); border-radius: 16px; box-shadow: var(--el1); }
+  .ops-surface-raised { background: var(--surface-raised); border: 1px solid var(--divider); border-radius: 16px; box-shadow: var(--el2); }
+  .ops-divider { border-color: var(--divider); }
 
-  /* === KPI BOX === */
-  .kpi-box {
-    position: relative;
-    background: var(--surface);
-    border: 1px solid var(--divider);
-    padding: 16px;
-    box-shadow: var(--shadow-card);
-  }
-  .kpi-box::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background: var(--accent-amber);
-  }
-  .kpi-number {
-    font-family: var(--font-display);
-    font-size: 40px;
-    font-weight: 500;
-    line-height: 1;
-    color: var(--text-primary);
-    font-variant-numeric: tabular-nums;
-    letter-spacing: -0.02em;
-  }
+  /* === KPI — tonal M3 cards === */
+  .kpi-box { position: relative; background: var(--surface); border: 1px solid var(--divider); border-radius: 20px; padding: 18px; box-shadow: var(--el1); }
+  .kpi-box:nth-child(4n+1) { background: var(--sec-container); border-color: transparent; }
+  .kpi-box:nth-child(4n+2) { background: #d6e3ff; border-color: transparent; }
+  .kpi-box:nth-child(4n+3) { background: #ffdad6; border-color: transparent; }
+  .kpi-box:nth-child(4n+4) { background: #ffe1ac; border-color: transparent; }
+  .kpi-number { font-family: var(--font-display); font-size: 34px; font-weight: 700; line-height: 1; color: var(--text-primary); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
 
-  /* === EDITORIAL === (deprecated — kept for backward compat, now matches body) */
-  .editorial {
-    font-family: var(--font-sans);
-    font-weight: 400;
-    letter-spacing: -0.005em;
-  }
+  .editorial { font-family: var(--font-sans); font-weight: 600; letter-spacing: -0.01em; }
+  .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .dotted-divider { border-top: 1px solid var(--divider); height: 0; width: 100%; }
 
-  /* === MONO === */
-  .mono {
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-  }
+  /* === CHANNEL RADIO (sidebar filters) — pill === */
+  .channel-radio { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-radius: 100px; cursor: pointer; transition: background 120ms ease; }
+  .channel-radio:hover { background: var(--surface); }
+  .channel-radio.active { background: var(--sec-container); color: var(--on-sec-container); }
+  .channel-radio .dot { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--text-tertiary); flex-shrink: 0; }
+  .channel-radio.active .dot { border-color: var(--primary); background: var(--primary); }
 
-  /* === DOTTED DIVIDER === */
-  .dotted-divider {
-    border-top: 1px dashed var(--divider-strong);
-    height: 0;
-    width: 100%;
-  }
-
-  /* === CHANNEL RADIO === */
-  .channel-radio {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 12px;
-    cursor: pointer;
-    border-left: 2px solid transparent;
-    transition: all 120ms ease;
-  }
-  .channel-radio:hover {
-    background: var(--surface);
-  }
-  .channel-radio.active {
-    background: var(--surface);
-    border-left-color: var(--accent-amber);
-  }
-  .channel-radio .dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    border: 1.5px solid var(--text-tertiary);
-    flex-shrink: 0;
-  }
-  .channel-radio.active .dot {
-    border-color: var(--accent-amber);
-    background: var(--accent-amber);
-  }
-
-  /* === BUTTON === */
-  .btn-ops {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 12px;
-    background: transparent;
-    border: 1px solid var(--divider-strong);
-    color: var(--text-primary);
-    font-family: var(--font-sans);
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0.04em;
-    cursor: pointer;
-    transition: all 120ms ease;
-  }
-  .btn-ops:hover {
-    background: var(--surface-raised);
-    border-color: var(--accent-amber-deep);
-    color: var(--accent-paper);
-  }
-  .btn-ops.primary {
-    background: var(--accent-amber);
-    border-color: var(--accent-amber);
-    color: #FFFFFF;
-  }
-  .btn-ops.primary:hover {
-    background: var(--accent-amber-deep);
-    border-color: var(--accent-amber-deep);
-  }
+  /* === BUTTONS — M3 pill === */
+  .btn-ops { display: inline-flex; align-items: center; gap: 8px; padding: 9px 18px; border-radius: 100px; background: var(--surface-deep); border: 1px solid transparent; color: var(--text-primary); font-family: var(--font-sans); font-size: 13px; font-weight: 600; letter-spacing: 0.01em; cursor: pointer; transition: box-shadow 120ms ease, background 120ms ease; }
+  .btn-ops:hover { box-shadow: var(--el1); background: var(--surface-deep); }
+  .btn-ops.primary { background: var(--primary); border-color: var(--primary); color: #ffffff; }
+  .btn-ops.primary:hover { background: var(--accent-amber-deep); color: #ffffff; box-shadow: var(--el2); }
 
   /* === KBD === */
-  .kbd {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 4px;
-    background: var(--surface-deep);
-    border: 1px solid var(--divider-strong);
-    border-radius: 2px;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--text-secondary);
-  }
+  .kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; background: var(--surface-deep); border: 1px solid var(--divider); border-radius: 6px; font-family: var(--font-mono); font-size: 10px; color: var(--text-secondary); }
 
   /* === STATUS DOT === */
-  .status-dot {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-  }
-  .status-dot.active { background: var(--state-active); }
+  .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+  .status-dot.active { background: var(--state-active); box-shadow: 0 0 0 3px color-mix(in srgb, var(--state-active) 20%, transparent); }
   .status-dot.pending { background: var(--state-pending); }
   .status-dot.blocked { background: var(--state-blocked); }
   .status-dot.done { background: var(--state-done); }
   .status-dot.paused { background: var(--state-paused); }
 
   /* === TIMELINE BAR === */
-  .timeline-bar {
-    height: 16px;
-    border-radius: 1px;
-    position: relative;
-    cursor: pointer;
-    transition: filter 120ms ease;
-  }
-  .timeline-bar:hover {
-    filter: brightness(1.3);
-  }
+  .timeline-bar { height: 16px; border-radius: 100px; position: relative; cursor: pointer; transition: filter 120ms ease; }
+  .timeline-bar:hover { filter: brightness(1.08) saturate(1.1); }
 
   /* === SCROLLBAR === */
-  .scroll-ops::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scroll-ops::-webkit-scrollbar { width: 8px; height: 8px; }
   .scroll-ops::-webkit-scrollbar-track { background: transparent; }
-  .scroll-ops::-webkit-scrollbar-thumb { background: var(--divider-strong); border-radius: 1px; }
+  .scroll-ops::-webkit-scrollbar-thumb { background: var(--divider-strong); border-radius: 100px; }
   .scroll-ops::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
 
   /* === AI CLASSIFIED CARD === */
-  .ai-classified-card {
-    transition: box-shadow 120ms ease, background-color 120ms ease;
-  }
-  .ai-classified-card:hover {
-    box-shadow: inset 3px 0 0 var(--accent-amber);
-    background-color: rgba(255, 106, 0, 0.06);
-  }
-  [data-theme="toi"] .ai-classified-card:hover {
-    background-color: rgba(255, 127, 50, 0.06);
-  }
+  .ai-classified-card { transition: box-shadow 120ms ease, background-color 120ms ease; }
+  .ai-classified-card:hover { box-shadow: var(--el2); background-color: color-mix(in srgb, var(--primary) 5%, var(--surface)); }
 }
 
 @layer utilities {
@@ -386,79 +235,25 @@
   .border-divider { border-color: var(--divider); }
   .border-divider-strong { border-color: var(--divider-strong); }
 
-  /* AI typing pulse */
-  .ai-pulse::before {
-    content: "⊙ ";
-    animation: aiPulse 1.4s ease-in-out infinite;
-  }
-  @keyframes aiPulse {
-    0%, 100% { opacity: 0.4; }
-    50% { opacity: 1; }
-  }
+  .ai-pulse::before { content: "⊙ "; animation: aiPulse 1.4s ease-in-out infinite; }
+  @keyframes aiPulse { 0%,100%{opacity:.4} 50%{opacity:1} }
 
-  /* Active glow border (P0 cards) */
-  .glow-p0 {
-    box-shadow: inset 0 0 0 1px var(--signal-p0), 0 0 16px -4px rgba(255, 59, 48, 0.4);
-    animation: p0Breath 2.4s ease-in-out infinite;
-  }
-  @keyframes p0Breath {
-    0%, 100% { box-shadow: inset 0 0 0 1px var(--signal-p0), 0 0 16px -4px rgba(255, 59, 48, 0.2); }
-    50% { box-shadow: inset 0 0 0 1px var(--signal-p0), 0 0 24px -2px rgba(255, 59, 48, 0.55); }
-  }
+  .glow-p0 { box-shadow: 0 0 0 1px color-mix(in srgb, var(--signal-p0) 50%, transparent), var(--el2); }
 
-  /* Slide-in panel */
-  .slide-in-right {
-    animation: slideInRight 200ms cubic-bezier(0.2, 0, 0, 1);
-  }
-  @keyframes slideInRight {
-    from { transform: translateX(20px); opacity: 0; }
-    to { transform: translateX(0); opacity: 1; }
-  }
+  .slide-in-right { animation: slideInRight 200ms cubic-bezier(0.2,0,0,1); }
+  @keyframes slideInRight { from{transform:translateX(20px);opacity:0} to{transform:translateX(0);opacity:1} }
 
-  /* Ticker marquee */
-  .marquee-track {
-    animation: marquee 50s linear infinite;
-    white-space: nowrap;
-    display: inline-flex;
-    align-items: center;
-    will-change: transform;
-  }
-  @keyframes marquee {
-    0%   { transform: translateX(0); }
-    100% { transform: translateX(-50%); }
-  }
+  .marquee-track { animation: marquee 50s linear infinite; white-space: nowrap; display: inline-flex; align-items: center; will-change: transform; }
+  @keyframes marquee { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
 
-  /* Hatch pattern */
-  .hatch {
-    background-image: repeating-linear-gradient(
-      45deg,
-      transparent,
-      transparent 4px,
-      rgba(255, 106, 0, 0.07) 4px,
-      rgba(255, 106, 0, 0.07) 5px
-    );
-  }
-  [data-theme="toi"] .hatch {
-    background-image: repeating-linear-gradient(
-      45deg,
-      transparent,
-      transparent 4px,
-      rgba(255, 127, 50, 0.08) 4px,
-      rgba(255, 127, 50, 0.08) 5px
-    );
-  }
+  .hatch { background-image: repeating-linear-gradient(45deg, transparent, transparent 5px, color-mix(in srgb, var(--primary) 9%, transparent) 5px, color-mix(in srgb, var(--primary) 9%, transparent) 6px); }
 }
 
 /* ── Accessibility: visible keyboard focus ─────────────────────────────── */
-:focus-visible {
-  outline: 2px solid var(--accent-amber);
-  outline-offset: 2px;
-}
-:focus:not(:focus-visible) {
-  outline: none;
-}
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+:focus:not(:focus-visible) { outline: none; }
 
-/* ── Respect reduced-motion: kill marquee/pulses/decorative grain ──────── */
+/* ── Respect reduced-motion ────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.001ms !important;
@@ -467,5 +262,4 @@
     scroll-behavior: auto !important;
   }
   .marquee-track { animation: none !important; }
-  body::before, body::after { display: none !important; }
 }

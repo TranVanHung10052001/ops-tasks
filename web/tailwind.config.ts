@@ -70,9 +70,12 @@ export default {
       },
       borderRadius: {
         none: "0",
-        sm: "2px",
-        DEFAULT: "3px",
-        md: "4px",
+        sm: "8px",
+        DEFAULT: "12px",
+        md: "16px",
+        lg: "20px",
+        xl: "28px",
+        "2xl": "32px",
       },
       spacing: {
         "1.5": "6px",

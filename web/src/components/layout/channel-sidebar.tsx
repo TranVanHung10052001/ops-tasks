@@ -90,7 +90,7 @@ export default function ChannelSidebar() {
   const botOffline = teamRaw !== undefined && !Array.isArray(teamRaw);
 
   return (
-    <aside className="w-[220px] bg-surface-deep border-r border-divider flex flex-col h-full fixed left-0 top-10 bottom-0 overflow-y-auto scroll-ops">
+    <aside className="w-[220px] bg-surface-deep border-r border-divider flex flex-col h-full fixed left-0 top-16 bottom-0 overflow-y-auto scroll-ops">
       {/* NAV */}
       <div className="px-3 py-4">
         <div className="px-3 mb-2 label-ops text-2xs">Menu chính</div>
@@ -101,14 +101,13 @@ export default function ChannelSidebar() {
               <Link
                 key={item.href}
                 href={item.href}
+                style={active ? { background: "var(--sec-container)", color: "var(--on-sec-container)" } : undefined}
                 className={clsx(
-                  "flex items-center gap-2.5 px-3 py-1.5 text-sm transition-colors border-l-2",
-                  active
-                    ? "border-accent-amber bg-surface text-text-primary"
-                    : "border-transparent text-text-secondary hover:bg-surface hover:text-text-primary"
+                  "flex items-center gap-3 px-4 py-2.5 rounded-full text-sm transition-colors",
+                  active ? "font-semibold" : "text-text-secondary hover:bg-surface hover:text-text-primary"
                 )}
               >
-                <span className="mono text-2xs text-text-tertiary w-5 shrink-0">{item.code}</span>
+                <span className={clsx("mono text-2xs w-5 shrink-0", active ? "opacity-70" : "text-text-tertiary")}>{item.code}</span>
                 <span>{item.label}</span>
               </Link>
             );
@@ -168,11 +167,10 @@ export default function ChannelSidebar() {
               <button
                 key={m.id}
                 onClick={() => pathname === "/tasks" ? filterByMember(m.id) : router.push(`/tasks?member=${m.id}`)}
+                style={isActive ? { background: "var(--sec-container)", color: "var(--on-sec-container)" } : undefined}
                 className={clsx(
-                  "w-full flex flex-col px-3 py-1.5 text-sm transition-colors text-left",
-                  isActive
-                    ? "bg-surface text-text-primary border-l-2 border-accent-amber"
-                    : "text-text-secondary hover:bg-surface hover:text-text-primary border-l-2 border-transparent"
+                  "w-full flex flex-col px-3 py-2 text-sm transition-colors text-left rounded-2xl",
+                  isActive ? "" : "text-text-secondary hover:bg-surface hover:text-text-primary"
                 )}
               >
                 <div className="flex items-center gap-2.5 w-full">
