@@ -53,22 +53,12 @@ export function apiTaskToOpsTask(t: ApiTask): OpsTask {
 }
 
 export function apiMemberToMember(m: ApiMember, index: number): Member {
-  // Robust against junk display names (emoji/kaomoji) coming from Telegram:
-  // derive initials & display name from Latin/Vietnamese letters only.
-  const raw = (m.full_name ?? "").trim();
-  const words = raw.split(/\s+/).filter(Boolean);
-  const letterWords = words.filter((w) => /[A-Za-zÀ-ỹ]/.test(w));
-  const firstLetters = letterWords
-    .map((w) => w.match(/[A-Za-zÀ-ỹ]/)?.[0] ?? "")
-    .filter(Boolean);
-  const initials =
-    (firstLetters.length > 2
-      ? firstLetters[0] + firstLetters[1] + firstLetters[firstLetters.length - 1]
-      : firstLetters.slice(0, 3).join("")
-    ).toUpperCase() || (raw.match(/[A-Za-z0-9]/)?.[0]?.toUpperCase() ?? "?");
-  const first = letterWords[0] ?? "";
-  const last = letterWords[letterWords.length - 1] ?? "";
-  const cleanName = letterWords.length ? letterWords.join(" ") : (raw || "Chưa đặt tên");
+  const parts = (m.full_name ?? "").trim().split(" ");
+  const last = parts[parts.length - 1];
+  const first = parts[0];
+  const initials = (
+    (first?.[0] ?? "") + (parts[1]?.[0] ?? "") + (parts.length > 2 ? (last?.[0] ?? "") : "")
+  ).toUpperCase().slice(0, 3);
   const workload = ({ critical: 9, high: 7, normal: 5, low: 2 } as Record<string, number>)[m.load] ?? m.active_count;
   const statusMap: Record<ApiMember["load"], Member["status"]> = {
     critical: "busy", high: "online", normal: "online", low: "away",
@@ -77,8 +67,8 @@ export function apiMemberToMember(m: ApiMember, index: number): Member {
     id: `m${m.telegram_id}`,
     callsign: `OPS-${String(index + 1).padStart(2, "0")}`,
     initials,
-    name: letterWords.length > 2 ? `${first} ${last}` : cleanName,
-    fullName: cleanName,
+    name: parts.length > 2 ? `${first} ${last}` : m.full_name,
+    fullName: m.full_name,
     // Fix #3: use real email & grade from DB (seed_team.py populated these)
     email: m.email || (m.username ? `${m.username}@ahamove.com` : ""),
     grade: m.grade || m.role_label || m.role,

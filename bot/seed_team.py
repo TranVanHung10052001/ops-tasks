@@ -121,12 +121,21 @@ def seed():
                 # Restore canonical fields (also fixes shorthand names like 'Lê Thống').
                 # Preserve is_preseeded=0 if the keeper is a real claimed account.
                 if keeper_id > 0:
-                    conn.execute("""
-                        UPDATE users SET full_name=?, email=?, role=?, team=?, grade=?,
-                                         is_approved=1
-                         WHERE telegram_id=?
-                    """, (name, email, role, team, grade, keeper_id))
-                    print(f"  [claimed]       {name} (real id={keeper_id})")
+                    if role == "manager" and keeper_id == MANAGER_CHAT_ID:
+                        # Manager keeps their own display name (emoji/kaomoji they
+                        # like) — only normalize org metadata. Still dedups placeholder.
+                        conn.execute("""
+                            UPDATE users SET email=?, role=?, team=?, grade=?, is_approved=1
+                             WHERE telegram_id=?
+                        """, (email, role, team, grade, keeper_id))
+                        print(f"  [claimed/kept-name] manager (real id={keeper_id})")
+                    else:
+                        conn.execute("""
+                            UPDATE users SET full_name=?, email=?, role=?, team=?, grade=?,
+                                             is_approved=1
+                             WHERE telegram_id=?
+                        """, (name, email, role, team, grade, keeper_id))
+                        print(f"  [claimed]       {name} (real id={keeper_id})")
                 else:
                     conn.execute("""
                         UPDATE users SET full_name=?, email=?, role=?, team=?, grade=?,
