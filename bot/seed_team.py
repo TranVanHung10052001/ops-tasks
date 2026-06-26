@@ -22,6 +22,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from store import init_db, get_db
+from roles import MANAGER_CHAT_ID
 
 # ── Team data ────────────────────────────────────────────────────────────────
 # (placeholder_id, full_name, email, role, team, grade, reports_to_placeholder)
@@ -49,17 +50,25 @@ def _name_key(name: str) -> str:
     return f"{parts[0]} {parts[-1]}" if len(parts) >= 2 else parts[0]
 
 
-def _find_matches(conn, name: str, email: str) -> list:
-    """All user rows that refer to the same person: exact name, same email, or
-    matching họ+tên key. Used to detect + merge duplicate accounts."""
+def _find_matches(conn, name: str, email: str, extra_tid: int = 0) -> list:
+    """All user rows that refer to the same person: exact name, same email,
+    matching họ+tên key, or — for the manager — the row whose telegram_id is
+    MANAGER_CHAT_ID (so a manager who auto-registered under a different/emoji
+    display name still merges into the canonical seed record).
+    Used to detect + merge duplicate accounts. Deduped by telegram_id."""
     key = _name_key(name)
     rows = conn.execute("SELECT * FROM users").fetchall()
-    out = []
+    out, seen = [], set()
     for r in rows:
         rn = (r["full_name"] or "").strip().lower()
         re_ = (r["email"] or "").strip().lower()
         if rn == name.lower() or (re_ and re_ == email.lower()) or _name_key(r["full_name"]) == key:
-            out.append(r)
+            if r["telegram_id"] not in seen:
+                out.append(r); seen.add(r["telegram_id"])
+    if extra_tid:
+        row = conn.execute("SELECT * FROM users WHERE telegram_id = ?", (extra_tid,)).fetchone()
+        if row and row["telegram_id"] not in seen:
+            out.append(row); seen.add(row["telegram_id"])
     return out
 
 
@@ -79,7 +88,10 @@ def seed():
         conn.execute("PRAGMA defer_foreign_keys = ON")
 
         for (pid, name, email, role, team, grade, reports_to) in TEAM:
-            matches = _find_matches(conn, name, email)
+            # For the manager seed row, also match the account that auto-registered
+            # as MANAGER_CHAT_ID (may carry an emoji/kaomoji name) → merge into one.
+            matches = _find_matches(conn, name, email,
+                                    extra_tid=MANAGER_CHAT_ID if role == "manager" else 0)
 
             if matches:
                 # Keeper = a CLAIMED row (telegram_id > 0, needed for bot DMs) if any,
