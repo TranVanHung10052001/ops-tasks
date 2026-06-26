@@ -300,6 +300,16 @@ async def _require_approved(update: Update) -> dict | None:
 
 # ─── Registration flow ────────────────────────────────────────────────────────
 
+def _sanitize_name(raw: str) -> str:
+    """Strip emoji/kaomoji/symbols from a display name — keep Latin/Vietnamese
+    letters, digits, space and . - ' only. Collapses spaces, caps length."""
+    import re, unicodedata
+    s = unicodedata.normalize("NFC", (raw or "").strip())
+    s = re.sub(r"[^0-9A-Za-zÀ-ỹ .\-']", "", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s[:60]
+
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     tg_user = update.effective_user
@@ -326,7 +336,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # New user — auto-register manager if chat_id matches env
     if uid == MANAGER_CHAT_ID:
         username = tg_user.username or ""
-        full_name = tg_user.full_name or "Manager"
+        # Don't store the raw Telegram nickname (may be emoji/kaomoji) — sanitize.
+        full_name = _sanitize_name(tg_user.full_name) or "Manager"
         register_user(uid, username, full_name)
         approve_user(uid)
         set_user_role(uid, MANAGER)
@@ -353,9 +364,13 @@ async def handle_name_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if uid not in _pending_name:
         return False
 
-    full_name = update.message.text.strip()
-    if len(full_name) < 2:
-        await update.message.reply_text("Tên quá ngắn. Vui lòng nhập lại họ tên đầy đủ:")
+    full_name = _sanitize_name(update.message.text)
+    if len(full_name) < 2 or not any(c.isalpha() for c in full_name):
+        await update.message.reply_text(
+            "Tên không hợp lệ. Vui lòng nhập <b>họ tên bằng chữ</b> "
+            "(không dùng emoji/biểu tượng):",
+            parse_mode="HTML",
+        )
         return True
 
     _pending_name.pop(uid)
